@@ -1,0 +1,15 @@
+exit_code: 0
+
+stdout:
+./src/tools/basicTools.test.ts
+./src/tools/builtins.ts
+./src/tools/index.ts
+./src/tools/patchFileTool.test.ts
+./src/tools/tool-executor.test.ts
+./src/tools/tool-executor.ts
+./src/tools/tool-registry.test.ts
+./src/tools/tool-registry.ts
+./src/tools/tool-types.ts
+
+
+stderr: <empty>

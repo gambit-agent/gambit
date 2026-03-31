@@ -1,0 +1,6 @@
+exit_code: 127
+
+stdout: <empty>
+
+stderr:
+/bin/bash: line 1: [bash,: command not found

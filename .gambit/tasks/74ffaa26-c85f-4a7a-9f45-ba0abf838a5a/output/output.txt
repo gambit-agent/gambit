@@ -1,0 +1,13 @@
+exit_code: 0
+
+stdout:
+./src/tasks/agent-task-runner.ts
+./src/tasks/shell-task-runner.ts
+./src/tasks/task-events.ts
+./src/tasks/task-output.ts
+./src/tasks/task-runtime.ts
+./src/tasks/task-store.ts
+./src/tasks/task-types.ts
+
+
+stderr: <empty>

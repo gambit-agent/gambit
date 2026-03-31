@@ -1,0 +1,28 @@
+exit_code: 0
+
+stdout:
+total 84
+drwxrwxrwx 1 sergio sergio  4096 Feb  1 00:39 .
+drwxrwxrwx 1 sergio sergio  4096 Dec 16 00:22 ..
+-rwxrwxrwx 1 sergio sergio    92 Oct  4 23:23 .env
+drwxrwxrwx 1 sergio sergio  4096 Mar 31 15:07 .gambit
+drwxrwxrwx 1 sergio sergio  4096 Mar 31 15:05 .git
+-rwxrwxrwx 1 sergio sergio   498 Oct 10 10:03 .gitignore
+-rwxrwxrwx 1 sergio sergio    33 Oct 10 09:47 .python-version
+-rwxrwxrwx 1 sergio sergio   921 Dec 16 00:14 AGENTS.md
+-rwxrwxrwx 1 sergio sergio   914 Oct 10 11:07 INSTALL.md
+-rwxrwxrwx 1 sergio sergio  1394 Oct 10 11:09 README.md
+-rwxrwxrwx 1 sergio sergio 33789 Feb  1 00:39 bun.lock
+-rwxrwxrwx 1 sergio sergio  6438 Feb  1 00:38 install.cmd
+drwxrwxrwx 1 sergio sergio  4096 Feb  1 00:35 node_modules
+-rwxrwxrwx 1 sergio sergio   477 Feb  1 00:39 package.json
+drwxrwxrwx 1 sergio sergio  4096 Mar 31 14:11 plans
+-rwxrwxrwx 1 sergio sergio   870 Oct 10 11:09 setup.bat
+-rwxrwxrwx 1 sergio sergio   771 Oct 10 11:09 setup.ps1
+-rwxrwxrwx 1 sergio sergio   911 Oct 10 11:08 setup.sh
+drwxrwxrwx 1 sergio sergio  4096 Mar 31 14:53 src
+-rwxrwxrwx 1 sergio sergio 11075 Oct 10 09:33 system.prompt.md
+-rwxrwxrwx 1 sergio sergio   784 Oct  4 23:20 tsconfig.json
+
+
+stderr: <empty>

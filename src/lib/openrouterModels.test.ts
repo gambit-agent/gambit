@@ -53,6 +53,42 @@ test("isGpt5Model checks id and name", () => {
   expect(isGpt5Model(other)).toBe(false)
 })
 
+test("fetchOpenRouterModels retries transient failures", async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = (async () => {
+    attempts += 1
+    if (attempts < 3) {
+      return new Response("timeout", { status: 408 })
+    }
+    return new Response(
+      JSON.stringify({
+        data: [{ id: "openai/gpt-4.1-mini", name: "OpenAI GPT-4.1 Mini" }],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    )
+  }) as unknown as typeof fetch
+
+  try {
+    const models = await fetchOpenRouterModels("test-key")
+    expect(attempts).toBe(3)
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe("openai/gpt-4.1-mini")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("fetchOpenRouterModels requires an API key", async () => {
+  await expect(fetchOpenRouterModels()).rejects.toThrow(
+    "OpenRouter API key required to load the full model catalog.",
+  )
+})
+
 test("fetchOpenRouterModels returns live models from OpenRouter", async () => {
   const models = await fetchOpenRouterModels(Bun.env.OPENROUTER_API_KEY ?? undefined)
 

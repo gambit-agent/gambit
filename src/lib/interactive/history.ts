@@ -19,7 +19,7 @@ export class InteractiveHistory {
   private cursor: number | null
   private pendingEntries: SessionHistoryEntry[]
 
-  private constructor(entries: string[]) {
+  constructor(entries: string[]) {
     this.items = [...entries]
     this.cursor = null
     this.pendingEntries = []
@@ -30,7 +30,7 @@ export class InteractiveHistory {
       await getCurrentSession()
       const entries = await loadUserHistoryEntries(MAX_HISTORY_ENTRIES)
       return new InteractiveHistory(entries)
-    } catch (error) {
+    } catch {
       return new InteractiveHistory([])
     }
   }
@@ -82,13 +82,16 @@ export class InteractiveHistory {
     }
     if (this.cursor === null) {
       this.cursor = this.items.length - 1
-      return this.items[this.cursor] ?? currentInput
+      const current = this.items[this.cursor]
+      return current ?? currentInput
     }
     if (this.cursor === 0) {
-      return this.items[this.cursor]
+      const current = this.items[this.cursor]
+      return current ?? null
     }
     this.cursor -= 1
-    return this.items[this.cursor]
+    const current = this.items[this.cursor]
+    return current ?? null
   }
 
   next(): string | null {
@@ -100,7 +103,8 @@ export class InteractiveHistory {
       return ""
     }
     this.cursor += 1
-    return this.items[this.cursor]
+    const current = this.items[this.cursor]
+    return current ?? null
   }
 
   findLatestMatch(query: string, fromIndex: number = this.items.length - 1): HistoryMatch | null {
@@ -110,7 +114,7 @@ export class InteractiveHistory {
     const lower = query.toLowerCase()
     for (let index = Math.min(fromIndex, this.items.length - 1); index >= 0; index -= 1) {
       const value = this.items[index]
-      if (value.toLowerCase().includes(lower)) {
+      if (value !== undefined && value.toLowerCase().includes(lower)) {
         return { value, index }
       }
     }

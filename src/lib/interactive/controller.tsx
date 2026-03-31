@@ -8,7 +8,7 @@ import {
   type SetStateAction,
 } from "react"
 import { useKeyboard, useAppContext } from "@opentui/react"
-import type { ParsedKey } from "@opentui/core"
+import type { ParsedKey, PasteEvent } from "@opentui/core"
 
 import type { UIMessage } from "../../types/chat"
 import { InteractiveHistory } from "./history"
@@ -22,9 +22,13 @@ type SubmitOptions = {
 export interface UseInteractiveControllerOptions {
   inputValue: string
   setInputValue: Dispatch<SetStateAction<string>>
+  inputPreview: string | null
+  setInputPreview: Dispatch<SetStateAction<string | null>>
   messages: UIMessage[]
   setMessages: Dispatch<SetStateAction<UIMessage[]>>
   isRunning: boolean
+  permissionMode?: PermissionMode
+  onCyclePermissionMode?: () => void
   performSubmit: (value: string, options: SubmitOptions) => Promise<void>
   onAbort?: () => void
   onRewind?: () => void
@@ -58,9 +62,13 @@ const isPrintableKey = (key: ParsedKey): boolean => {
 export function useInteractiveController({
   inputValue,
   setInputValue,
+  inputPreview,
+  setInputPreview,
   messages,
   setMessages,
   isRunning,
+  permissionMode: externalPermissionMode,
+  onCyclePermissionMode,
   performSubmit,
   onAbort,
   onRewind,
@@ -71,10 +79,87 @@ export function useInteractiveController({
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: "", match: null })
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("normal")
+  const [localPermissionMode, setLocalPermissionMode] = useState<PermissionMode>("normal")
   const lastEscTimestamp = useRef<number | null>(null)
   const lastSearchIndex = useRef<number | null>(null)
   const { renderer } = useAppContext()
+  const inputValueRef = useRef(inputValue)
+  const inputPreviewRef = useRef(inputPreview)
+  const lastPasteLabelRef = useRef<string | null>(null)
+  const suppressNextInputRef = useRef(false)
+  const permissionMode = externalPermissionMode ?? localPermissionMode
+
+  useEffect(() => {
+    inputValueRef.current = inputValue
+  }, [inputValue])
+
+  useEffect(() => {
+    inputPreviewRef.current = inputPreview
+    lastPasteLabelRef.current = inputPreview
+  }, [inputPreview])
+
+  const setInputValueWithRef = useCallback(
+    (next: SetStateAction<string>) => {
+      if (typeof next === "function") {
+        setInputValue((prev) => {
+          const computed = (next as (value: string) => string)(prev)
+          inputValueRef.current = computed
+          return computed
+        })
+      } else {
+        setInputValue(next)
+        inputValueRef.current = next
+      }
+    },
+    [setInputValue],
+  )
+
+  const setPreviewLabel = useCallback(
+    (label: string) => {
+      setInputPreview(label)
+      lastPasteLabelRef.current = label
+    },
+    [setInputPreview],
+  )
+
+  const clearPreviewLabel = useCallback(() => {
+    setInputPreview(null)
+    lastPasteLabelRef.current = null
+  }, [setInputPreview])
+
+  useEffect(() => {
+    const keyInput = renderer?.keyInput
+    if (!keyInput) {
+      return
+    }
+
+    const sanitizePastedText = (raw: string) =>
+      raw.replace(/\u001b\[200~|\u001b\[201~/g, "").replace(/\r\n?/g, "\n")
+
+    const handlePaste = (event: PasteEvent) => {
+      const cleaned = sanitizePastedText(event.text)
+      if (!cleaned) {
+        return
+      }
+
+      if (typeof event.preventDefault === "function") {
+        event.preventDefault()
+      }
+
+      historyRef.current?.clearCursor()
+      suppressNextInputRef.current = true
+      setInputValueWithRef((prev) => `${prev}${cleaned}`)
+      const characterCount = Array.from(cleaned).length
+      const lineCount = cleaned.split("\n").length
+      setPreviewLabel(`[Pasted Content ${characterCount} chars]`)
+      console.info(`[paste] captured bracketed paste (${characterCount} chars, ${lineCount} lines)`)
+    }
+
+    keyInput.on("paste", handlePaste)
+    return () => {
+      keyInput.off("paste", handlePaste)
+    }
+  }, [renderer, setInputValueWithRef, setPreviewLabel])
 
   useEffect(() => {
     let cancelled = false
@@ -103,17 +188,22 @@ export function useInteractiveController({
   }, [])
 
   const handleSubmit = useCallback(
-    async (value: string) => {
+    async (displayValue: string) => {
       const session = sessionRef.current
+      const previewLabel = inputPreviewRef.current
+      const actualValue = previewLabel ? inputValueRef.current : displayValue
 
-      if (value.endsWith("\\")) {
-        setInputValue(`${value.slice(0, -1)}\n`)
+      if (actualValue.endsWith("\\")) {
+        suppressNextInputRef.current = true
+        setInputValueWithRef(`${actualValue.slice(0, -1)}\n`)
+        clearPreviewLabel()
         return
       }
 
-      const trimmed = value.trim()
+      const trimmed = actualValue.trim()
       if (!trimmed) {
-        setInputValue("")
+        setInputValueWithRef("")
+        clearPreviewLabel()
         return
       }
 
@@ -130,13 +220,23 @@ export function useInteractiveController({
       session.pushSnapshot(messages)
       const signal = session.startRun()
 
+      clearPreviewLabel()
+      setInputValueWithRef("")
+
       try {
-        await performSubmit(value, { signal })
+        await performSubmit(actualValue, { signal })
       } finally {
         session.clearRun()
       }
     },
-    [historyLoaded, messages, performSubmit, persistHistory, setInputValue],
+    [
+      clearPreviewLabel,
+      historyLoaded,
+      messages,
+      performSubmit,
+      persistHistory,
+      setInputValueWithRef,
+    ],
   )
 
   const handleInput = useCallback(
@@ -144,10 +244,60 @@ export function useInteractiveController({
       if (historySearch.active) {
         return
       }
+
+      const previousValue = inputValueRef.current
       historyRef.current?.clearCursor()
-      setInputValue(value)
+
+      if (suppressNextInputRef.current) {
+        suppressNextInputRef.current = false
+        setInputValueWithRef(value)
+        return
+      }
+
+      setInputValueWithRef(value)
+
+      if (lastPasteLabelRef.current && previousValue !== value) {
+        clearPreviewLabel()
+        return
+      }
+
+      if (previousValue === value) {
+        return
+      }
+
+      const maxStart = Math.min(previousValue.length, value.length)
+      let start = 0
+      while (start < maxStart && previousValue[start] === value[start]) {
+        start++
+      }
+
+      let prevEnd = previousValue.length
+      let nextEnd = value.length
+      while (prevEnd > start && nextEnd > start && previousValue[prevEnd - 1] === value[nextEnd - 1]) {
+        prevEnd--
+        nextEnd--
+      }
+
+      const inserted = value.slice(start, nextEnd)
+      const removedLength = prevEnd - start
+      const insertedLength = inserted.length
+      const hasMultiCharInsert = insertedLength > 1
+      const hasMultiLineInsert = inserted.includes("\n") && (insertedLength > 1 || removedLength > 0)
+
+      if (!hasMultiCharInsert && !hasMultiLineInsert) {
+        return
+      }
+
+      const characterCount = Array.from(inserted).length
+      if (characterCount === 0) {
+        return
+      }
+
+      setPreviewLabel(`[Pasted Content ${characterCount} chars]`)
+      const lineCount = inserted.split("\n").length
+      console.info(`[paste] detected inferred paste (${characterCount} chars, ${lineCount} lines)`)
     },
-    [historySearch.active, setInputValue],
+    [clearPreviewLabel, historySearch.active, setInputValueWithRef, setPreviewLabel],
   )
 
   const handleHistoryNavigation = useCallback(
@@ -158,19 +308,23 @@ export function useInteractiveController({
       }
 
       if (direction === "previous") {
-        const nextValue = history.previous(inputValue)
+        const nextValue = history.previous(inputValueRef.current)
         if (nextValue !== null) {
-          setInputValue(nextValue)
+          clearPreviewLabel()
+          suppressNextInputRef.current = true
+          setInputValueWithRef(nextValue)
         }
         return
       }
 
       const nextValue = history.next()
       if (nextValue !== null) {
-        setInputValue(nextValue)
+        clearPreviewLabel()
+        suppressNextInputRef.current = true
+        setInputValueWithRef(nextValue)
       }
     },
-    [inputValue, setInputValue],
+    [clearPreviewLabel, setInputValueWithRef],
   )
 
   const updateHistorySearch = useCallback(
@@ -190,10 +344,12 @@ export function useInteractiveController({
       setHistorySearch({ active: true, query, match: match?.value ?? null })
 
       if (match?.value) {
-        setInputValue(match.value)
+        clearPreviewLabel()
+        suppressNextInputRef.current = true
+        setInputValueWithRef(match.value)
       }
     },
-    [setInputValue],
+    [clearPreviewLabel, setInputValueWithRef],
   )
 
   const handleEscape = useCallback(() => {
@@ -271,16 +427,23 @@ export function useInteractiveController({
           return match.preventDefault ?? false
         }
         case "cycle-permission": {
-          const mode = sessionRef.current.cyclePermissionMode()
-          setPermissionMode(mode)
+          if (onCyclePermissionMode) {
+            onCyclePermissionMode()
+          } else {
+            const mode = sessionRef.current.cyclePermissionMode()
+            setLocalPermissionMode(mode)
+          }
           return match.preventDefault ?? false
         }
         case "newline": {
-          setInputValue((prev) => `${prev}\n`)
+          clearPreviewLabel()
+          suppressNextInputRef.current = true
+          setInputValueWithRef((prev) => `${prev}\n`)
           return match.preventDefault ?? false
         }
         case "background": {
-          const trimmed = inputValue.trim()
+          const currentValue = inputValueRef.current
+          const trimmed = currentValue.trim()
           if (!trimmed) {
             return match.preventDefault ?? false
           }
@@ -289,7 +452,8 @@ export function useInteractiveController({
             historyRef.current?.clearCursor()
             historyRef.current?.add(trimmed)
             void persistHistory()
-            setInputValue("")
+            setInputValueWithRef("")
+            clearPreviewLabel()
           }
           return match.preventDefault ?? false
         }
@@ -297,7 +461,18 @@ export function useInteractiveController({
           return false
       }
     },
-    [handleHistoryNavigation, historySearch, inputValue, onAbort, onBackgroundRequest, persistHistory, renderer, setInputValue, updateHistorySearch],
+    [
+      clearPreviewLabel,
+      handleHistoryNavigation,
+      historySearch,
+      onAbort,
+      onBackgroundRequest,
+      onCyclePermissionMode,
+      persistHistory,
+      renderer,
+      setInputValueWithRef,
+      updateHistorySearch,
+    ],
   )
 
   useKeyboard(

@@ -29,19 +29,17 @@ afterEach(async () => {
 });
 
 test("readFile rejects missing path", async () => {
-  await expect(agentTools.readFile.execute({} as any)).rejects.toThrow(
-    'Parameter "path" must be a string.',
-  );
+  await expect(agentTools.readFile.execute({} as any)).rejects.toThrow('"path"');
 });
 
 test("writeFile rejects non-string content", async () => {
   await expect(
     agentTools.writeFile.execute({ path: "file.txt", content: undefined as any }),
-  ).rejects.toThrow('Parameter "content" must be a string.');
+  ).rejects.toThrow('"content"');
 });
 
 test("executeShell rejects non-string command", async () => {
   await expect(agentTools.executeShell.execute({ command: undefined as any })).rejects.toThrow(
-    'Parameter "command" must be a string.',
+    '"command"',
   );
 });

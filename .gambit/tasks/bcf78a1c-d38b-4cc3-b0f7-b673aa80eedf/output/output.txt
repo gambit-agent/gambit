@@ -1,0 +1,7 @@
+exit_code: 0
+
+stdout:
+/bin/bash: line 1: bun: command not found
+
+
+stderr: <empty>

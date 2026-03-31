@@ -1,5 +1,4 @@
-import { TextAttributes } from "@opentui/core"
-import type { SelectOption } from "@opentui/core/renderables/Select"
+import { TextAttributes, type SelectOption, type SubmitEvent } from "@opentui/core"
 import { useMemo } from "react"
 
 import type { ReasoningEffort } from "../../lib/model"
@@ -90,6 +89,18 @@ export function ModelPickerOverlay({
     return state.filteredModels.map((model) => buildOption(model, currentModelId, state.reasoningEffort))
   }, [currentModelId, state.filteredModels, state.reasoningEffort])
 
+  function handleFilterSubmit(value: string): void
+  function handleFilterSubmit(event: SubmitEvent): void
+  function handleFilterSubmit(valueOrEvent: string | SubmitEvent): void {
+    onFilterSubmit(typeof valueOrEvent === "string" ? valueOrEvent : state.filterValue)
+  }
+
+  function handleReasoningSubmit(value: string): void
+  function handleReasoningSubmit(event: SubmitEvent): void
+  function handleReasoningSubmit(valueOrEvent: string | SubmitEvent): void {
+    onReasoningSubmit(typeof valueOrEvent === "string" ? valueOrEvent : state.reasoningInput)
+  }
+
   if (!state.isOpen) {
     return null
   }
@@ -159,12 +170,7 @@ export function ModelPickerOverlay({
             />
           ) : null}
           {state.reasoningError ? <text fg="#ff6b6b" content={state.reasoningError} /> : null}
-          <input
-            value={state.reasoningInput}
-            onInput={onReasoningChange}
-            onSubmit={onReasoningSubmit}
-            focused
-          />
+          <input value={state.reasoningInput} onInput={onReasoningChange} onSubmit={handleReasoningSubmit} focused />
         </box>
       </box>
     )
@@ -199,38 +205,37 @@ export function ModelPickerOverlay({
         <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="/model · Select a model" />
         <text
           fg={theme.statusFg}
-        attributes={TextAttributes.DIM}
-        content={'Type to filter models. Enter selects the highlighted result. Type "cancel" to exit.'}
-      />
-      {state.fetchState === "loading" ? (
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Loading models…" />
-      ) : null}
-      {state.fetchState === "error" ? (
-        <>
-          <text fg="#ff6b6b" content={`Failed to load models: ${state.fetchError ?? "Unknown error"}`} />
-          <text
-            fg={theme.statusFg}
-            attributes={TextAttributes.DIM}
-            content={'Type "retry" to try again or "cancel" to exit.'}
-          />
-        </>
-      ) : null}
-      {state.fetchState === "success" && options.length === 0 ? (
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No models match the current filter." />
-      ) : null}
-      {options.length > 0 ? (
-        <select
-          options={options}
-          selectedIndex={state.selectedIndex}
-          onChange={(index) => onOptionChange(index ?? 0)}
-          onSelect={(index) => onOptionSelect(index ?? 0)}
-          showDescription
-          focused
-          style={{ minHeight: 8, minWidth: 60, border: true, borderColor: theme.bodyBorder }}
+          attributes={TextAttributes.DIM}
+          content={'Type to filter models. Enter selects the highlighted result. Type "cancel" to exit.'}
         />
-      ) : null}
-      {state.hint ? <text fg="#ffae42" content={state.hint} /> : null}
-      <input value={state.filterValue} onInput={onFilterChange} onSubmit={onFilterSubmit} focused />
+        {state.fetchState === "loading" ? (
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Loading models…" />
+        ) : null}
+        {state.fetchState === "error" ? (
+          <>
+            <text fg="#ff6b6b" content={`Failed to load models: ${state.fetchError ?? "Unknown error"}`} />
+            <text
+              fg={theme.statusFg}
+              attributes={TextAttributes.DIM}
+              content={'Type "retry" to try again or "cancel" to exit.'}
+            />
+          </>
+        ) : null}
+        {state.fetchState === "success" && options.length === 0 ? (
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No models match the current filter." />
+        ) : null}
+        {options.length > 0 ? (
+          <select
+            options={options}
+            selectedIndex={state.selectedIndex}
+            onChange={(index) => onOptionChange(index ?? 0)}
+            onSelect={(index) => onOptionSelect(index ?? 0)}
+            showDescription
+            style={{ minHeight: 8, minWidth: 60 }}
+          />
+        ) : null}
+        {state.hint ? <text fg="#ffae42" content={state.hint} /> : null}
+        <input value={state.filterValue} onInput={onFilterChange} onSubmit={handleFilterSubmit} focused />
       </box>
     </box>
   )

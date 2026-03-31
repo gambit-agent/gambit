@@ -89,25 +89,27 @@ export function useModelPicker({
       return
     }
 
-    if (fetchState === "loading") {
-      return
-    }
-
     const sanitizedKey = apiKey?.trim() ?? ""
     const normalizedKey = sanitizedKey.length > 0 ? sanitizedKey : null
     const targetKey = normalizedKey ?? "__public__"
+    const fallback = buildFallbackModels()
 
-    if (availableModels.length === 0) {
-      const fallback = buildFallbackModels()
-      if (fallback.length > 0) {
-        setAvailableModels(fallback)
-        if (!normalizedKey) {
-          setHint("Set an OpenRouter API key with :key <token> for the full catalog. Loading public models…")
-        }
-      }
+    if (fallback.length > 0 && availableModels.length === 0) {
+      setAvailableModels(fallback)
     }
 
-    if (fetchState === "success" && fetchKey === targetKey) {
+    if (!normalizedKey) {
+      setFetchState("idle")
+      setFetchError(null)
+      setFetchKey(targetKey)
+      if (fallback.length > 0) {
+        setAvailableModels(fallback)
+      }
+      setHint("Set an OpenRouter API key with :key <token> to load the full OpenRouter catalog.")
+      return
+    }
+
+    if (fetchKey === targetKey) {
       return
     }
 
@@ -124,15 +126,12 @@ export function useModelPicker({
         setAvailableModels(models)
         setFetchState("success")
         setFetchKey(targetKey)
-        if (!normalizedKey) {
-          setHint(null)
-        }
+        setHint(null)
       } catch (error) {
         if (cancelled) {
           return
         }
         const message = error instanceof Error ? error.message : `Failed to load models: ${String(error)}`
-        const fallback = buildFallbackModels()
         if (fallback.length > 0) {
           setAvailableModels(fallback)
           setFetchState("success")
@@ -150,7 +149,7 @@ export function useModelPicker({
     return () => {
       cancelled = true
     }
-  }, [apiKey, availableModels.length, fetchKey, fetchState, isOpen])
+  }, [apiKey, fetchKey, isOpen])
 
   useEffect(() => {
     setReasoningInput(currentReasoning ?? DEFAULT_REASONING)

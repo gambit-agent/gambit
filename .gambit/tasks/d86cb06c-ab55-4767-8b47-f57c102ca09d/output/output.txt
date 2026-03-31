@@ -1,0 +1,12 @@
+exit_code: 0
+
+stdout:
+./src/permissions/permission-engine.test.ts
+./src/permissions/permission-engine.ts
+./src/permissions/permission-rules.ts
+./src/permissions/permission-store.test.ts
+./src/permissions/permission-store.ts
+./src/permissions/permission-types.ts
+
+
+stderr: <empty>

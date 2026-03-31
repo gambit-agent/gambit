@@ -33,7 +33,12 @@ describe("appendMemoryEntry", () => {
     const lines = fileContents.trim().split(/\r?\n/)
     expect(lines).toHaveLength(1)
 
-    const parsed = JSON.parse(lines[0]) as Record<string, unknown>
+    const firstLine = lines[0]
+    if (firstLine === undefined) {
+      throw new Error("Expected a JSONL memory entry.")
+    }
+
+    const parsed = JSON.parse(firstLine) as Record<string, unknown>
     expect(parsed.id).toBe(entry.id)
     expect(parsed.content).toBe(entry.content)
     expect(parsed.timestamp).toBe(entry.timestamp)
@@ -47,4 +52,3 @@ describe("appendMemoryEntry", () => {
     await expect(readFile(memoryFilePath, "utf8")).rejects.toHaveProperty("code", "ENOENT")
   })
 })
-

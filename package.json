@@ -1,21 +1,24 @@
 {
   "name": "gambit",
   "module": "src/index.tsx",
+  "bin": {
+    "gambit": "src/gambit.tsx"
+  },
   "type": "module",
   "private": true,
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^1.2.0",
-    "@opentui/core": "^0.1.25",
-    "@opentui/react": "^0.1.25",
-    "ai": "^5.0.60",
-    "marked": "^16.3.0",
-    "react": "^19.2.0",
+    "@openrouter/ai-sdk-provider": "^1.5.4",
+    "@opentui/core": "^0.1.75",
+    "@opentui/react": "^0.1.75",
+    "ai": "^5.0.124",
+    "marked": "^16.4.2",
+    "react": "^19.2.4",
     "zod": "^3.25.76"
   }
 }

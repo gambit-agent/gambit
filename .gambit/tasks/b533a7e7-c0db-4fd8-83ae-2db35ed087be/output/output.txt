@@ -1,0 +1,7 @@
+exit_code: 0
+
+stdout:
+20
+
+
+stderr: <empty>

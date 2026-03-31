@@ -33,8 +33,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(workspaceDir, { recursive: true, force: true });
-  await rm(userRoot, { recursive: true, force: true });
+  await removeDirectoryWithRetry(workspaceDir);
+  await removeDirectoryWithRetry(userRoot);
 
   if (originalWorkspaceRootEnv === undefined) {
     delete process.env.WORKSPACE_ROOT;
@@ -141,5 +141,19 @@ test("ignores user command when project command shares base name", async () => {
 
   const commands = await loadSlashCommands();
   expect(commands.filter((command) => command.name === "deploy")).toHaveLength(1);
-  expect(commands[0].scope).toBe("project");
+  expect(commands[0]?.scope).toBe("project");
 });
+
+async function removeDirectoryWithRetry(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "EBUSY" || attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}

@@ -1,0 +1,68 @@
+exit_code: 0
+
+stdout:
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   AGENTS.md
+	modified:   README.md
+	modified:   bun.lock
+	deleted:    init-command.prompt.md
+	modified:   package.json
+	modified:   src/App.tsx
+	modified:   src/index.tsx
+	modified:   src/lib/interactive/controller.tsx
+	modified:   src/lib/interactive/history.ts
+	modified:   src/lib/memory.test.ts
+	modified:   src/lib/messages.ts
+	modified:   src/lib/modelPicker.ts
+	modified:   src/lib/openrouterModels.test.ts
+	modified:   src/lib/openrouterModels.ts
+	modified:   src/lib/slashCommands.test.ts
+	modified:   src/lib/slashCommands.ts
+	modified:   src/tools/basicTools.test.ts
+	modified:   src/tools/index.ts
+	modified:   src/ui/Markdown.tsx
+	modified:   src/ui/model-picker/ModelPickerOverlay.tsx
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.gambit/agents/
+	.gambit/conversations/
+	.gambit/permissions/
+	.gambit/tasks/
+	.gambit/tool-results/
+	INSTALL.md
+	install.cmd
+	plans/rewrite/
+	setup.bat
+	setup.ps1
+	setup.sh
+	src/agents/
+	src/app/
+	src/conversation/
+	src/gambit.tsx
+	src/lib/clipboard.test.ts
+	src/lib/clipboard.ts
+	src/memory/
+	src/permissions/
+	src/repl/
+	src/session/
+	src/tasks/
+	src/tools/builtins.ts
+	src/tools/tool-executor.test.ts
+	src/tools/tool-executor.ts
+	src/tools/tool-registry.test.ts
+	src/tools/tool-registry.ts
+	src/tools/tool-types.ts
+	src/ui/overlays/
+	src/ui/panels/
+	src/workboard/
+
+no changes added to commit (use "git add" and/or "git commit -a")
+
+
+stderr: <empty>

@@ -1,0 +1,26 @@
+exit_code: 0
+
+stdout:
+src/agents/agent-definitions.ts
+src/agents/agent-paths.ts
+src/agents/agent-runner.ts
+src/agents/agent-runtime.test.ts
+src/agents/agent-runtime.ts
+src/agents/agent-types.ts
+src/app/AppShell.tsx
+src/app/bootstrap.ts
+src/app/providers.tsx
+src/App.tsx
+src/config.ts
+src/conversation/conversation-runner.test.ts
+src/conversation/conversation-runner.ts
+src/conversation/conversation-store.test.ts
+src/conversation/conversation-store.ts
+src/conversation/conversation-types.ts
+src/conversation/transcript.ts
+src/gambit.tsx
+src/index.tsx
+src/lib/clipboard.test.ts
+
+
+stderr: <empty>
