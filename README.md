@@ -1,8 +1,10 @@
 # Gambit
 
 A React-based application built with Bun and TypeScript.
+<img width="1727" height="1360" alt="Screenshot 2026-04-01 072936" src="https://github.com/user-attachments/assets/5cee8036-a135-4680-a59e-d73cd9ce20bb" />
 
 ## Quick Start
+
 
 ### Option 1: Use the setup scripts
 
