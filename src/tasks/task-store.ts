@@ -17,6 +17,9 @@ import {
 } from '../session/session-paths'
 import type { CreateTaskInput, TaskRecord, TaskStatus, UpdateTaskInput } from './task-types'
 
+const interruptedTaskSummary = 'Task was interrupted when Gambit exited.'
+const abandonedTaskSummary = 'Task did not start before Gambit exited.'
+
 function isTaskKind(value: unknown): value is TaskRecord['kind'] {
   return value === 'shell' || value === 'agent'
 }
@@ -129,6 +132,33 @@ async function ensureTaskDirectories(
 
 export async function listTasks(): Promise<TaskRecord[]> {
   return readTaskRecords()
+}
+
+export async function reconcileInterruptedTasks(
+  cancelledAt: string = new Date().toISOString(),
+): Promise<TaskRecord[]> {
+  const tasks = await readTaskRecords()
+  let changed = false
+
+  const nextTasks = tasks.map((task) => {
+    if (task.status !== 'pending' && task.status !== 'running') {
+      return task
+    }
+
+    changed = true
+    return {
+      ...task,
+      status: 'cancelled' as const,
+      finishedAt: task.finishedAt ?? cancelledAt,
+      progressSummary: task.status === 'running' ? interruptedTaskSummary : abandonedTaskSummary,
+    }
+  })
+
+  if (changed) {
+    await writeTaskRecords(nextTasks)
+  }
+
+  return nextTasks
 }
 
 export async function getTask(id: string): Promise<TaskRecord | null> {

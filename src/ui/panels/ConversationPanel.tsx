@@ -1,10 +1,10 @@
 import { TextAttributes, type ScrollBoxRenderable } from '@opentui/core'
-import type { RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 
 import type { ConversationMessage } from '../../conversation/conversation-types'
-import { formatCompactToolSummary } from '../../lib/toolSummaries'
 import { Markdown } from '../Markdown'
 import { layout, rolePresentation, theme } from '../theme'
+import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningIntervalMs } from './tool-message-line'
 
 export interface ConversationPanelProps {
   messages: ConversationMessage[]
@@ -31,22 +31,28 @@ function formatTimestamp(value: string): string {
   return timestampFormatter.format(new Date(value))
 }
 
-function formatToolStatus(value?: 'started' | 'completed' | 'failed'): string | null {
-  switch (value) {
-    case 'started':
-      return 'running'
-    case 'completed':
-      return 'done'
-    case 'failed':
-      return 'failed'
-    default:
-      return null
-  }
-}
-
-
-
 export function ConversationPanel({ messages, scrollboxRef }: ConversationPanelProps) {
+  const [toolMessageAnimationFrame, setToolMessageAnimationFrame] = useState(0)
+  const hasRunningToolMessage = messages.some(
+    (message) => message.role === 'tool' && message.metadata?.toolStatus === 'started',
+  )
+
+  useEffect(() => {
+    if (!hasRunningToolMessage) {
+      setToolMessageAnimationFrame(0)
+      return
+    }
+
+    setToolMessageAnimationFrame(0)
+    const intervalId = setInterval(() => {
+      setToolMessageAnimationFrame((current) => (current + 1) % toolMessageRunningFrames.length)
+    }, toolMessageRunningIntervalMs)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [hasRunningToolMessage])
+
   return (
     <scrollbox
       ref={scrollboxRef}
@@ -74,24 +80,23 @@ export function ConversationPanel({ messages, scrollboxRef }: ConversationPanelP
           const isUser = message.role === 'user'
 
           if (isToolMessage) {
-            const toolName = message.metadata?.toolName ?? 'tool'
-            const toolStatus = formatToolStatus(message.metadata?.toolStatus) ?? 'done'
-            const compactSummary = formatCompactToolSummary({
-              toolName,
-              status: message.metadata?.toolStatus,
-              args: message.metadata?.toolArgs,
-              result: message.metadata?.toolResult,
-              artifactPath: message.metadata?.toolArtifactPath,
-            })
+            const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
 
             return (
               <box
                 key={message.id}
+                flexDirection="row"
+                gap={toolLine.indicator ? 1 : 0}
                 paddingX={layout.messagePaddingX}
                 paddingY={0}
               >
+                {toolLine.indicator ? (
+                  <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                    {toolLine.indicator}
+                  </text>
+                ) : null}
                 <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                  {`> Tool · ${toolName} · ${toolStatus}${compactSummary ? ` · ${compactSummary}` : ''}`}
+                  {toolLine.text}
                 </text>
               </box>
             )

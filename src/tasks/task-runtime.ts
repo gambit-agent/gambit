@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { createTask, getTask, listTasks, removeTask, updateTask } from './task-store'
+import { createTask, getTask, listTasks, reconcileInterruptedTasks, removeTask, updateTask } from './task-store'
 import type { CreateTaskInput, TaskRecord, UpdateTaskInput } from './task-types'
 
 export interface TaskRuntimeSnapshot {
@@ -14,6 +14,7 @@ export class TaskRuntime {
   private readonly listeners = new Set<Listener>()
 
   async initialize(): Promise<void> {
+    await reconcileInterruptedTasks()
     await this.refresh()
   }
 

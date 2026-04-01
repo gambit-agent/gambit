@@ -37,6 +37,9 @@ const sessionTimestampFormatter = new Intl.DateTimeFormat(undefined, {
 
 const responseSpinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 const responseSpinnerIntervalMs = 80
+const ansiPattern = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const oscPattern = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g
+const controlCharsPattern = /[\u0000-\u001f\u007f-\u009f]/g
 
 interface SessionPickerState {
   isOpen: boolean
@@ -96,6 +99,19 @@ function formatSessionTimestamp(value: string | null): string {
   return sessionTimestampFormatter.format(timestamp)
 }
 
+function formatTaskTitle(value: string): string {
+  return value
+    .replace(oscPattern, '')
+    .replace(ansiPattern, '')
+    .replace(controlCharsPattern, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isActiveBackgroundTaskStatus(status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'): boolean {
+  return status === 'pending' || status === 'running'
+}
+
 function describeSessionOption(summary: ConversationSessionSummary, isCurrent: boolean): string {
   const parts = [
     summary.conversationId.slice(0, 8),
@@ -131,6 +147,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [statusElapsed, setStatusElapsed] = useState<string | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [backgroundTasksOpen, setBackgroundTasksOpen] = useState(false)
   const [responseSpinnerFrame, setResponseSpinnerFrame] = useState(0)
   const [sessionInitializing, setSessionInitializing] = useState(launchOptions.mode !== 'new')
   const [sessionPickerState, setSessionPickerState] = useState<SessionPickerState>({
@@ -820,7 +837,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onBackgroundRequest: (rawCommand) => {
       const routed = routeInput(rawCommand)
       if (routed.kind !== 'local' || routed.channel !== 'shell' || !routed.argument) {
-        runtime.conversationStore.setError('Background mode requires a !command input.')
+        setBackgroundTasksOpen(true)
         return false
       }
 
@@ -839,6 +856,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       })()
 
       return true
+    },
+    onToggleBackgroundTasks: () => {
+      setBackgroundTasksOpen((current) => !current)
     },
   })
 
@@ -891,11 +911,24 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const statusDisplay =
     conversation.status === 'running' && statusElapsed ? `running - ${statusElapsed}` : conversation.status
   const responseSpinner = responseSpinnerFrames[responseSpinnerFrame] ?? responseSpinnerFrames[0]
+  const permissionModeColor =
+    permissionSnapshot.mode === 'auto-accept'
+      ? '#7ee787'
+      : permissionSnapshot.mode === 'plan'
+        ? '#79c0ff'
+        : permissionSnapshot.mode === 'normal'
+          ? '#f2cc60'
+          : theme.statusFg
   const isPermissionDialogOpen = Boolean(permissionSnapshot.activeRequest)
   const isMainInputFocused =
     !modelPickerState.isOpen && !sessionPickerState.isOpen && !isPermissionDialogOpen && !sessionInitializing
   const isModelPickerFocused = modelPickerState.isOpen && !isPermissionDialogOpen
   const isSessionPickerFocused = sessionPickerState.isOpen && !isPermissionDialogOpen && !modelPickerState.isOpen
+  const backgroundTasks = taskSnapshot.tasks.filter((task) => task.background)
+  const activeBackgroundTasks = backgroundTasks.filter((task) => isActiveBackgroundTaskStatus(task.status))
+  const recentBackgroundTasks = backgroundTasks
+    .filter((task) => !isActiveBackgroundTaskStatus(task.status))
+    .slice(0, 8)
 
   return (
     <box
@@ -911,12 +944,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         paddingBottom={1}
       >
         <text fg={theme.systemFg}>
-          Terminal  <span fg={theme.statusFg} attributes={TextAttributes.DIM}>gambit</span>
+          GAMBIT |  <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{sessionTimestampFormatter.format(new Date())}</span>
         </text>
         {/* <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
           Model · {modelDisplay}
         </text> */}
-        {conversation.status === 'running' ? (
+        {/* {conversation.status === 'running' ? (
           <box flexDirection="row" gap={1}>
             <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content={responseSpinner} />
             <text
@@ -925,7 +958,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
               content="Generating response…"
             />
           </box>
-        ) : null}
+        ) : null} */}
       </box>
 
       {conversation.error ? (
@@ -1011,6 +1044,51 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
       {permissionSnapshot.activeRequest ? <PermissionOverlay request={permissionSnapshot.activeRequest} /> : null}
 
+      {backgroundTasksOpen ? (
+        <box
+          flexDirection="column"
+          border={['top', 'bottom', 'left', 'right']}
+          borderStyle="rounded"
+          paddingX={1}
+          paddingY={1}
+          marginBottom={1}
+          style={{
+            borderColor: theme.bodyBorder,
+            backgroundColor: theme.background,
+          }}
+        >
+          <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="Background tasks" />
+          {activeBackgroundTasks.length === 0 && recentBackgroundTasks.length === 0 ? (
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No background tasks yet." />
+          ) : null}
+          {activeBackgroundTasks.length > 0 ? (
+            activeBackgroundTasks.map((task) => (
+              <text
+                key={task.id}
+                fg={theme.assistantFg}
+                content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
+              />
+            ))
+          ) : (
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No active background tasks." />
+          )}
+          {recentBackgroundTasks.length > 0 ? (
+            <>
+              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Recent" />
+              {recentBackgroundTasks.map((task) => (
+                <text
+                  key={task.id}
+                  fg={theme.statusFg}
+                  attributes={TextAttributes.DIM}
+                  content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
+                />
+              ))}
+            </>
+          ) : null}
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Ctrl+B to close" />
+        </box>
+      ) : null}
+
       <box
         flexDirection="column"
         border={['top', 'bottom', 'left', 'right']}
@@ -1032,7 +1110,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             paddingLeft={1}
             paddingBottom={2}
           >
-            <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="❯ " />
+            <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="› " />
             <box flexGrow={1} flexDirection="column">
               <input
                 value={inputValue}
@@ -1052,23 +1130,24 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
         <box flexDirection="row" gap={3} padding={1}>
           <text fg={theme.headerAccent}>* {modelDisplay}</text>
-          <text fg={theme.statusFg}>💨 {thinkingEnabled ? 'Thinking' : 'Direct'}</text>
-          <text fg={theme.statusFg}>🔓 {permissionSnapshot.mode}</text>
+          <text fg={theme.statusFg}>{thinkingEnabled ? '◉ Thinking' : '○ Direct'}</text>
+          <text fg={permissionModeColor}>◇ {permissionSnapshot.mode}</text>
         </box>
       </box>
 
       <box flexDirection="row" justifyContent="space-between" marginTop={1} paddingX={1}>
         <box flexDirection="row" gap={3}>
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`📁 Local`} />
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={'◈ Local'} />
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂ ${gitBranch || 'unknown'}`} />
           <text
             fg={theme.statusFg}
             attributes={TextAttributes.DIM}
             content={`◦ ${conversation.conversationId.slice(0, 8)}`}
           />
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`· ${statusDisplay}`} />
+          {conversation.status === 'running' ? (<text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content={responseSpinner} />) : <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`•`} />}
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`${statusDisplay}`} />
         </box>
-        <TaskPanel tasks={taskSnapshot.tasks} />
+        <TaskPanel tasks={activeBackgroundTasks} />
       </box>
     </box>
   )

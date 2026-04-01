@@ -33,6 +33,7 @@ export interface UseInteractiveControllerOptions {
   onAbort?: () => void
   onRewind?: () => void
   onBackgroundRequest?: (command: string) => boolean
+  onToggleBackgroundTasks?: () => void
 }
 
 interface HistorySearchState {
@@ -74,6 +75,7 @@ export function useInteractiveController({
   onAbort,
   onRewind,
   onBackgroundRequest,
+  onToggleBackgroundTasks,
 }: UseInteractiveControllerOptions): UseInteractiveControllerResult {
   const sessionRef = useRef(new InteractiveSession())
   const historyRef = useRef<InteractiveHistory | null>(null)
@@ -446,6 +448,7 @@ export function useInteractiveController({
           const currentValue = inputValueRef.current
           const trimmed = currentValue.trim()
           if (!trimmed) {
+            onToggleBackgroundTasks?.()
             return match.preventDefault ?? false
           }
           const handled = onBackgroundRequest ? onBackgroundRequest(trimmed) : false
@@ -468,6 +471,7 @@ export function useInteractiveController({
       historySearch,
       onAbort,
       onBackgroundRequest,
+      onToggleBackgroundTasks,
       onCyclePermissionMode,
       persistHistory,
       renderer,

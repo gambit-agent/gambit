@@ -14,8 +14,8 @@ export function TaskPanel({ tasks }: TaskPanelProps) {
 
   const runningTasks = tasks.filter((t) => t.status === 'running').length
   const textContent = runningTasks > 0
-    ? `⚙  Tasks: ${runningTasks} running`
-    : `⚙  Tasks: ${tasks.length} total`
+    ? `⊙ Tasks: ${runningTasks} running (Ctrl+B)`
+    : `⊙ Tasks: ${tasks.length} total (Ctrl+B)`
 
   return (
     <box flexDirection="row" gap={layout.panelGap}>
