@@ -12,7 +12,7 @@ import { executeSlashCommand, type SlashCommandExecution } from '../lib/slashCom
 import { useInteractiveController } from '../lib/interactive/controller'
 import type { UIMessage } from '../types/chat'
 import { routeInput } from './input-router'
-import { theme } from '../ui/theme'
+import { layout, theme } from '../ui/theme'
 import { ModelPickerOverlay } from '../ui/model-picker/ModelPickerOverlay'
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { TaskPanel } from '../ui/panels/TaskPanel'
@@ -450,21 +450,30 @@ export function ReplScreen() {
   const modelDisplay = reasoningEffort ? `${modelId} (effort: ${reasoningEffort})` : modelId
   const statusDisplay =
     conversation.status === 'running' && statusElapsed ? `running - ${statusElapsed}` : conversation.status
-  const isMainInputFocused = !modelPickerState.isOpen
+  const isPermissionDialogOpen = Boolean(permissionSnapshot.activeRequest)
+  const isMainInputFocused = !modelPickerState.isOpen && !isPermissionDialogOpen
+  const isModelPickerFocused = modelPickerState.isOpen && !isPermissionDialogOpen
 
   return (
     <box
       flexDirection="column"
       flexGrow={1}
-      padding={1}
-      gap={1}
+      padding={layout.screenPadding}
+      gap={layout.sectionGap}
       onMouseUp={handleMouseUp}
       style={{ backgroundColor: theme.background }}
     >
       <box
         flexDirection="column"
-        gap={1}
-        style={{ border: ['left'], padding: 1, backgroundColor: theme.header, borderColor: theme.headerBorder }}
+        style={{
+          border: ['left'],
+          borderColor: theme.headerBorder,
+          paddingTop: layout.panelPaddingY,
+          paddingRight: layout.panelPaddingX,
+          paddingBottom: layout.panelPaddingY,
+          paddingLeft: layout.panelPaddingX,
+          backgroundColor: theme.header,
+        }}
       >
         <box justifyContent="space-between" flexDirection="row">
           <ascii-font font="tiny" text="Gambit" />
@@ -475,7 +484,16 @@ export function ReplScreen() {
       </box>
 
       {conversation.error ? (
-        <box style={{ border: ['left'], padding: 1, backgroundColor: theme.systemBg }}>
+        <box
+          style={{
+            border: ['left'],
+            paddingTop: layout.panelPaddingY,
+            paddingRight: layout.panelPaddingX,
+            paddingBottom: layout.panelPaddingY,
+            paddingLeft: layout.panelPaddingX,
+            backgroundColor: theme.systemBg,
+          }}
+        >
           <text fg="#ff6b6b" content={`Error: ${conversation.error}`} />
         </box>
       ) : null}
@@ -484,11 +502,16 @@ export function ReplScreen() {
 
       {interactive.historySearch.active ? (
         <box
+          flexDirection="column"
+          gap={layout.panelGap}
           style={{
             border: ['left'],
             borderColor: theme.headerBorder,
             backgroundColor: theme.header,
-            padding: 1,
+            paddingTop: layout.panelPaddingY,
+            paddingRight: layout.panelPaddingX,
+            paddingBottom: layout.panelPaddingY,
+            paddingLeft: layout.panelPaddingX,
           }}
         >
           <text
@@ -508,10 +531,23 @@ export function ReplScreen() {
 
       <box
         flexDirection="row"
-        gap={3}
-        style={{ border: ['left'], borderColor: theme.bodyBorder, padding: 1, backgroundColor: theme.background }}
+        flexWrap="wrap"
+        gap={layout.statusGap}
+        style={{
+          border: ['left'],
+          borderColor: theme.bodyBorder,
+          paddingTop: layout.panelPaddingY,
+          paddingRight: layout.panelPaddingX,
+          paddingBottom: layout.panelPaddingY,
+          paddingLeft: layout.panelPaddingX,
+          backgroundColor: theme.background,
+        }}
       >
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`Thinking · ${thinkingEnabled ? 'on' : 'off'}`} />
+        <text
+          fg={theme.statusFg}
+          attributes={TextAttributes.DIM}
+          content={`Thinking · ${thinkingEnabled ? 'on' : 'off'}`}
+        />
         <text
           fg={theme.statusFg}
           attributes={TextAttributes.DIM}
@@ -531,6 +567,7 @@ export function ReplScreen() {
         <ModelPickerOverlay
           state={modelPickerState}
           currentModelId={modelId}
+          hasFocus={isModelPickerFocused}
           onFilterChange={handleModelFilterChange}
           onFilterSubmit={handleFilterSubmit}
           onReasoningChange={handleReasoningInput}
@@ -544,24 +581,36 @@ export function ReplScreen() {
 
       <box
         flexDirection="column"
-        gap={inputPreview ? 1 : 0}
+        gap={inputPreview ? layout.panelGap : 0}
         style={{
           border: ['left'],
           borderStyle: 'heavy',
           borderColor: theme.inputBorder,
-          paddingTop: 1,
-          paddingBottom: 2,
-          paddingLeft: 2,
+          paddingRight: layout.panelPaddingX,
+          paddingLeft: layout.panelPaddingX,
           backgroundColor: theme.header,
         }}
       >
         {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
-        <input
-          value={inputValue}
-          onInput={interactive.handleInput}
-          onSubmit={handleInputSubmit}
-          focused={isMainInputFocused}
-        />
+        <box
+          flexDirection="column"
+          minHeight={layout.inputRowMinHeight}
+          justifyContent="center"
+          paddingTop={1}
+          paddingBottom={1}
+        >
+          <input
+            value={inputValue}
+            onInput={interactive.handleInput}
+            onSubmit={handleInputSubmit}
+            focused={isMainInputFocused}
+            backgroundColor={theme.header}
+            focusedBackgroundColor={theme.header}
+            textColor={theme.userFg}
+            placeholderColor={theme.statusFg}
+            cursorColor={theme.headerAccent}
+          />
+        </box>
       </box>
     </box>
   )

@@ -49,7 +49,13 @@ export interface ToolDefinition<InputSchema extends ZodTypeAny, Output> {
   description: string
   inputSchema: InputSchema
   execute: (input: z.infer<InputSchema>, context: ToolExecutionContext) => Promise<Output>
-  summarize?: (result: Output) => string
+  summarize?: (
+    result: Output,
+    context: {
+      input: z.infer<InputSchema>
+      artifactPath?: string
+    },
+  ) => string
   shouldPersistLargeResult?: boolean
   maxInlineResultChars?: number
   getPermissionRequest?: (input: z.infer<InputSchema>) => ToolPermissionRequest | null

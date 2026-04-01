@@ -39,12 +39,13 @@ test('records turns and tool calls through the tool executor', async () => {
     input: { path: 'note.txt' },
   })
 
-  expect(result.summary).toBe('hello world')
+  expect(result.summary).toBe('Read file\nnote.txt · 11 chars · 1 line')
 
   const messages = await store.loadMessages()
   expect(messages).toHaveLength(1)
   expect(messages[0]?.role).toBe('tool')
-  expect(messages[0]?.content).toBe('hello world')
+  expect(messages[0]?.content).toBe('Read file\nnote.txt · 11 chars · 1 line')
+  expect(messages[0]?.metadata?.toolResult).toBe('hello world')
 })
 
 test('appends turns to the conversation store', async () => {

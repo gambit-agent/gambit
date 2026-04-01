@@ -11,6 +11,8 @@ export interface ConversationMessage {
     toolName?: string
     toolArgs?: unknown
     toolResult?: unknown
+    toolStatus?: 'started' | 'completed' | 'failed'
+    toolArtifactPath?: string
   }
 }
 

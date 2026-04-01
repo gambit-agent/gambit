@@ -1,8 +1,9 @@
 import { streamText } from 'ai'
 import { randomUUID } from 'node:crypto'
 
-import { formatToolEvent, toCoreMessages } from '../lib/messages'
+import { toCoreMessages } from '../lib/messages'
 import { createModelSelector, type ReasoningEffort } from '../lib/model'
+import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import { MemoryStore } from '../memory/memory-store'
 import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
@@ -65,6 +66,8 @@ export class ConversationRunner {
         toolName: result.event.toolId,
         toolArgs: result.event.input,
         toolResult: result.event.output,
+        toolStatus: result.event.status,
+        toolArtifactPath: result.event.artifactPath,
       },
     })
 
@@ -185,6 +188,7 @@ export class ConversationRunner {
         if (part.type === 'tool-call') {
           const content = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
+            status: 'started',
             args: part.input ?? {},
             toolCallId: part.toolCallId,
           })
@@ -192,6 +196,7 @@ export class ConversationRunner {
             toolName: part.toolName ?? 'unknown',
             content,
             args: part.input ?? {},
+            status: 'started',
           })
           continue
         }
@@ -202,6 +207,7 @@ export class ConversationRunner {
           }
           const content = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
+            status: 'completed',
             args: part.input ?? {},
             toolCallId: part.toolCallId,
             result: part.output,
@@ -211,6 +217,7 @@ export class ConversationRunner {
             content,
             args: part.input ?? {},
             result: part.output,
+            status: 'completed',
           })
           continue
         }
@@ -224,6 +231,7 @@ export class ConversationRunner {
                 : JSON.stringify(part.error, null, 2)
           const content = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
+            status: 'failed',
             args: part.input ?? {},
             toolCallId: part.toolCallId,
             result: `Error: ${errorMessage}`,
@@ -233,6 +241,7 @@ export class ConversationRunner {
             content,
             args: part.input ?? {},
             result: `Error: ${errorMessage}`,
+            status: 'failed',
           })
         }
       }
@@ -281,6 +290,8 @@ export class ConversationRunner {
       content: string
       args: unknown
       result?: unknown
+      status: 'started' | 'completed' | 'failed'
+      artifactPath?: string
     },
   ): Promise<void> {
     const existing = this.dependencies.store
@@ -295,6 +306,8 @@ export class ConversationRunner {
           toolName: options.toolName,
           toolArgs: options.args,
           toolResult: options.result,
+          toolStatus: options.status,
+          toolArtifactPath: options.artifactPath,
         },
       })
       return
@@ -311,6 +324,8 @@ export class ConversationRunner {
           toolName: options.toolName,
           toolArgs: options.args,
           toolResult: options.result,
+          toolStatus: options.status,
+          toolArtifactPath: options.artifactPath,
         },
       },
       { persist: false },

@@ -1,9 +1,9 @@
-import { useMemo } from "react"
-import type { ReactNode } from "react"
-import { marked, type Token, type Tokens } from "marked"
-import { TextAttributes } from "@opentui/core"
+import { useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { TextAttributes } from '@opentui/core'
+import { marked, type Token, type Tokens } from 'marked'
 
-import { theme } from "./theme"
+import { layout, theme } from './theme'
 
 marked.use({
   gfm: true,
@@ -19,7 +19,7 @@ interface RenderOptions {
   textColor: string
 }
 
-const HORIZONTAL_RULE = "─".repeat(40)
+const HORIZONTAL_RULE = '─'.repeat(40)
 
 const headingSizeToAttributes: Record<number, number> = {
   1: TextAttributes.BOLD,
@@ -33,7 +33,7 @@ const headingSizeToAttributes: Record<number, number> = {
 type InlineNode = ReactNode
 
 function renderPlainText(text: string): InlineNode[] {
-  if (!text.includes("\n")) {
+  if (!text.includes('\n')) {
     return [text]
   }
 
@@ -41,7 +41,7 @@ function renderPlainText(text: string): InlineNode[] {
   const parts = text.split(/\n/g)
   parts.forEach((part, index) => {
     if (index > 0) {
-      nodes.push("\n")
+      nodes.push('\n')
     }
     if (part.length > 0) {
       nodes.push(part)
@@ -61,20 +61,20 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
     const key = `${keyPrefix}-inline-${index}`
 
     switch (token.type) {
-      case "text":
-      case "escape": {
+      case 'text':
+      case 'escape': {
         nodes.push(...renderPlainText(token.text))
         break
       }
-      case "strong": {
+      case 'strong': {
         nodes.push(<b key={key}>{renderInline(token.tokens, key)}</b>)
         break
       }
-      case "em": {
+      case 'em': {
         nodes.push(<i key={key}>{renderInline(token.tokens, key)}</i>)
         break
       }
-      case "del": {
+      case 'del': {
         nodes.push(
           <span key={key} attributes={TextAttributes.STRIKETHROUGH}>
             {renderInline(token.tokens, key)}
@@ -82,7 +82,7 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         )
         break
       }
-      case "codespan": {
+      case 'codespan': {
         nodes.push(
           <span
             key={key}
@@ -95,11 +95,11 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         )
         break
       }
-      case "br": {
-        nodes.push("\n")
+      case 'br': {
+        nodes.push('\n')
         break
       }
-      case "link": {
+      case 'link': {
         const children = token.tokens?.length ? renderInline(token.tokens, key) : renderPlainText(token.text)
         nodes.push(
           <span key={key} fg={theme.linkFg} attributes={TextAttributes.UNDERLINE}>
@@ -115,8 +115,8 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         }
         break
       }
-      case "image": {
-        const alt = token.text || "image"
+      case 'image': {
+        const alt = token.text || 'image'
         nodes.push(
           <span key={key} attributes={TextAttributes.DIM}>
             {`[${alt}]`}
@@ -125,7 +125,7 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         break
       }
       default:
-        if ("tokens" in token && token.tokens) {
+        if ('tokens' in token && token.tokens) {
           nodes.push(...renderInline(token.tokens, key))
         } else if (token.raw) {
           nodes.push(token.raw)
@@ -141,7 +141,7 @@ function renderTable(token: Tokens.Table, key: string): ReactNode {
   const dataRows = token.rows.map((row) => row.map((cell) => cell.text))
 
   const columnWidths = headerRow.map((cell, index) => {
-    const dataWidth = Math.max(...dataRows.map((row) => (row[index]?.length ?? 0)))
+    const dataWidth = Math.max(...dataRows.map((row) => row[index]?.length ?? 0))
     return Math.max(cell.length, dataWidth)
   })
 
@@ -149,11 +149,15 @@ function renderTable(token: Tokens.Table, key: string): ReactNode {
     row
       .map((cell, index) => {
         const width = columnWidths[index] ?? cell.length
-        return cell.padEnd(width, " ")
+        return cell.padEnd(width, ' ')
       })
-      .join(" │ ")
+      .join(' │ ')
 
-  const lines = [formatRow(headerRow), columnWidths.map((width) => "─".repeat(width)).join("─┼─"), ...dataRows.map(formatRow)]
+  const lines = [
+    formatRow(headerRow),
+    columnWidths.map((width) => '─'.repeat(width)).join('─┼─'),
+    ...dataRows.map(formatRow),
+  ]
 
   return (
     <box
@@ -161,7 +165,7 @@ function renderTable(token: Tokens.Table, key: string): ReactNode {
       flexDirection="column"
       gap={0}
       style={{
-        border: ["left"],
+        border: ['left'],
         borderColor: theme.divider,
         paddingLeft: 1,
         paddingRight: 1,
@@ -169,7 +173,7 @@ function renderTable(token: Tokens.Table, key: string): ReactNode {
       }}
     >
       {lines.map((line, index) => (
-        <text key={`${key}-line-${index}`} content={line.length > 0 ? line : " "} fg={theme.tableFg} />
+        <text key={`${key}-line-${index}`} content={line.length > 0 ? line : ' '} fg={theme.tableFg} />
       ))}
     </box>
   )
@@ -186,25 +190,25 @@ function renderListItem(
   const nestedTokens: Token[] = []
 
   for (const child of item.tokens) {
-    if (!inlineTokens && (child.type === "text" || child.type === "paragraph")) {
-      inlineTokens = child.type === "paragraph" ? child.tokens : child.tokens ?? [child]
+    if (!inlineTokens && (child.type === 'text' || child.type === 'paragraph')) {
+      inlineTokens = child.type === 'paragraph' ? child.tokens : child.tokens ?? [child]
       continue
     }
     nestedTokens.push(child)
   }
 
   const inlineContent = inlineTokens?.length ? renderInline(inlineTokens, `${key}-inline`) : []
-  const nestedContent = nestedTokens.length ? renderBlocks(nestedTokens, `${key}-nested`, depth + 1, options) : null
+  const nestedContent = nestedTokens.length ? (
+    <box flexDirection="column" gap={layout.markdownBlockGap}>
+      {renderBlocks(nestedTokens, `${key}-nested`, depth + 1, options)}
+    </box>
+  ) : null
 
   return (
     <box key={key} flexDirection="row" gap={1} alignItems="flex-start">
       <text content={symbol} fg={theme.listBulletFg} />
-      <box flexDirection="column" gap={0} flexGrow={1}>
-        {inlineContent.length ? (
-          <text fg={options.textColor}>
-            {inlineContent}
-          </text>
-        ) : null}
+      <box flexDirection="column" gap={nestedContent ? layout.markdownBlockGap : 0} flexGrow={1}>
+        {inlineContent.length ? <text fg={options.textColor}>{inlineContent}</text> : null}
         {nestedContent}
       </box>
     </box>
@@ -227,11 +231,10 @@ function renderBlocks(
     const key = `${keyPrefix}-block-${index}`
 
     switch (token.type) {
-      case "space": {
-        elements.push(<text key={`${key}-space`} content=" " />)
+      case 'space': {
         break
       }
-      case "paragraph": {
+      case 'paragraph': {
         elements.push(
           <text key={key} fg={options.textColor}>
             {renderInline(token.tokens, key)}
@@ -239,25 +242,24 @@ function renderBlocks(
         )
         break
       }
-      case "heading": {
+      case 'heading': {
         const attributes = headingSizeToAttributes[token.depth] ?? TextAttributes.BOLD
         elements.push(
           <text key={key} attributes={attributes} fg={theme.headingFg}>
             {renderInline(token.tokens, key)}
           </text>,
         )
-        elements.push(<text key={`${key}-after`} content=" " />)
         break
       }
-      case "code": {
-        const lines = token.text.replace(/\n$/u, "").split("\n")
+      case 'code': {
+        const lines = token.text.replace(/\n$/u, '').split('\n')
         elements.push(
           <box
             key={key}
             flexDirection="column"
             gap={0}
             style={{
-              border: ["left"],
+              border: ['left'],
               borderColor: theme.codeBlockBorder,
               paddingLeft: 1,
               paddingRight: 1,
@@ -268,22 +270,21 @@ function renderBlocks(
               <text fg={theme.codeBlockAccent} attributes={TextAttributes.DIM} content={`// ${token.lang}`} />
             ) : null}
             {lines.map((line: string, lineIndex: number) => (
-              <text key={`${key}-line-${lineIndex}`} content={line.length > 0 ? line : " "} fg={theme.codeBlockFg} />
+              <text key={`${key}-line-${lineIndex}`} content={line.length > 0 ? line : ' '} fg={theme.codeBlockFg} />
             ))}
           </box>,
         )
-        elements.push(<text key={`${key}-gap`} content=" " />)
         break
       }
-      case "blockquote": {
+      case 'blockquote': {
         const blockquoteToken = token as Tokens.Blockquote
         elements.push(
           <box
             key={key}
             flexDirection="column"
-            gap={0}
+            gap={layout.markdownBlockGap}
             style={{
-              border: ["left"],
+              border: ['left'],
               borderColor: theme.blockquoteBorder,
               paddingLeft: 2,
               backgroundColor: theme.blockquoteBg,
@@ -292,39 +293,36 @@ function renderBlocks(
             {renderBlocks(blockquoteToken.tokens, `${key}-quote`, depth + 1, options)}
           </box>,
         )
-        elements.push(<text key={`${key}-after-quote`} content=" " />)
         break
       }
-      case "list": {
+      case 'list': {
         const listToken = token as Tokens.List
-        const start = listToken.start === "" ? 1 : Number(listToken.start || 1)
+        const start = listToken.start === '' ? 1 : Number(listToken.start || 1)
         const symbols = listToken.items.map((item: Tokens.ListItem, itemIndex: number) =>
-          item.task ? (item.checked ? "[x]" : "[ ]") : listToken.ordered ? `${start + itemIndex}.` : "•",
+          item.task ? (item.checked ? '[x]' : '[ ]') : listToken.ordered ? `${start + itemIndex}.` : '•',
         )
 
         elements.push(
           <box key={key} flexDirection="column" gap={0} style={{ paddingLeft: depth > 0 ? 2 : 0 }}>
             {listToken.items.map((item: Tokens.ListItem, itemIndex: number) =>
-              renderListItem(item, `${key}-item-${itemIndex}`, symbols[itemIndex] ?? "•", depth, options),
+              renderListItem(item, `${key}-item-${itemIndex}`, symbols[itemIndex] ?? '•', depth, options),
             )}
           </box>,
         )
-        elements.push(<text key={`${key}-after-list`} content=" " />)
         break
       }
-      case "hr": {
+      case 'hr': {
         elements.push(
           <text key={key} fg={theme.divider} attributes={TextAttributes.DIM} content={HORIZONTAL_RULE} />,
         )
         break
       }
-      case "table": {
+      case 'table': {
         elements.push(renderTable(token as Tokens.Table, key))
-        elements.push(<text key={`${key}-after-table`} content=" " />)
         break
       }
-      case "html":
-      case "tag": {
+      case 'html':
+      case 'tag': {
         elements.push(
           <text key={key} fg={options.textColor}>
             {token.text ?? token.raw}
@@ -332,7 +330,7 @@ function renderBlocks(
         )
         break
       }
-      case "text": {
+      case 'text': {
         const inlineTokens = token.tokens?.length ? token.tokens : [token]
         elements.push(
           <text key={key} fg={options.textColor}>
@@ -344,7 +342,7 @@ function renderBlocks(
       default: {
         elements.push(
           <text key={key} fg={options.textColor}>
-            {token.raw ?? ""}
+            {token.raw ?? ''}
           </text>,
         )
       }
@@ -360,12 +358,12 @@ export function Markdown({ content, textColor }: MarkdownProps) {
   const resolvedColor = textColor ?? theme.assistantFg
 
   if (!tokens.length) {
-    return <text content={content.length ? content : " "} />
+    return <text content={content.length ? content : ' '} />
   }
 
   return (
-    <box flexDirection="column" gap={0}>
-      {renderBlocks(tokens, "md", 0, { textColor: resolvedColor })}
+    <box flexDirection="column" gap={layout.markdownBlockGap}>
+      {renderBlocks(tokens, 'md', 0, { textColor: resolvedColor })}
     </box>
   )
 }

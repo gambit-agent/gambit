@@ -6,6 +6,7 @@ import { MAX_FILE_CHARS, MAX_SHELL_OUTPUT, workspaceRoot } from '../config'
 import { readTaskOutput } from '../tasks/task-output'
 import { applyUnifiedDiff, sanitizePatchTargets, splitUnifiedDiffByFile } from '../lib/diff'
 import { truncate } from '../lib/text'
+import { formatToolSummary, summarizeToolCompletion } from '../lib/toolSummaries'
 import { relativeWorkspacePath, resolveWorkspacePath } from '../lib/workspace'
 import {
   buildSlashCommandToolDescription,
@@ -129,6 +130,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Read File',
     description: 'Read a UTF-8 file from the workspace.',
     inputSchema: readFileSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('readFile', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ path: targetPath }) => {
       const normalizedPath = ensureNonEmptyString(targetPath, 'path')
       const resolvedPath = resolveWorkspacePath(normalizedPath)
@@ -146,6 +151,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Write File',
     description: 'Overwrite a file in the workspace with new content.',
     inputSchema: writeFileSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('writeFile', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ path: targetPath, content }) => {
       const normalizedPath = ensureNonEmptyString(targetPath, 'path')
       if (typeof content !== 'string') {
@@ -168,6 +177,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Patch File',
     description: 'Apply a unified diff patch to a file.',
     inputSchema: patchFileSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('patchFile', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ path: targetPath, patch }) => {
       const normalizedPatch = ensureNonEmptyString(patch, 'patch')
 
@@ -293,6 +306,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Execute Shell',
     description: 'Execute a shell command from the workspace root.',
     inputSchema: executeShellSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('executeShell', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ command }, context) => {
       if (typeof command !== 'string') {
         throw new Error('Parameter "command" must be a string.')
@@ -325,7 +342,10 @@ export async function createBuiltInToolDefinitions(
     execute: async ({ name, arguments: args }) => {
       return executeSlashCommand(name, args)
     },
-    summarize: (result) => formatSlashCommandMessage(result),
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('slashCommand', context.input, result, { artifactPath: context.artifactPath }),
+      ),
   }
 
   const readTaskOutputTool: ToolDefinition<typeof readTaskOutputSchema, string> = {
@@ -333,6 +353,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Read Task Output',
     description: 'Read persisted output for a runtime task.',
     inputSchema: readTaskOutputSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('readTaskOutput', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ taskId }) => {
       return readTaskOutput(taskId)
     },
@@ -343,6 +367,10 @@ export async function createBuiltInToolDefinitions(
     displayName: 'Write Memory',
     description: 'Write a typed memory record to `.gambit/memory/`.',
     inputSchema: writeMemorySchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('writeMemory', context.input, result, { artifactPath: context.artifactPath }),
+      ),
     execute: async ({ type, name, description, content }, context) => {
       if (!context.memoryStore) {
         throw new Error('Memory store is not configured.')
@@ -378,6 +406,10 @@ export async function createBuiltInToolDefinitions(
       displayName: 'Spawn Agent',
       description: 'Spawn a local delegated agent task.',
       inputSchema: spawnAgentSchema,
+      summarize: (result, context) =>
+        formatToolSummary(
+          summarizeToolCompletion('spawnAgent', context.input, result, { artifactPath: context.artifactPath }),
+        ),
       execute: async ({ role, prompt, description, background }, context) => {
         if (!context.agentTaskRunner || !context.agentExecutionOptions) {
           throw new Error('Agent task runner is not configured.')

@@ -105,7 +105,7 @@ export class ToolExecutor {
         agentExecutionOptions: context.agentExecutionOptions,
       })
 
-      const normalized = await this.normalizeOutput(definition, output, toolCallId, context)
+      const normalized = await this.normalizeOutput(definition, output, parsedInput, toolCallId, context)
       const finishedAt = new Date().toISOString()
       const event: ToolEventRecord = {
         kind: 'tool',
@@ -148,6 +148,7 @@ export class ToolExecutor {
   private async normalizeOutput<Output>(
     definition: ToolDefinition<any, Output>,
     output: Output,
+    input: unknown,
     toolCallId: string,
     context: Partial<ToolExecutionContext>,
   ): Promise<{ output: Output | string; summary: string; artifactPath?: string }> {
@@ -158,6 +159,7 @@ export class ToolExecutor {
       return await this.normalizeStringOutput({
         definition,
         output,
+        input,
         toolCallId,
         shouldPersistLargeResult,
         maxInlineResultChars,
@@ -169,33 +171,39 @@ export class ToolExecutor {
     if (!shouldPersistLargeResult || serialized.length <= maxInlineResultChars) {
       return {
         output,
-        summary: definition.summarize ? definition.summarize(output) : serialized,
+        summary: definition.summarize ? definition.summarize(output, { input }) : serialized,
       }
     }
 
     const artifactPath = await this.writeArtifact(toolCallId, serialized, context.outputDirectory ?? this.outputDirectory)
-    const summary = definition.summarize ? definition.summarize(output) : `Stored large tool result in ${artifactPath}.`
+    const summary = definition.summarize
+      ? definition.summarize(output, { input, artifactPath })
+      : `Stored large tool result in ${artifactPath}.`
     return { output, summary, artifactPath }
   }
 
   private async normalizeStringOutput(options: {
     definition: ToolDefinition<any, any>
     output: string
+    input: unknown
     toolCallId: string
     shouldPersistLargeResult: boolean
     maxInlineResultChars: number
     outputDirectory: string
   }): Promise<{ output: string; summary: string; artifactPath?: string }> {
-    const { definition, output, toolCallId, shouldPersistLargeResult, maxInlineResultChars, outputDirectory } = options
+    const { definition, output, input, toolCallId, shouldPersistLargeResult, maxInlineResultChars, outputDirectory } =
+      options
     if (!shouldPersistLargeResult || output.length <= maxInlineResultChars) {
       return {
         output,
-        summary: definition.summarize ? definition.summarize(output) : output,
+        summary: definition.summarize ? definition.summarize(output, { input }) : output,
       }
     }
 
     const artifactPath = await this.writeArtifact(toolCallId, output, outputDirectory)
-    const summary = definition.summarize ? definition.summarize(output) : `Stored large tool result in ${artifactPath}.`
+    const summary = definition.summarize
+      ? definition.summarize(output, { input, artifactPath })
+      : `Stored large tool result in ${artifactPath}.`
     return { output, summary, artifactPath }
   }
 

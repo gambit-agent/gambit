@@ -10,6 +10,7 @@ import { theme } from "../theme"
 export interface ModelPickerOverlayProps {
   state: ModelPickerState
   currentModelId: string
+  hasFocus: boolean
   onFilterChange: (value: string) => void
   onFilterSubmit: (value: string) => void
   onReasoningChange: (value: string) => void
@@ -78,6 +79,7 @@ function buildOption(
 export function ModelPickerOverlay({
   state,
   currentModelId,
+  hasFocus,
   onFilterChange,
   onFilterSubmit,
   onReasoningChange,
@@ -170,7 +172,12 @@ export function ModelPickerOverlay({
             />
           ) : null}
           {state.reasoningError ? <text fg="#ff6b6b" content={state.reasoningError} /> : null}
-          <input value={state.reasoningInput} onInput={onReasoningChange} onSubmit={handleReasoningSubmit} focused />
+          <input
+            value={state.reasoningInput}
+            onInput={onReasoningChange}
+            onSubmit={handleReasoningSubmit}
+            focused={hasFocus}
+          />
         </box>
       </box>
     )
@@ -235,7 +242,12 @@ export function ModelPickerOverlay({
           />
         ) : null}
         {state.hint ? <text fg="#ffae42" content={state.hint} /> : null}
-        <input value={state.filterValue} onInput={onFilterChange} onSubmit={handleFilterSubmit} focused />
+        <input
+          value={state.filterValue}
+          onInput={onFilterChange}
+          onSubmit={handleFilterSubmit}
+          focused={hasFocus}
+        />
       </box>
     </box>
   )

@@ -1,7 +1,8 @@
 import { streamText } from 'ai'
 
-import { formatToolEvent, toCoreMessages } from '../lib/messages'
+import { toCoreMessages } from '../lib/messages'
 import { createModelSelector, type ReasoningEffort } from '../lib/model'
+import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import type { AgentDefinition } from './agent-types'
 import type { ConversationMessage } from '../conversation/conversation-types'
@@ -107,6 +108,7 @@ export class AgentRunner {
       if (part.type === 'tool-call') {
         const summary = formatToolEvent({
           toolName: part.toolName ?? 'unknown',
+          status: 'started',
           args: part.input ?? {},
           toolCallId: part.toolCallId,
         })
@@ -127,6 +129,7 @@ export class AgentRunner {
         }
         const summary = formatToolEvent({
           toolName: part.toolName ?? 'unknown',
+          status: 'completed',
           args: part.input ?? {},
           toolCallId: part.toolCallId,
           result: part.output,

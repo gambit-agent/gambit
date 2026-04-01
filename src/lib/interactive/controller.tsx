@@ -51,6 +51,7 @@ export interface UseInteractiveControllerResult {
 }
 
 const DOUBLE_ESC_INTERVAL_MS = 400
+const pasteDecoder = new TextDecoder()
 
 const isPrintableKey = (key: ParsedKey): boolean => {
   if (key.ctrl || key.meta) {
@@ -137,7 +138,7 @@ export function useInteractiveController({
       raw.replace(/\u001b\[200~|\u001b\[201~/g, "").replace(/\r\n?/g, "\n")
 
     const handlePaste = (event: PasteEvent) => {
-      const cleaned = sanitizePastedText(event.text)
+      const cleaned = sanitizePastedText(pasteDecoder.decode(event.bytes))
       if (!cleaned) {
         return
       }
