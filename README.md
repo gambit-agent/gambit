@@ -1,113 +1,199 @@
 # Gambit CLI
 
 > Interactive AI agent development environment built with Bun, TypeScript, and OpenTUI.
-<img width="1727" height="1360" alt="Screenshot 2026-04-01 072936" src="https://github.com/user-attachments/assets/c2738f9a-d1e7-48e6-b242-0d762c6e6da4" />
+
+<img width="1727" height="1360" alt="Screenshot" src="https://github.com/user-attachments/assets/c2738f9a-d1e7-48e6-b242-0d762c6e6da4" />
 
 [![Bun](https://img.shields.io/badge/built%20with-bun-ffd0db.svg)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/type-safe-TypeScript-blue.svg)](https://www.typescriptlang.org/)
 
-## ✨ Overview
+## Overview
 
-Gambit CLI is a terminal-based UI for creating, managing, and interacting with AI agents. It provides a rich interactive experience using [OpenTUI](https://github.com/opentui/opentui) components, with support for persistent memory, background tasks, tool execution, and fine-grained permissions.
+Gambit CLI is a terminal-based UI for creating, managing, and interacting with AI agents. It runs on [OpenTUI](https://github.com/opentui/opentui), uses the [Vercel AI SDK](https://sdk.vercel.ai/) with OpenRouter, and ships a growing set of built-in tools plus MCP (Model Context Protocol) support for connecting external tool servers.
 
-Whether you're prototyping agent workflows or building production-ready AI assistants, Gambit offers a seamless development and runtime environment.
+Features:
 
-## 🚀 Quick Start
+- Interactive REPL with persistent conversations, background tasks, typed memory, and permission-gated tools.
+- Headless mode (`-p` / `--prompt`) for scripting and CI usage, with JSON and streaming output formats.
+- MCP client with `stdio` and `streamable-http` transports.
+- Pluggable slash commands loaded from user and project scopes.
 
-### Install globally (recommended)
+## Install
+
+### Quick install (Linux / macOS)
 
 ```bash
-bun add -g gambit
-gambit
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install.sh | bash
 ```
 
-### Or run from source
+The installer detects your platform (including musl and Rosetta), downloads the matching prebuilt binary from GitHub Releases, verifies its SHA256 against the release `manifest.json`, and installs a launcher to `~/.local/bin/gambit`.
+
+Install a specific version or the latest prerelease:
 
 ```bash
-git clone https://github.com/yourusername/gambit-opentui.git
-cd gambit-opentui
+# default: latest stable release
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install.sh | bash
+
+# specific version
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install.sh | bash -s -- 0.1.0
+
+# explicit stable / latest aliases
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install.sh | bash -s -- stable
+```
+
+Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`.
+
+Environment overrides:
+
+- `GAMBIT_REPO` — `owner/repo` to download from (default: `sergiomasellis/gambit-cli`).
+- `GAMBIT_BIN_DIR` — install location for the launcher (default: `~/.local/bin`).
+
+### Manual install
+
+Grab a binary from the [latest release](https://github.com/sergiomasellis/gambit-cli/releases/latest), verify its SHA256 against `manifest.json`, then run `./gambit-<platform> install` to self-install.
+
+### Run from source
+
+Requires [Bun](https://bun.sh) 1.2.20+.
+
+```bash
+git clone https://github.com/sergiomasellis/gambit-cli.git
+cd gambit-cli
 bun install
 bun run src/gambit.tsx
 ```
 
-For development with hot-reload:
+## Usage
+
+### Interactive
 
 ```bash
-bun run src/index.tsx
+gambit                       # new conversation
+gambit -c                    # continue the last conversation
+gambit -r                    # pick a conversation to resume
+gambit -r <conversation-id>  # resume a specific conversation
 ```
 
-## 📖 Usage
+Inside the REPL, colon commands drive the shell itself:
 
-Once launched, you'll be greeted by the interactive REPL. Common commands:
+- `:model` — switch the active model
+- `:key` — set or update the OpenRouter API key
+- `:mcp` — manage MCP servers
+- `:resume` — open the resume picker
+- `:reset` — clear the current session state
 
-- `/help` – Show available commands
-- `/agent <name>` – Create or switch to an agent
-- `/task <description>` – Create a background task
-- `/memory` – View and manage stored memories
-- `/tools` – List available tools
-- `/exit` – Quit the application
+Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`.
 
-Type natural language to interact with the current agent. Use arrow keys to navigate history, and `Ctrl+C` to interrupt long-running operations.
+### Headless
 
-## 🛠️ Development
+Provide `-p` / `--prompt` to run non-interactively:
 
-### Prerequisites
+```bash
+gambit -p "Summarize the README"                             # text output
+gambit -p "Refactor this file" --output-format stream-json   # streaming JSON events
+gambit -p "List the open TODOs" --permission-mode auto-accept
+```
 
-- **Bun** v1.2.20+ – [Installation guide](https://bun.sh/docs/installation)
-- **TypeScript** (peer dependency)
+Flags:
 
-### Commands
+| Flag | Description |
+|---|---|
+| `-p` / `--prompt` / `--print` | Prompt string (enables headless mode). |
+| `--output-format` | `text` (default), `json`, or `stream-json`. |
+| `--verbose` | Verbose logging. |
+| `--include-partial-messages` | Stream partial-message deltas. |
+| `--allowed-tools` | Comma-separated allowlist of tool IDs. |
+| `--system-prompt` | Replace the system prompt. |
+| `--append-system-prompt` | Append to the system prompt (repeatable). |
+| `--append-system-prompt-file` | Append the contents of a file (repeatable). |
+| `--permission-mode` | `normal`, `plan`, `auto-accept`, `acceptEdits`. |
+| `--mcp-config` | Path to an MCP config file. |
+| `-c` / `--continue` | Continue the last conversation. |
+| `-r` / `--resume [id]` | Resume a conversation by id, or open the picker. |
 
-| Command | Description |
-|---------|-------------|
-| `bun install` | Install dependencies |
-| `bun run src/gambit.tsx` | Run the standalone CLI |
-| `bun run src/index.tsx` | Start dev UI with hot-reload |
-| `bun test` | Run the test suite |
-| `bun run tsc --noEmit` | Type-check the codebase |
+## Built-in tools
 
-### Project Structure
+Default registered tools (see `src/tools/builtins.ts`):
+
+- `readFile`, `writeFile`, `patchFile` — workspace file I/O.
+- `executeShell` — run shell commands via `bash -lc`.
+- `slashCommand` — invoke a registered slash command.
+- `readTaskOutput` — read persisted output for a background task.
+- `writeMemory` — persist typed memory records (`user`, `feedback`, `project`, `reference`).
+- `spawnAgent` — delegate to a local subagent (`default`, `explorer`, or `worker`).
+- MCP management: `list-mcp-resources`, `read-mcp-resource`, `list-mcp-tools`, `call-mcp-tool`, `list-mcp-servers`, `add-mcp-server`, `remove-mcp-server`, `toggle-mcp-server`.
+
+## MCP support
+
+Gambit is an MCP client with two transports:
+
+- `stdio` — spawn a local process.
+- `streamable-http` — connect to a remote HTTP server, with optional `bearerToken`, `apiKey`, or custom headers.
+
+Server config lives at `~/.gambit/mcp-servers.json`, or pass `--mcp-config <path>` in headless mode. Manage servers with the `:mcp` colon command or the `add-mcp-server` / `remove-mcp-server` tools.
+
+## Runtime data
+
+Gambit writes runtime state under `.gambit/` in your home directory and/or the current workspace:
+
+- `conversations/` — conversation transcripts.
+- `tasks/` — background task records and output logs.
+- `memory/` — typed memory markdown files (`user`, `feedback`, `project`, `reference`).
+- `commands/` — user/project slash command definitions.
+- `mcp-servers.json` — MCP server config.
+- `model-selection.json` — active model.
+- `downloads/` — cache used by the installer.
+
+None of this is committed — keep it gitignored.
+
+## Development
+
+```bash
+bun install                       # install dependencies
+bun run src/gambit.tsx             # run the CLI
+bun run src/index.tsx              # dev UI with hot-reload
+bun test                           # run the test suite
+bun run tsc --noEmit               # type-check
+```
+
+### Project layout
 
 ```
 src/
-├── agents/      # Agent definitions and runtime logic
-├── app/         # Bootstrap and shell initialization
-├── conversation/ # Conversation state machine and runner
-├── lib/         # Shared utilities and helpers
-├── memory/      # Memory persistence layer
-├── permissions/ # Permission system and request handling
-├── repl/        # Interactive REPL interface
-├── session/     # Session management
-├── tasks/       # Background task execution
-├── tools/       # Tool implementations and tests
-├── types/       # TypeScript type definitions
-├── ui/          # @opentui/react components
-├── workboard/   # Workboard UI
-├── index.tsx    # Dev UI entry point (hot-reload)
-└── gambit.tsx   # CLI binary entry point
+├── agents/         # Agent definitions and runtime logic
+├── app/            # Launch options, bootstrap, headless runner, install
+├── conversation/   # Conversation state machine and runner
+├── lib/            # Shared utilities (diff, slash commands, MCP config, ...)
+├── memory/         # Typed memory persistence
+├── permissions/    # Permission engine and prompts
+├── repl/           # Interactive REPL
+├── session/        # Session transcripts
+├── tasks/          # Background task runtime (shell + agent)
+├── tools/          # Built-in tools, registry, MCP client bridge
+├── types/          # Shared TypeScript types
+├── ui/             # @opentui/react components
+├── workboard/      # Workboard UI
+├── index.tsx       # Dev UI entry (hot-reload)
+└── gambit.tsx      # CLI entry (binary target)
 ```
 
-## 🧪 Testing
+### Cutting a release
 
-Tests are colocated as `.test.ts` files next to the source they cover. Run all tests with:
+Release binaries are built by `.github/workflows/release.yml` when a `v*` tag is pushed:
 
 ```bash
-bun test
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
-To run a specific test file:
+The workflow cross-compiles for all supported platforms using `bun build --compile`, produces a `manifest.json` of SHA256 checksums, and publishes them as release assets. After the release lands, `install.sh` will resolve `stable` to that tag.
 
-```bash
-bun test src/tasks/task-runtime.test.ts
-```
-
-## 🤝 Contributing
-
-We follow Conventional Commits and require passing tests and type-check for all PRs. See [AGENTS.md](AGENTS.md) for detailed contributor guidelines, coding style, and review process.
-
-## 🔐 Security Notes
+## Security
 
 - Never commit secrets. Use a `.env` file (gitignored) for environment variables.
-- Tools and agents must declare the minimal permissions they require.
-- User data and network calls should be handled with care; add tests when changing permission logic.
-- Runtime data (conversations, tasks, memories) lives in `.gambit/` and is **not** committed.
+- Tools and agents declare the minimal permissions they require; user approval is requested at runtime.
+- Runtime state under `.gambit/` is not committed.
+
+## Contributing
+
+Gambit follows Conventional Commits. All PRs must pass `bun test` and `bun run tsc --noEmit`. See [AGENTS.md](AGENTS.md) for detailed contributor guidelines.

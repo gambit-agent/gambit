@@ -3,7 +3,15 @@
 import { parseLaunchOptions } from './app/launch-options';
 import { cleanupAllMCPClients } from './tools/mcp';
 
-const launchOptions = parseLaunchOptions(Bun.argv.slice(2));
+const rawArgs = Bun.argv.slice(2);
+
+if (rawArgs[0] === 'install') {
+  const { runInstall } = await import('./app/install');
+  const exitCode = await runInstall(rawArgs.slice(1));
+  process.exit(exitCode);
+}
+
+const launchOptions = parseLaunchOptions(rawArgs);
 
 if (launchOptions.headless) {
   const { runHeadless } = await import('./app/headless-runner');

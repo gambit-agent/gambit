@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build cross-platform binaries
+        run: |
+          mkdir -p dist
+          targets=(
+            linux-x64
+            linux-x64-musl
+            linux-arm64
+            linux-arm64-musl
+            darwin-x64
+            darwin-arm64
+          )
+          for target in "${targets[@]}"; do
+            echo "Building gambit-$target..."
+            bun build \
+              --compile \
+              --minify \
+              --target="bun-$target" \
+              src/gambit.tsx \
+              --outfile "dist/gambit-$target"
+          done
+          ls -la dist
+
+      - name: Generate manifest.json
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          {
+            printf '{\n'
+            printf '  "version": "%s",\n' "$version"
+            printf '  "platforms": {\n'
+            first=true
+            for bin in dist/gambit-*; do
+              [ -f "$bin" ] || continue
+              name=$(basename "$bin")
+              platform="${name#gambit-}"
+              checksum=$(sha256sum "$bin" | cut -d' ' -f1)
+              if [ "$first" = true ]; then
+                first=false
+              else
+                printf ',\n'
+              fi
+              printf '    "%s": { "checksum": "%s" }' "$platform" "$checksum"
+            done
+            printf '\n  }\n}\n'
+          } > dist/manifest.json
+          cat dist/manifest.json
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum gambit-* manifest.json > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/gambit-linux-x64
+            dist/gambit-linux-x64-musl
+            dist/gambit-linux-arm64
+            dist/gambit-linux-arm64-musl
+            dist/gambit-darwin-x64
+            dist/gambit-darwin-arm64
+            dist/manifest.json
+            dist/SHA256SUMS
