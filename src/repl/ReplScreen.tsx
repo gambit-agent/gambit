@@ -17,6 +17,7 @@ import { useModelPicker } from '../lib/modelPicker'
 import type { ReasoningEffort } from '../lib/model'
 import { executeSlashCommand, type SlashCommandExecution } from '../lib/slashCommands'
 import { useInteractiveController } from '../lib/interactive/controller'
+import { matchShortcut } from '../lib/interactive/shortcuts'
 import type { UIMessage } from '../types/chat'
 import type { ConversationSessionSummary } from '../session/conversation-sessions'
 import { readModelSelection, writeModelSelection } from '../session/model-selection'
@@ -180,6 +181,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   })
   const [mcpOverlayOpen, setMcpOverlayOpen] = useState(false)
   const [activePlanContent, setActivePlanContent] = useState<string | null>(null)
+  const [transcriptMode, setTranscriptMode] = useState(false)
+  const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
   const statusStartedAtRef = useRef<Date | null>(null)
   const launchHandledRef = useRef(false)
@@ -578,11 +581,56 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [permissionSnapshot.activeRequest, conversation.conversationId])
 
+  // Reset explanation toggle when permission request changes
+  useEffect(() => {
+    setPermissionExplainOpen(false)
+  }, [permissionSnapshot.activeRequest])
+
   useKeyboard(
     useCallback(
       async (key: ParsedKey) => {
+        // Scroll shortcuts work globally regardless of overlays
+        const scrollShortcut = matchShortcut(key)
+        if (scrollShortcut) {
+          const sb = scrollboxRef.current
+          if (sb) {
+            const pageHeight = sb.viewport.height ?? 20
+            switch (scrollShortcut.action) {
+              case 'scroll-page-up':
+                sb.scrollTo(Math.max(0, sb.scrollTop - pageHeight))
+                return
+              case 'scroll-page-down': {
+                const maxScroll = Math.max(0, sb.scrollHeight - pageHeight)
+                sb.scrollTo(Math.min(maxScroll, sb.scrollTop + pageHeight))
+                return
+              }
+              case 'scroll-top':
+                sb.scrollTo(0)
+                return
+              case 'scroll-bottom': {
+                const maxScroll = Math.max(0, sb.scrollHeight - (sb.viewport.height ?? 0))
+                sb.scrollTo(maxScroll)
+                return
+              }
+            }
+          }
+        }
+
+        // Transcript mode: ctrl+o toggles, q/Escape/ctrl+c exits
+        if (scrollShortcut?.action === 'toggle-transcript') {
+          setTranscriptMode((prev) => !prev)
+          return
+        }
+        if (transcriptMode) {
+          if (key.name === 'q' || key.name === 'escape' || (key.name === 'c' && key.ctrl)) {
+            setTranscriptMode(false)
+            return
+          }
+        }
+
+        // Permission dialog
         if (permissionSnapshot.activeRequest) {
-          if (key.name === 'y') {
+          if (key.name === 'y' || key.name === 'return' || key.name === 'enter') {
             await runtime.permissionEngine.resolve(permissionSnapshot.activeRequest.id, 'allow')
             return
           }
@@ -590,6 +638,17 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             await runtime.permissionEngine.resolve(permissionSnapshot.activeRequest.id, 'deny')
             return
           }
+          // Shift+Tab cycles permission mode within the dialog
+          const permShortcut = matchShortcut(key)
+          if (permShortcut?.action === 'cycle-permission') {
+            runtime.permissionEngine.cycleMode()
+            return
+          }
+          if (permShortcut?.action === 'permission-explain') {
+            setPermissionExplainOpen((prev) => !prev)
+            return
+          }
+          return
         }
 
         if (questionSnapshot.activeRequest) {
@@ -616,12 +675,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             return
           }
 
-          if (key.name === 'up') {
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
             moveSessionSelection(-1)
             return
           }
 
-          if (key.name === 'down') {
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
             moveSessionSelection(1)
             return
           }
@@ -637,11 +696,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         }
 
         if (modelPickerState.mode === 'list') {
-          if (key.name === 'up') {
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
             moveModelSelection(-1)
             return
           }
-          if (key.name === 'down') {
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
             moveModelSelection(1)
           }
         }
@@ -661,6 +720,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         sessionPickerState.isOpen,
         startFreshConversation,
         mcpOverlayOpen,
+        transcriptMode,
       ],
     ),
   )
@@ -1040,7 +1100,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         </box>
       ) : null}
 
-      <ConversationPanel messages={conversation.messages} scrollboxRef={scrollboxRef} />
+      <ConversationPanel messages={conversation.messages} scrollboxRef={scrollboxRef} transcriptMode={transcriptMode} />
 
       {interactive.historySearch.active ? (
         <box
@@ -1059,6 +1119,18 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             attributes={TextAttributes.DIM}
             content="Esc to cancel, Ctrl+R to search older matches"
           />
+        </box>
+      ) : null}
+
+      {interactive.exitPending ? (
+        <box paddingY={0} paddingX={layout.panelPaddingX}>
+          <text fg="#ff6b6b" attributes={TextAttributes.BOLD} content="Press again to exit." />
+        </box>
+      ) : null}
+
+      {transcriptMode ? (
+        <box paddingY={0} paddingX={layout.panelPaddingX}>
+          <text fg={theme.headerAccent} attributes={TextAttributes.DIM} content="Transcript mode — press q, Esc, or Ctrl+C to exit" />
         </box>
       ) : null}
 
@@ -1115,7 +1187,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             planContent={activePlanContent}
           />
         ) : (
-          <PermissionOverlay request={permissionSnapshot.activeRequest} />
+          <PermissionOverlay request={permissionSnapshot.activeRequest} showExplanation={permissionExplainOpen} />
         )
       ) : null}
 

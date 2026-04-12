@@ -13,7 +13,7 @@ import type { ParsedKey, PasteEvent } from "@opentui/core"
 import type { UIMessage } from "../../types/chat"
 import { InteractiveHistory } from "./history"
 import { InteractiveSession, type PermissionMode } from "./session"
-import { matchShortcut } from "./shortcuts"
+import { DoublePressDetector, matchShortcut } from "./shortcuts"
 
 type SubmitOptions = {
   signal: AbortSignal
@@ -46,6 +46,7 @@ export interface UseInteractiveControllerResult {
   thinkingEnabled: boolean
   permissionMode: PermissionMode
   historySearch: HistorySearchState
+  exitPending: boolean
   handleSubmit: (value: string) => Promise<void>
   handleInput: (value: string) => void
   exitHistorySearch: () => void
@@ -83,7 +84,11 @@ export function useInteractiveController({
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: "", match: null })
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [localPermissionMode, setLocalPermissionMode] = useState<PermissionMode>("normal")
+  const [exitPending, setExitPending] = useState(false)
   const lastEscTimestamp = useRef<number | null>(null)
+  const ctrlCDetector = useRef(new DoublePressDetector())
+  const ctrlDDetector = useRef(new DoublePressDetector())
+  const stashedPromptRef = useRef<string | null>(null)
   const lastSearchIndex = useRef<number | null>(null)
   const { renderer } = useAppContext()
   const inputValueRef = useRef(inputValue)
@@ -382,22 +387,39 @@ export function useInteractiveController({
         return false
       }
 
+      const doExit = () => {
+        sessionRef.current.abortRun()
+        setTimeout(() => {
+          try {
+            renderer?.destroy()
+          } catch {
+            // ignore renderer teardown errors
+          }
+          process.exit(0)
+        }, 10)
+      }
+
       switch (match.action) {
         case "abort-run": {
-          sessionRef.current.abortRun()
-          onAbort?.()
+          const press = ctrlCDetector.current.press()
+          if (press === "first") {
+            sessionRef.current.abortRun()
+            onAbort?.()
+            setExitPending(true)
+            setTimeout(() => setExitPending(false), 800)
+          } else {
+            doExit()
+          }
           return match.preventDefault ?? false
         }
         case "exit-session": {
-          sessionRef.current.abortRun()
-          setTimeout(() => {
-            try {
-              renderer?.destroy()
-            } catch {
-              // ignore renderer teardown errors
-            }
-            process.exit(0)
-          }, 10)
+          const press = ctrlDDetector.current.press()
+          if (press === "first") {
+            setExitPending(true)
+            setTimeout(() => setExitPending(false), 800)
+          } else {
+            doExit()
+          }
           return match.preventDefault ?? false
         }
         case "clear-screen": {
@@ -463,6 +485,21 @@ export function useInteractiveController({
             void persistHistory()
             setInputValueWithRef("")
             clearPreviewLabel()
+          }
+          return match.preventDefault ?? false
+        }
+        case "stash-prompt": {
+          const currentValue = inputValueRef.current.trim()
+          if (currentValue) {
+            stashedPromptRef.current = currentValue
+            clearPreviewLabel()
+            suppressNextInputRef.current = true
+            setInputValueWithRef("")
+          } else if (stashedPromptRef.current) {
+            clearPreviewLabel()
+            suppressNextInputRef.current = true
+            setInputValueWithRef(stashedPromptRef.current)
+            stashedPromptRef.current = null
           }
           return match.preventDefault ?? false
         }
@@ -541,10 +578,11 @@ export function useInteractiveController({
       thinkingEnabled,
       permissionMode,
       historySearch,
+      exitPending,
       handleSubmit,
       handleInput,
       exitHistorySearch,
     }),
-    [exitHistorySearch, handleInput, handleSubmit, historySearch, permissionMode, thinkingEnabled],
+    [exitHistorySearch, exitPending, handleInput, handleSubmit, historySearch, permissionMode, thinkingEnabled],
   )
 }

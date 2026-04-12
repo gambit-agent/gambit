@@ -9,6 +9,7 @@ import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningInte
 export interface ConversationPanelProps {
   messages: ConversationMessage[]
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
+  transcriptMode?: boolean
 }
 
 const timestampFormatter = new Intl.DateTimeFormat(undefined, {
@@ -31,7 +32,16 @@ function formatTimestamp(value: string): string {
   return timestampFormatter.format(new Date(value))
 }
 
-export function ConversationPanel({ messages, scrollboxRef }: ConversationPanelProps) {
+function formatToolDetail(label: string, value: unknown, maxLength = 500): string | null {
+  if (value === undefined || value === null) {
+    return null
+  }
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  const truncated = text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+  return `${label}: ${truncated}`
+}
+
+export function ConversationPanel({ messages, scrollboxRef, transcriptMode = false }: ConversationPanelProps) {
   const [toolMessageAnimationFrame, setToolMessageAnimationFrame] = useState(0)
   const hasRunningToolMessage = messages.some(
     (message) => message.role === 'tool' && message.metadata?.toolStatus === 'started',
@@ -81,6 +91,53 @@ export function ConversationPanel({ messages, scrollboxRef }: ConversationPanelP
 
           if (isToolMessage) {
             const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
+
+            if (transcriptMode) {
+              const argsDetail = formatToolDetail('Args', message.metadata?.toolArgs)
+              const resultDetail = formatToolDetail('Result', message.metadata?.toolResult)
+              const artifactPath = message.metadata?.toolArtifactPath
+
+              return (
+                <box
+                  key={message.id}
+                  flexDirection="column"
+                  paddingX={layout.messagePaddingX}
+                  paddingY={1}
+                  gap={0}
+                  style={{
+                    border: ['left'],
+                    borderColor: theme.toolFg,
+                    paddingLeft: 2,
+                  }}
+                >
+                  <box flexDirection="row" gap={1}>
+                    {toolLine.indicator ? (
+                      <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                        {toolLine.indicator}
+                      </text>
+                    ) : null}
+                    <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                      {toolLine.text}
+                    </text>
+                  </box>
+                  {argsDetail ? (
+                    <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                      {argsDetail}
+                    </text>
+                  ) : null}
+                  {resultDetail ? (
+                    <text fg={theme.statusFg}>
+                      {resultDetail}
+                    </text>
+                  ) : null}
+                  {artifactPath ? (
+                    <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                      {`Path: ${artifactPath}`}
+                    </text>
+                  ) : null}
+                </box>
+              )
+            }
 
             return (
               <box

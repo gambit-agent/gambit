@@ -78,9 +78,10 @@ export function useAskUserQuestionController(
     [questionKey],
   )
 
-  const commitCurrent = useCallback((): { values: string[]; preview?: string; otherUsed: boolean } | null => {
+  const commitCurrent = useCallback((overrideIndex?: number): { values: string[]; preview?: string; otherUsed: boolean } | null => {
     if (!currentQuestion) return null
-    const isOtherFocused = focusedIndex === currentQuestion.options.length
+    const effectiveIndex = overrideIndex ?? focusedIndex
+    const isOtherFocused = effectiveIndex === currentQuestion.options.length
     const selected = state.selected
     const otherText = state.otherText.trim()
 
@@ -105,7 +106,7 @@ export function useAskUserQuestionController(
       if (!otherText) return null
       return { values: [otherText], otherUsed: true }
     }
-    const option = currentQuestion.options[focusedIndex]
+    const option = currentQuestion.options[effectiveIndex]
     if (!option) return null
     return {
       values: [option.label],
@@ -143,9 +144,9 @@ export function useAskUserQuestionController(
     [record, onResolve],
   )
 
-  const confirmAndAdvance = useCallback(() => {
+  const confirmAndAdvance = useCallback((overrideIndex?: number) => {
     if (!record || !currentQuestion) return
-    const commit = commitCurrent()
+    const commit = commitCurrent(overrideIndex)
     if (!commit) return
 
     const confirmedValue = currentQuestion.multiSelect ? commit.values : commit.values[0]!
@@ -281,7 +282,7 @@ export function useAskUserQuestionController(
         if (digit < currentQuestion.options.length) {
           setFocusedIndex(digit)
           if (!currentQuestion.multiSelect) {
-            confirmAndAdvance()
+            confirmAndAdvance(digit)
           }
         }
         return true

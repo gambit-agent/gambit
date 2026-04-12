@@ -11,6 +11,13 @@ export type ShortcutAction =
   | "cycle-permission"
   | "newline"
   | "background"
+  | "toggle-transcript"
+  | "scroll-page-up"
+  | "scroll-page-down"
+  | "scroll-top"
+  | "scroll-bottom"
+  | "permission-explain"
+  | "stash-prompt"
 
 export interface ShortcutMatch {
   action: ShortcutAction
@@ -93,9 +100,76 @@ export function matchShortcut(key: ParsedKey): ShortcutMatch | null {
       }
       break
     }
+    case "o": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "toggle-transcript", preventDefault: true }
+      }
+      break
+    }
+    case "pageup": {
+      if (!key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "scroll-page-up", preventDefault: true }
+      }
+      break
+    }
+    case "pagedown": {
+      if (!key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "scroll-page-down", preventDefault: true }
+      }
+      break
+    }
+    case "home": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "scroll-top", preventDefault: true }
+      }
+      break
+    }
+    case "end": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "scroll-bottom", preventDefault: true }
+      }
+      break
+    }
+    case "e": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "permission-explain", preventDefault: true }
+      }
+      break
+    }
+    case "s": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "stash-prompt", preventDefault: true }
+      }
+      break
+    }
     default:
       break
   }
 
   return null
+}
+
+const DOUBLE_PRESS_TIMEOUT_MS = 800
+
+export class DoublePressDetector {
+  private lastTimestamp: number | null = null
+  private readonly intervalMs: number
+
+  constructor(intervalMs: number = DOUBLE_PRESS_TIMEOUT_MS) {
+    this.intervalMs = intervalMs
+  }
+
+  press(): "first" | "second" {
+    const now = Date.now()
+    if (this.lastTimestamp && now - this.lastTimestamp <= this.intervalMs) {
+      this.lastTimestamp = null
+      return "second"
+    }
+    this.lastTimestamp = now
+    return "first"
+  }
+
+  reset(): void {
+    this.lastTimestamp = null
+  }
 }

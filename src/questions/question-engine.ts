@@ -86,10 +86,15 @@ export class QuestionEngine {
     if (!resolver) {
       return
     }
+    const wasActive = this.activeRequest?.id === id
     this.resolvers.delete(id)
     this.markResolved(id, 'rejected')
     resolver.reject(error)
-    this.advance()
+    if (wasActive) {
+      this.advance()
+    } else {
+      this.refresh()
+    }
   }
 
   private enqueue(record: QuestionRequestRecord): void {

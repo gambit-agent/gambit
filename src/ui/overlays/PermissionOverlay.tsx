@@ -5,9 +5,21 @@ import { theme } from '../theme'
 
 export interface PermissionOverlayProps {
   request: PermissionRequestRecord
+  showExplanation?: boolean
 }
 
-export function PermissionOverlay({ request }: PermissionOverlayProps) {
+export function PermissionOverlay({ request, showExplanation = false }: PermissionOverlayProps) {
+  const explanationParts: string[] = []
+  if (showExplanation && request.metadata) {
+    for (const [key, value] of Object.entries(request.metadata)) {
+      if (key === 'isPlanApproval') continue
+      if (value !== undefined && value !== null) {
+        const display = typeof value === 'string' ? value : JSON.stringify(value)
+        explanationParts.push(`${key}: ${display}`)
+      }
+    }
+  }
+
   return (
     <box
       style={{
@@ -36,10 +48,17 @@ export function PermissionOverlay({ request }: PermissionOverlayProps) {
       >
         <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="Permission Required" />
         <text fg={theme.userFg} content={request.subject} />
+        {showExplanation && explanationParts.length > 0 ? (
+          <box flexDirection="column" gap={0}>
+            {explanationParts.map((part, i) => (
+              <text key={i} fg={theme.statusFg} content={part} />
+            ))}
+          </box>
+        ) : null}
         <text
           fg={theme.statusFg}
           attributes={TextAttributes.DIM}
-          content="Press Y to allow, N to deny, or Shift+Tab to change permission mode."
+          content="Y/Enter to allow · N/Esc to deny · Shift+Tab to change mode · Ctrl+E for details"
         />
       </box>
     </box>
