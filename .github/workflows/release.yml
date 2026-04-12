@@ -28,7 +28,7 @@ jobs:
             os: ubuntu-24.04-arm
             targets: linux-arm64 linux-arm64-musl
           - name: darwin-x64
-            os: macos-13-large
+            os: macos-15-intel
             targets: darwin-x64
           - name: darwin-arm64
             os: macos-latest
