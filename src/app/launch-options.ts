@@ -1,9 +1,10 @@
-export type LaunchMode = 'new' | 'continue' | 'resume-id' | 'resume-picker'
+export type LaunchMode = 'new' | 'continue' | 'resume-id' | 'resume-picker' | 'headless'
 
 export interface LaunchOptions {
   mode: LaunchMode
   conversationId?: string
   query?: string
+  message?: string
 }
 
 const UUID_PATTERN =
@@ -25,6 +26,7 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
   let mode: LaunchMode = 'new'
   let conversationId: string | undefined
   let query: string | undefined
+  let message: string | undefined
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -49,6 +51,19 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
       mode = 'resume-picker'
       conversationId = undefined
       query = value || undefined
+      continue
+    }
+
+    if (arg === '--message' || arg === '-m') {
+      const next = argv[index + 1]
+      if (next === undefined) {
+        continue
+      }
+      index += 1
+      mode = 'headless'
+      message = next
+      conversationId = undefined
+      query = undefined
     }
   }
 
@@ -56,5 +71,6 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
     mode,
     conversationId,
     query,
+    message,
   }
 }

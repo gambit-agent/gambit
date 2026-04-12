@@ -1,7 +1,16 @@
-import { createCliRenderer } from '@opentui/core';
-import { createRoot } from '@opentui/react';
+import { parseLaunchOptions } from './app/launch-options';
 
-import { App } from './App';
+const launchOptions = parseLaunchOptions(Bun.argv.slice(2));
+
+if (launchOptions.mode === 'headless' && launchOptions.message !== undefined) {
+  const { runHeadless } = await import('./app/headless-runner');
+  const exitCode = await runHeadless({ message: launchOptions.message });
+  process.exit(exitCode);
+}
+
+const { createCliRenderer } = await import('@opentui/core');
+const { createRoot } = await import('@opentui/react');
+const { App } = await import('./App');
 
 try {
   const renderer = await createCliRenderer();
