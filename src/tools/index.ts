@@ -13,6 +13,8 @@ import type { AnyToolDefinition, ToolExecutionContext } from './tool-types'
 
 export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   includeSpawnAgent?: boolean
+  includeMCPTools?: boolean
+  discoverMCPServerTools?: boolean
   allowedToolIds?: readonly string[]
   onEvent?: (event: any) => void
 }
@@ -36,7 +38,9 @@ function toAiTool(
   })
 }
 
-export async function createDefaultToolRegistry(options: { includeSpawnAgent?: boolean } = {}): Promise<ToolRegistry> {
+export async function createDefaultToolRegistry(
+  options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
+): Promise<ToolRegistry> {
   const definitions = await createBuiltInToolDefinitions(options)
   return createToolRegistry(definitions)
 }
@@ -57,7 +61,9 @@ const defaultRegistry = await createDefaultToolRegistry({ includeSpawnAgent: fal
 export const toolRegistry = defaultRegistry
 export const toolExecutor = createToolExecutor(defaultRegistry, { workspaceRoot })
 
-export async function createRuntimeToolRegistry(options: { includeSpawnAgent?: boolean } = {}): Promise<ToolRegistry> {
+export async function createRuntimeToolRegistry(
+  options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
+): Promise<ToolRegistry> {
   return createDefaultToolRegistry(options)
 }
 

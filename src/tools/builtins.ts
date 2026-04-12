@@ -15,6 +15,7 @@ import {
   type SlashCommandExecution,
 } from '../lib/slashCommands'
 import type { ToolDefinition } from './tool-types'
+import { discoverMCPTools, mcpManagementTools } from './mcp'
 
 const readFileSchema = z.object({
   path: z.string().describe('File path relative to the workspace root.'),
@@ -120,7 +121,7 @@ function formatSlashCommandMessage(execution: SlashCommandExecution): string {
 }
 
 export async function createBuiltInToolDefinitions(
-  options: { includeSpawnAgent?: boolean } = {},
+  options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolDefinition<any, any>[]> {
   const cachedSlashCommands = await loadSlashCommands()
   const slashCommandDescription = buildSlashCommandToolDescription(cachedSlashCommands)
@@ -399,6 +400,19 @@ export async function createBuiltInToolDefinitions(
     readTaskOutputTool,
     writeMemoryTool,
   ]
+
+  if (options.includeMCPTools !== false) {
+    tools.push(...(mcpManagementTools as ToolDefinition<any, any>[]))
+
+    if (options.discoverMCPServerTools) {
+      try {
+        const discovered = await discoverMCPTools()
+        tools.push(...(discovered as ToolDefinition<any, any>[]))
+      } catch (error) {
+        console.warn('Failed to discover MCP tools:', error)
+      }
+    }
+  }
 
   if (options.includeSpawnAgent !== false) {
     const spawnAgentTool: ToolDefinition<typeof spawnAgentSchema, string> = {

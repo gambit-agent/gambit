@@ -21,6 +21,8 @@ import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { TaskPanel } from '../ui/panels/TaskPanel'
 import { PermissionOverlay } from '../ui/overlays/PermissionOverlay'
 import { SessionPickerOverlay, type SessionPickerOption } from '../ui/overlays/SessionPickerOverlay'
+import { MCPServerManagerOverlay } from '../ui/overlays/MCPServerManagerOverlay'
+import { listMCPServerConfigs } from '../lib/mcp-config'
 
 const timestampFormatter = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit',
@@ -158,6 +160,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     fetchState: 'idle',
     fetchError: null,
   })
+  const [mcpOverlayOpen, setMcpOverlayOpen] = useState(false)
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
   const statusStartedAtRef = useRef<Date | null>(null)
   const launchHandledRef = useRef(false)
@@ -557,6 +560,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }
         }
 
+        if (mcpOverlayOpen) {
+          if (key.name === 'escape') {
+            setMcpOverlayOpen(false)
+          }
+          return
+        }
+
         if (sessionPickerState.isOpen) {
           if (key.name === 'escape') {
             if (conversation.initialized) {
@@ -609,6 +619,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         runtime.permissionEngine,
         sessionPickerState.isOpen,
         startFreshConversation,
+        mcpOverlayOpen,
       ],
     ),
   )
@@ -687,6 +698,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
         if (routed.name === 'resume') {
           openSessionPicker(routed.argument)
+          return
+        }
+
+        if (routed.name === 'mcp') {
+          setMcpOverlayOpen(true)
           return
         }
 
@@ -1041,6 +1057,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }}
         />
       ) : null}
+
+      {mcpOverlayOpen ? <MCPServerManagerOverlay servers={listMCPServerConfigs()} /> : null}
 
       {permissionSnapshot.activeRequest ? <PermissionOverlay request={permissionSnapshot.activeRequest} /> : null}
 

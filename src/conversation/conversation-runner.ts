@@ -47,7 +47,7 @@ export class ConversationRunner {
     toolCall: ConversationToolCall,
     context: Partial<ToolExecutionContext> = {},
   ): Promise<ToolExecutionResult> {
-    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true })
+    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
     const toolExecutor = createToolExecutor(registry, {
       workspaceRoot: context.workspaceRoot ?? this.dependencies.createToolContext().workspaceRoot,
     })
@@ -94,7 +94,7 @@ export class ConversationRunner {
         baseSystemPrompt: this.dependencies.baseSystemPrompt,
       },
     })
-    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true })
+    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
     const toolExecutor = createToolExecutor(registry, {
       workspaceRoot: toolContext.workspaceRoot,
     })
