@@ -15,7 +15,24 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            targets: linux-x64 linux-x64-musl
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            targets: linux-arm64 linux-arm64-musl
+          - name: darwin-x64
+            os: macos-13
+            targets: darwin-x64
+          - name: darwin-arm64
+            os: macos-latest
+            targets: darwin-arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +47,34 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build binaries
+        shell: bash
+        run: |
+          mkdir -p dist
+          for target in ${{ matrix.targets }}; do
+            echo "Building gambit-$target on ${{ matrix.os }}..."
+            bun build \
+              --compile \
+              --minify \
+              --target="bun-$target" \
+              src/gambit.tsx \
+              --outfile "dist/gambit-$target"
+          done
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gambit-${{ matrix.name }}
+          path: dist/gambit-*
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Resolve version
         id: version
         run: |
@@ -38,26 +83,15 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Build cross-platform binaries
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect binaries
         run: |
           mkdir -p dist
-          targets=(
-            linux-x64
-            linux-x64-musl
-            linux-arm64
-            linux-arm64-musl
-            darwin-x64
-            darwin-arm64
-          )
-          for target in "${targets[@]}"; do
-            echo "Building gambit-$target..."
-            bun build \
-              --compile \
-              --minify \
-              --target="bun-$target" \
-              src/gambit.tsx \
-              --outfile "dist/gambit-$target"
-          done
+          find artifacts -type f -name 'gambit-*' -exec cp -v {} dist/ \;
           ls -la dist
 
       - name: Generate manifest.json
