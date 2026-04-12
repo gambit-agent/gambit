@@ -263,8 +263,8 @@ src/
 Release binaries are built by `.github/workflows/release.yml` when a `v*` tag is pushed:
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 The workflow cross-compiles for all supported platforms using `bun build --compile`, produces a `manifest.json` of SHA256 checksums, and publishes them as release assets. After the release lands, `install.sh` will resolve `stable` to that tag.

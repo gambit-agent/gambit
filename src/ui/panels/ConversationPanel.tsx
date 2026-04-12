@@ -72,6 +72,8 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
       style={{
         rootOptions: {
           flexGrow: 1,
+          flexShrink: 1,
+          minHeight: 0,
           backgroundColor: theme.background,
         },
         contentOptions: {

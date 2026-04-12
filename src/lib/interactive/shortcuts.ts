@@ -10,6 +10,7 @@ export type ShortcutAction =
   | "toggle-thinking"
   | "cycle-permission"
   | "newline"
+  | "follow-up"
   | "background"
   | "toggle-transcript"
   | "scroll-page-up"
@@ -89,7 +90,10 @@ export function matchShortcut(key: ParsedKey): ShortcutMatch | null {
     }
     case "return":
     case "enter": {
-      if (key.ctrl || key.option || key.meta || key.shift) {
+      if (key.option && !key.ctrl && !key.meta && !key.shift) {
+        return { action: "follow-up", preventDefault: true }
+      }
+      if (key.ctrl || key.meta || key.shift) {
         return { action: "newline", preventDefault: true }
       }
       break

@@ -99,7 +99,11 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
       continue
     }
 
-    if (arg === '--output-format') {
+    if (arg === '--output-format' || arg === '--events') {
+      if (arg === '--events') {
+        outputFormat = 'stream-json'
+        continue
+      }
       const next = readRequiredValue(argv, index)
       if (next.value && (OUTPUT_FORMATS as string[]).includes(next.value)) {
         outputFormat = next.value as OutputFormat

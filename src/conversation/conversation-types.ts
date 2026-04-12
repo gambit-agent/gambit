@@ -2,6 +2,7 @@ export type ConversationRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface ConversationMessage {
   id: string
+  parentId?: string
   role: ConversationRole
   content: string
   timestamp: string

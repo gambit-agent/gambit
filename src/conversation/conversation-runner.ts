@@ -9,6 +9,8 @@ import { MemoryStore } from '../memory/memory-store'
 import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
 import type { ToolExecutionContext } from '../tools/tool-types'
 import { createToolExecutor, type ToolExecutionResult } from '../tools/tool-executor'
+import { compactMessages, shouldAutoCompact } from './compaction'
+import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { ConversationStore } from './conversation-store'
 import type { ConversationMessage, ConversationToolCall, ConversationTurnRecord } from './conversation-types'
 
@@ -77,7 +79,32 @@ export class ConversationRunner {
     return result
   }
 
+  async compact(options?: { apiKey?: string; modelId?: string }): Promise<{ compacted: boolean; summarizedCount: number }> {
+    const snapshot = this.dependencies.store.getSnapshot()
+    let maxTokens: number | undefined
+    if (options?.apiKey && options?.modelId) {
+      const contextLength = await getModelContextLength(options.modelId, options.apiKey)
+      maxTokens = getCompactionThreshold(contextLength)
+    }
+    const result = compactMessages(snapshot.messages, { maxTokens })
+    if (result.compacted) {
+      await this.dependencies.store.replaceMessages(result.messages)
+    }
+    return { compacted: result.compacted, summarizedCount: result.summarizedCount }
+  }
+
   async runTurn(options: RunConversationTurnOptions): Promise<ConversationTurnRecord> {
+    // Auto-compact based on model's actual context window
+    const preSnapshot = this.dependencies.store.getSnapshot()
+    const contextLength = await getModelContextLength(options.modelId, options.apiKey)
+    const maxTokens = getCompactionThreshold(contextLength)
+    if (shouldAutoCompact(preSnapshot.messages, { maxTokens })) {
+      const result = compactMessages(preSnapshot.messages, { maxTokens })
+      if (result.compacted) {
+        await this.dependencies.store.replaceMessages(result.messages)
+      }
+    }
+
     const snapshot = this.dependencies.store.getSnapshot()
     const relevantMemoryContext = await this.dependencies.memoryStore.getRelevantContext(options.userInput)
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt

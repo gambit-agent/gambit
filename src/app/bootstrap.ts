@@ -21,6 +21,7 @@ import {
   listConversationSessions,
   type ConversationSessionSummary,
 } from '../session/conversation-sessions'
+import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
 
 export interface AppRuntime {
   baseSystemPrompt: string
@@ -37,6 +38,8 @@ export interface AppRuntime {
   resumeConversation: (conversationId: string) => Promise<ConversationSessionSummary>
   resumeLatestConversation: () => Promise<ConversationSessionSummary | null>
   listConversationSessions: () => Promise<ConversationSessionSummary[]>
+  forkConversation: (atMessageId?: string) => Promise<ForkResult>
+  getConversationTree: () => Promise<string>
   runShellCommand: (command: string, options: { background: boolean }) => Promise<{
     taskId: string
     output: string
@@ -147,6 +150,15 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     },
     listConversationSessions: async () => {
       return listConversationSessions(workspaceRoot)
+    },
+    forkConversation: async (atMessageId?: string) => {
+      const sourceId = conversationStore.getSnapshot().conversationId
+      const result = await forkConversationImpl(sourceId, { atMessageId, root: workspaceRoot })
+      await conversationStore.openConversation(result.conversationId)
+      return result
+    },
+    getConversationTree: async () => {
+      return buildConversationTree(workspaceRoot)
     },
     runShellCommand: async (command: string, options: { background: boolean }) => {
       const permission = await permissionEngine.request({

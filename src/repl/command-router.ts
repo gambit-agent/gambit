@@ -1,6 +1,6 @@
 export type RoutedInput =
   | { kind: 'prompt'; value: string }
-  | { kind: 'local'; channel: 'colon' | 'shell' | 'memory' | 'slash'; name: string; argument: string; raw: string }
+  | { kind: 'local'; channel: 'colon' | 'shell' | 'memory' | 'slash' | 'template'; name: string; argument: string; raw: string }
   | { kind: 'local-ui'; channel: 'slash'; name: string; argument: string; raw: string }
 
 export function routeCommandInput(value: string): RoutedInput {
@@ -33,6 +33,20 @@ export function routeCommandInput(value: string): RoutedInput {
       channel: 'memory',
       name: 'memory',
       argument: trimmed.slice(1).trim(),
+      raw: trimmed,
+    }
+  }
+
+  if (trimmed.startsWith('@') && /^@[a-zA-Z]/.test(trimmed)) {
+    const templateInput = trimmed.slice(1).trim()
+    const firstSpace = templateInput.indexOf(' ')
+    const name = firstSpace === -1 ? templateInput : templateInput.slice(0, firstSpace)
+    const argument = firstSpace === -1 ? '' : templateInput.slice(firstSpace + 1).trim()
+    return {
+      kind: 'local',
+      channel: 'template',
+      name,
+      argument,
       raw: trimmed,
     }
   }

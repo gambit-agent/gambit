@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { ConversationMessage } from '../conversation/conversation-types'
 import { readJsonlEntries } from '../conversation/transcript'
 import { workspaceRoot } from '../config'
+import { readConversationMeta } from './conversation-fork'
 
 interface TranscriptMessageRecord extends ConversationMessage {
   kind?: string
@@ -18,6 +19,7 @@ export interface ConversationSessionSummary {
   createdAt: string | null
   updatedAt: string | null
   messageCount: number
+  forkedFrom?: string
 }
 
 function getConversationsDirectory(root: string = workspaceRoot): string {
@@ -91,7 +93,15 @@ async function readSessionSummary(
 ): Promise<ConversationSessionSummary | null> {
   const transcriptPath = getConversationTranscriptPath(conversationId, root)
   const records = await readJsonlEntries<TranscriptMessageRecord>(transcriptPath)
-  return buildSummary(conversationId, transcriptPath, records)
+  const summary = buildSummary(conversationId, transcriptPath, records)
+  if (!summary) return null
+
+  const meta = await readConversationMeta(conversationId, root)
+  if (meta?.forkedFrom) {
+    summary.forkedFrom = meta.forkedFrom
+  }
+
+  return summary
 }
 
 export async function listConversationSessions(root: string = workspaceRoot): Promise<ConversationSessionSummary[]> {

@@ -1,4 +1,4 @@
-import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable } from '@opentui/core'
+import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable, type TextareaRenderable } from '@opentui/core'
 import { useKeyboard, useRenderer } from '@opentui/react'
 import { randomUUID } from 'node:crypto'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
@@ -16,6 +16,9 @@ import { copyTextToClipboard } from '../lib/clipboard'
 import { useModelPicker } from '../lib/modelPicker'
 import type { ReasoningEffort } from '../lib/model'
 import { executeSlashCommand, type SlashCommandExecution } from '../lib/slashCommands'
+import { executePromptTemplate } from '../lib/promptTemplates'
+import { estimateContextTokens } from '../conversation/compaction'
+import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { useInteractiveController } from '../lib/interactive/controller'
 import { matchShortcut } from '../lib/interactive/shortcuts'
 import type { UIMessage } from '../types/chat'
@@ -36,6 +39,18 @@ import {
 } from '../ui/overlays/AskUserQuestionOverlay'
 import { listMCPServerConfigs } from '../lib/mcp-config'
 import { readPlan } from '../plans/plan-store'
+
+// Textarea key bindings: Enter submits, Shift/Ctrl/Meta+Enter inserts newline
+const textareaKeyBindings = [
+  { name: 'return', action: 'submit' as const },
+  { name: 'enter', action: 'submit' as const },
+  { name: 'return', shift: true, action: 'newline' as const },
+  { name: 'enter', shift: true, action: 'newline' as const },
+  { name: 'return', ctrl: true, action: 'newline' as const },
+  { name: 'enter', ctrl: true, action: 'newline' as const },
+  { name: 'return', meta: true, action: 'newline' as const },
+  { name: 'enter', meta: true, action: 'newline' as const },
+]
 
 const timestampFormatter = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit',
@@ -81,6 +96,12 @@ function formatSlashCommandMessage(execution: SlashCommandExecution): string {
 
   const headerBlock = header.join('\n')
   return execution.content ? `${headerBlock}\n\n${execution.content}` : headerBlock
+}
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`
+  return `${tokens}`
 }
 
 function formatDuration(milliseconds: number): string {
@@ -183,7 +204,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [activePlanContent, setActivePlanContent] = useState<string | null>(null)
   const [transcriptMode, setTranscriptMode] = useState(false)
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
+  const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | null>(null)
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
+  const textareaRef = useRef<TextareaRenderable | null>(null)
   const statusStartedAtRef = useRef<Date | null>(null)
   const launchHandledRef = useRef(false)
   const modelSelectionDirtyRef = useRef(false)
@@ -472,6 +495,30 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [runtime.conversationStore])
 
+  // Live context usage tracking — updates whenever messages or model change
+  useEffect(() => {
+    let cancelled = false
+    const used = estimateContextTokens(
+      conversation.messages.map((m) => ({ ...m, timestamp: m.timestamp })),
+    )
+
+    const trimmedKey = apiKey.trim()
+    if (!trimmedKey) {
+      setContextUsage({ used, max: 128_000 })
+      return
+    }
+
+    void getModelContextLength(modelId, trimmedKey).then((contextLength) => {
+      if (!cancelled) {
+        setContextUsage({ used, max: contextLength })
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [conversation.messages, modelId, apiKey])
+
   useEffect(() => {
     if (launchHandledRef.current) {
       return
@@ -641,7 +688,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           // Shift+Tab cycles permission mode within the dialog
           const permShortcut = matchShortcut(key)
           if (permShortcut?.action === 'cycle-permission') {
-            runtime.permissionEngine.cycleMode()
+            const newMode = runtime.permissionEngine.cycleMode()
+            if (newMode === 'auto-accept' && permissionSnapshot.activeRequest) {
+              await runtime.permissionEngine.resolve(permissionSnapshot.activeRequest.id, 'allow')
+            }
             return
           }
           if (permShortcut?.action === 'permission-explain') {
@@ -807,6 +857,68 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
+        if (routed.name === 'compact') {
+          if (conversation.status === 'running') {
+            runtime.conversationStore.setError('Finish or cancel the current run before compacting.')
+            return
+          }
+          try {
+            const result = await runtime.conversationRunner.compact({ apiKey: apiKey.trim() || undefined, modelId })
+            if (result.compacted) {
+              await runtime.conversationStore.pushMessage({
+                id: randomUUID(),
+                role: 'system',
+                content: `Compacted conversation: ${result.summarizedCount} older messages summarized.`,
+                timestamp: new Date().toISOString(),
+              })
+            } else {
+              await runtime.conversationStore.pushMessage({
+                id: randomUUID(),
+                role: 'system',
+                content: 'No compaction needed — context is within limits.',
+                timestamp: new Date().toISOString(),
+              })
+            }
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
+          return
+        }
+
+        if (routed.name === 'fork') {
+          if (conversation.status === 'running') {
+            runtime.conversationStore.setError('Finish or cancel the current run before forking.')
+            return
+          }
+          try {
+            const result = await runtime.forkConversation(routed.argument || undefined)
+            await runtime.conversationStore.pushMessage({
+              id: randomUUID(),
+              role: 'system',
+              content: `Forked conversation → ${result.conversationId.slice(0, 8)} (${result.messageCount} messages copied).`,
+              timestamp: new Date().toISOString(),
+            })
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
+          return
+        }
+
+        if (routed.name === 'tree') {
+          try {
+            const tree = await runtime.getConversationTree()
+            await runtime.conversationStore.pushMessage({
+              id: randomUUID(),
+              role: 'system',
+              content: `Conversation tree:\n\n${tree}`,
+              timestamp: new Date().toISOString(),
+            })
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
+          return
+        }
+
         runtime.conversationStore.setError(`Unknown command: ${routed.name}`)
         return
       }
@@ -866,6 +978,40 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
       if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'resume') {
         openSessionPicker(routed.argument)
+        return
+      }
+
+      if (routed.channel === 'template') {
+        const execution = await executePromptTemplate(routed.name, routed.argument)
+        if (!execution) {
+          runtime.conversationStore.setError(`Unknown prompt template: @${routed.name}`)
+          return
+        }
+
+        if (!apiKey.trim()) {
+          runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
+          return
+        }
+
+        if (!conversation.initialized) {
+          await runtime.resetConversation()
+        }
+
+        await runtime.conversationStore.pushMessage({
+          id: randomUUID(),
+          role: 'user',
+          content: execution.content,
+          timestamp: new Date().toISOString(),
+        })
+
+        await runtime.conversationRunner.runTurn({
+          userInput: execution.content,
+          apiKey: apiKey.trim(),
+          modelId,
+          reasoningEffort,
+          showReasoning: thinkingEnabled,
+          signal,
+        })
         return
       }
 
@@ -983,6 +1129,38 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setThinkingEnabled(interactive.thinkingEnabled)
   }, [interactive.thinkingEnabled])
 
+  // Process follow-up queue when a turn completes
+  useEffect(() => {
+    if (conversation.status !== 'idle') return
+    const next = interactive.drainFollowUp()
+    if (next) {
+      void interactive.handleSubmit(next)
+    }
+  }, [conversation.status, interactive])
+
+  // Sync external inputValue changes into the textarea buffer
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    if (ta.plainText !== inputValue) {
+      ta.setText(inputValue)
+    }
+  }, [inputValue])
+
+  const handleTextareaContentChange = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const text = ta.plainText
+    interactive.handleInput(text)
+  }, [interactive])
+
+  const handleTextareaSubmit = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const text = ta.plainText
+    void interactive.handleSubmit(text)
+  }, [interactive])
+
   const handleInputSubmit = useCallback(
     (value: unknown) => {
       if (typeof value === 'string') {
@@ -1025,8 +1203,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   }, [])
 
   const modelDisplay = reasoningEffort ? `${modelId} (effort: ${reasoningEffort})` : modelId
+  const followUpCount = interactive.followUpQueue.length
   const statusDisplay =
-    conversation.status === 'running' && statusElapsed ? `running - ${statusElapsed}` : conversation.status
+    conversation.status === 'running' && statusElapsed
+      ? `running - ${statusElapsed}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
+      : conversation.status
   const responseSpinner = responseSpinnerFrames[responseSpinnerFrame] ?? responseSpinnerFrames[0]
   const permissionModeColor =
     permissionSnapshot.mode === 'auto-accept'
@@ -1242,6 +1423,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
       <box
         flexDirection="column"
+        flexShrink={0}
         border={['top', 'bottom', 'left', 'right']}
         borderStyle="rounded"
         paddingX={1}
@@ -1253,7 +1435,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           backgroundColor: theme.background,
         }}
       >
-        <box flexDirection="column" gap={inputPreview ? 1 : 0}>
+        <box flexDirection="column" gap={inputPreview ? 1 : 0} padding={0}>
           {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
           <box
             flexDirection="row"
@@ -1263,10 +1445,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           >
             <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="› " />
             <box flexGrow={1} flexDirection="column">
-              <input
-                value={inputValue}
-                onInput={interactive.handleInput}
-                onSubmit={handleInputSubmit}
+              <textarea
+                ref={textareaRef}
+                initialValue={inputValue}
+                onContentChange={handleTextareaContentChange}
+                onSubmit={handleTextareaSubmit}
                 focused={isMainInputFocused}
                 backgroundColor={theme.background}
                 focusedBackgroundColor={theme.background}
@@ -1274,19 +1457,25 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
                 placeholderColor={theme.statusFg}
                 placeholder="Ask anything or @ tag files/folders"
                 cursorColor={theme.headerAccent}
+                wrapMode="word"
+                keyBindings={textareaKeyBindings}
               />
             </box>
           </box>
         </box>
 
-        <box flexDirection="row" gap={3} padding={1}>
+        <box 
+        flexDirection="row" 
+        gap={3} 
+        paddingLeft={1}
+        paddingBottom={0}>
           <text fg={theme.headerAccent}>* {modelDisplay}</text>
           <text fg={theme.statusFg}>{thinkingEnabled ? '◉ Thinking' : '○ Direct'}</text>
           <text fg={permissionModeColor}>◇ {permissionSnapshot.mode}</text>
         </box>
       </box>
 
-      <box flexDirection="row" justifyContent="space-between" marginTop={1} paddingX={1}>
+      <box flexDirection="row" flexShrink={0} justifyContent="space-between" marginTop={1} paddingX={1}>
         <box flexDirection="row" gap={3}>
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={'◈ Local'} />
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂ ${gitBranch || 'unknown'}`} />
@@ -1298,7 +1487,22 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           {conversation.status === 'running' ? (<text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content={responseSpinner} />) : <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`•`} />}
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`${statusDisplay}`} />
         </box>
-        <TaskPanel tasks={activeBackgroundTasks} />
+        <box flexDirection="row" gap={3}>
+          {contextUsage ? (
+            <text
+              fg={
+                contextUsage.used / contextUsage.max > 0.85
+                  ? '#ff6b6b'
+                  : contextUsage.used / contextUsage.max > 0.6
+                    ? '#f2cc60'
+                    : theme.statusFg
+              }
+              attributes={TextAttributes.DIM}
+              content={`ctx ${formatTokenCount(contextUsage.used)}/${formatTokenCount(contextUsage.max)} (${Math.round((contextUsage.used / contextUsage.max) * 100)}%)`}
+            />
+          ) : null}
+          <TaskPanel tasks={activeBackgroundTasks} />
+        </box>
       </box>
     </box>
   )

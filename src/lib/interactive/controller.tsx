@@ -47,9 +47,11 @@ export interface UseInteractiveControllerResult {
   permissionMode: PermissionMode
   historySearch: HistorySearchState
   exitPending: boolean
+  followUpQueue: string[]
   handleSubmit: (value: string) => Promise<void>
   handleInput: (value: string) => void
   exitHistorySearch: () => void
+  drainFollowUp: () => string | undefined
 }
 
 const DOUBLE_ESC_INTERVAL_MS = 400
@@ -85,6 +87,8 @@ export function useInteractiveController({
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [localPermissionMode, setLocalPermissionMode] = useState<PermissionMode>("normal")
   const [exitPending, setExitPending] = useState(false)
+  const followUpQueueRef = useRef<string[]>([])
+  const [followUpQueue, setFollowUpQueue] = useState<string[]>([])
   const lastEscTimestamp = useRef<number | null>(null)
   const ctrlCDetector = useRef(new DoublePressDetector())
   const ctrlDDetector = useRef(new DoublePressDetector())
@@ -466,10 +470,9 @@ export function useInteractiveController({
           return match.preventDefault ?? false
         }
         case "newline": {
+          // Let the textarea handle newline insertion natively
           clearPreviewLabel()
-          suppressNextInputRef.current = true
-          setInputValueWithRef((prev) => `${prev}\n`)
-          return match.preventDefault ?? false
+          return false
         }
         case "background": {
           const currentValue = inputValueRef.current
@@ -485,6 +488,20 @@ export function useInteractiveController({
             void persistHistory()
             setInputValueWithRef("")
             clearPreviewLabel()
+          }
+          return match.preventDefault ?? false
+        }
+        case "follow-up": {
+          const currentValue = inputValueRef.current.trim()
+          if (currentValue) {
+            followUpQueueRef.current = [...followUpQueueRef.current, currentValue]
+            setFollowUpQueue([...followUpQueueRef.current])
+            historyRef.current?.clearCursor()
+            historyRef.current?.add(currentValue)
+            void persistHistory()
+            clearPreviewLabel()
+            suppressNextInputRef.current = true
+            setInputValueWithRef("")
           }
           return match.preventDefault ?? false
         }
@@ -567,6 +584,14 @@ export function useInteractiveController({
     ),
   )
 
+  const drainFollowUp = useCallback(() => {
+    if (followUpQueueRef.current.length === 0) return undefined
+    const next = followUpQueueRef.current[0]
+    followUpQueueRef.current = followUpQueueRef.current.slice(1)
+    setFollowUpQueue([...followUpQueueRef.current])
+    return next
+  }, [])
+
   useEffect(() => {
     if (!isRunning) {
       sessionRef.current.clearRun()
@@ -579,10 +604,12 @@ export function useInteractiveController({
       permissionMode,
       historySearch,
       exitPending,
+      followUpQueue,
       handleSubmit,
       handleInput,
       exitHistorySearch,
+      drainFollowUp,
     }),
-    [exitHistorySearch, exitPending, handleInput, handleSubmit, historySearch, permissionMode, thinkingEnabled],
+    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, permissionMode, thinkingEnabled],
   )
 }
