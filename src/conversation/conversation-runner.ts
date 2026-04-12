@@ -30,6 +30,9 @@ export interface RunConversationTurnOptions {
   reasoningEffort?: ReasoningEffort | null
   showReasoning?: boolean
   signal?: AbortSignal
+  allowedToolIds?: readonly string[]
+  systemPromptOverride?: string
+  appendSystemPrompt?: string
 }
 
 export class ConversationRunner {
@@ -77,8 +80,10 @@ export class ConversationRunner {
   async runTurn(options: RunConversationTurnOptions): Promise<ConversationTurnRecord> {
     const snapshot = this.dependencies.store.getSnapshot()
     const relevantMemoryContext = await this.dependencies.memoryStore.getRelevantContext(options.userInput)
+    const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
     const systemPrompt = [
-      this.dependencies.baseSystemPrompt,
+      basePrompt,
+      options.appendSystemPrompt,
       getMemoryPrompt(),
       relevantMemoryContext,
     ]
@@ -91,14 +96,17 @@ export class ConversationRunner {
         apiKey: options.apiKey,
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort,
-        baseSystemPrompt: this.dependencies.baseSystemPrompt,
+        baseSystemPrompt: basePrompt,
       },
     })
     const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
     const toolExecutor = createToolExecutor(registry, {
       workspaceRoot: toolContext.workspaceRoot,
     })
-    const tools = createAiToolMap(registry, toolExecutor, toolContext)
+    const tools = createAiToolMap(registry, toolExecutor, {
+      ...toolContext,
+      allowedToolIds: options.allowedToolIds,
+    })
 
     const selectModel = createModelSelector(options.apiKey)
     const modelSettings = options.reasoningEffort

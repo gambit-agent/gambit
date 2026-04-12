@@ -2,9 +2,13 @@ import { parseLaunchOptions } from './app/launch-options';
 
 const launchOptions = parseLaunchOptions(Bun.argv.slice(2));
 
-if (launchOptions.mode === 'headless' && launchOptions.message !== undefined) {
+if (launchOptions.headless) {
   const { runHeadless } = await import('./app/headless-runner');
-  const exitCode = await runHeadless({ message: launchOptions.message });
+  const exitCode = await runHeadless({
+    headless: launchOptions.headless,
+    sessionMode: launchOptions.mode,
+    resumeConversationId: launchOptions.conversationId,
+  });
   process.exit(exitCode);
 }
 

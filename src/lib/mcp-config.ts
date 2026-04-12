@@ -52,12 +52,18 @@ const MCPConfigSchema = z.object({
 
 export type MCPConfig = z.infer<typeof MCPConfigSchema>
 
+let configPathOverride: string | undefined
+
+export function setMCPConfigPathOverride(overridePath: string | undefined): void {
+  configPathOverride = overridePath ? path.resolve(overridePath) : undefined
+}
+
 export function getConfigDir(): string {
   return path.join(homedir(), CONFIG_DIR_NAME)
 }
 
 export function getConfigPath(): string {
-  return path.join(getConfigDir(), CONFIG_FILE_NAME)
+  return configPathOverride ?? path.join(getConfigDir(), CONFIG_FILE_NAME)
 }
 
 export function loadMCPConfig(): MCPConfig {
@@ -78,8 +84,9 @@ export function loadMCPConfig(): MCPConfig {
 }
 
 export function saveMCPConfig(config: MCPConfig): void {
-  mkdirSync(getConfigDir(), { recursive: true })
-  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf-8')
+  const configPath = getConfigPath()
+  mkdirSync(path.dirname(configPath), { recursive: true })
+  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
 }
 
 export function addMCPServer(server: MCPServerConfig): void {
