@@ -4,8 +4,11 @@
 
 <img width="1727" height="1360" alt="Screenshot" src="https://github.com/user-attachments/assets/c2738f9a-d1e7-48e6-b242-0d762c6e6da4" />
 
-[![Bun](https://img.shields.io/badge/built%20with-bun-ffd0db.svg)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/type-safe-TypeScript-blue.svg)](https://www.typescriptlang.org/)
+[![Bun](https://img.shields.io/badge/Bun-1.2+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?logo=typescript&logoColor=white&labelColor=14151a)](https://www.typescriptlang.org/)
+[![OpenTUI](https://img.shields.io/badge/OpenTUI-0.1.95-6c5ce7?labelColor=14151a)](https://github.com/pauek/opentui)
+[![License](https://img.shields.io/github/license/sergiomasellis/gambit-cli?labelColor=14151a)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/sergiomasellis/gambit-cli?labelColor=14151a)](https://github.com/sergiomasellis/gambit-cli/releases/latest)
 
 ## Overview
 
@@ -14,6 +17,8 @@ Gambit CLI is a terminal-based UI for creating, managing, and interacting with A
 Features:
 
 - Interactive REPL with persistent conversations, background tasks, typed memory, and permission-gated tools.
+- Comprehensive keyboard shortcuts — transcript mode, scroll navigation, vim-style keys, double-press exit confirmation, and prompt stashing.
+- Plan mode with `EnterPlanMode` / `ExitPlanMode` tools for structured agent workflows.
 - Headless mode (`-p` / `--prompt`) for scripting and CI usage, with JSON and streaming output formats.
 - MCP client with `stdio` and `streamable-http` transports.
 - Pluggable slash commands loaded from user and project scopes.
@@ -87,6 +92,31 @@ Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/com
 
 Agent Skills are loaded from `SKILL.md` files under `~/.gambit/skills/` and `./.gambit/skills/` (and the cross-client `.agents/skills/` convention at both scopes). See [Agent Skills](#agent-skills) below.
 
+### Keyboard shortcuts
+
+| Shortcut | Context | Action |
+|---|---|---|
+| `Ctrl+C` | Global | Abort current run (press twice within 800ms to exit) |
+| `Ctrl+D` | Global | Exit (press twice within 800ms to confirm) |
+| `Ctrl+L` | Global | Clear / redraw screen |
+| `Ctrl+O` | Global | Toggle transcript mode (expand tool call details) |
+| `Ctrl+R` | Global | Reverse history search |
+| `Ctrl+B` | Chat | Background current task / toggle task panel |
+| `Ctrl+S` | Chat | Stash prompt (save current input; press again to restore) |
+| `Tab` | Chat | Toggle thinking / extended reasoning |
+| `Shift+Tab` | Chat / Permission | Cycle permission mode (normal → plan → auto-accept) |
+| `Page Up / Down` | Global | Scroll conversation by one page |
+| `Ctrl+Home / End` | Global | Jump to top / bottom of conversation |
+| `Up / Down` | Chat | Navigate command history |
+| `Ctrl+Enter` | Chat | Insert newline (also `Alt+Enter`, `Shift+Enter`, `Ctrl+J`) |
+| `Y` / `Enter` | Permission | Allow |
+| `N` / `Escape` | Permission | Deny |
+| `Ctrl+E` | Permission | Toggle explanation details |
+| `j` / `k` | Pickers | Navigate down / up (vim-style) |
+| `Ctrl+N` / `Ctrl+P` | Pickers | Navigate down / up |
+| `q` / `Escape` | Transcript | Exit transcript mode |
+| `Esc Esc` | Chat | Rewind to previous snapshot (double-press within 400ms) |
+
 ### Headless
 
 Provide `-p` / `--prompt` to run non-interactively:
@@ -125,6 +155,7 @@ Default registered tools (see `src/tools/builtins.ts`):
 - `readTaskOutput` — read persisted output for a background task.
 - `writeMemory` — persist typed memory records (`user`, `feedback`, `project`, `reference`).
 - `spawnAgent` — delegate to a local subagent (`default`, `explorer`, or `worker`).
+- `EnterPlanMode` / `ExitPlanMode` — structured plan-then-execute workflow. The agent explores the codebase, writes a plan, gets user approval, then implements.
 - MCP management: `list-mcp-resources`, `read-mcp-resource`, `list-mcp-tools`, `call-mcp-tool`, `list-mcp-servers`, `add-mcp-server`, `remove-mcp-server`, `toggle-mcp-server`.
 
 ## MCP support
@@ -211,15 +242,17 @@ src/
 ├── agents/         # Agent definitions and runtime logic
 ├── app/            # Launch options, bootstrap, headless runner, install
 ├── conversation/   # Conversation state machine and runner
-├── lib/            # Shared utilities (diff, slash commands, MCP config, ...)
+├── lib/            # Shared utilities (diff, slash commands, shortcuts, MCP config, ...)
 ├── memory/         # Typed memory persistence
 ├── permissions/    # Permission engine and prompts
-├── repl/           # Interactive REPL
-├── session/        # Session transcripts
+├── plans/          # Plan mode storage and utilities
+├── questions/      # AskUserQuestion engine
+├── repl/           # Interactive REPL and input routing
+├── session/        # Session transcripts and model selection
 ├── tasks/          # Background task runtime (shell + agent)
 ├── tools/          # Built-in tools, registry, MCP client bridge
 ├── types/          # Shared TypeScript types
-├── ui/             # @opentui/react components
+├── ui/             # @opentui/react components (panels, overlays, pickers)
 ├── workboard/      # Workboard UI
 ├── index.tsx       # Dev UI entry (hot-reload)
 └── gambit.tsx      # CLI entry (binary target)
@@ -230,8 +263,8 @@ src/
 Release binaries are built by `.github/workflows/release.yml` when a `v*` tag is pushed:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 The workflow cross-compiles for all supported platforms using `bun build --compile`, produces a `manifest.json` of SHA256 checksums, and publishes them as release assets. After the release lands, `install.sh` will resolve `stable` to that tag.
