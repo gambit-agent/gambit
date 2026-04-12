@@ -1,0 +1,433 @@
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+
+import { skillCatalogCharBudget, workspaceRoot } from "../config";
+import { truncate } from "./text";
+
+export type SkillScope = "project" | "user";
+
+export interface SkillDefinition {
+  /** Skill name (matches the parent directory name). */
+  name: string;
+  /** One-line description used in the catalog. */
+  description: string;
+  scope: SkillScope;
+  /** Absolute path to the SKILL.md file. */
+  filePath: string;
+  /** Absolute path to the skill's root directory. */
+  directoryPath: string;
+  /** Markdown body after the frontmatter (trimmed). */
+  body: string;
+  license?: string;
+  compatibility?: string;
+  allowedTools?: string[];
+}
+
+export interface SkillActivation {
+  name: string;
+  scope: SkillScope;
+  directoryPath: string;
+  body: string;
+  resources: string[];
+  /** Rendered tool-result payload (what is returned to the model). */
+  content: string;
+}
+
+interface Frontmatter {
+  name?: string;
+  description?: string;
+  license?: string;
+  compatibility?: string;
+  allowedTools?: string[];
+}
+
+let projectSkillDirsOverride: string[] | null = null;
+let userSkillDirsOverride: string[] | null = null;
+
+function getProjectSkillDirs(): string[] {
+  if (projectSkillDirsOverride) {
+    return projectSkillDirsOverride;
+  }
+  return [
+    path.join(workspaceRoot, ".gambit", "skills"),
+    path.join(workspaceRoot, ".agents", "skills"),
+  ];
+}
+
+function getUserSkillDirs(): string[] {
+  if (userSkillDirsOverride) {
+    return userSkillDirsOverride;
+  }
+  return [
+    path.join(homedir(), ".gambit", "skills"),
+    path.join(homedir(), ".agents", "skills"),
+  ];
+}
+
+export function setSkillDirectoriesForTesting(options: {
+  project?: string | string[] | null;
+  user?: string | string[] | null;
+}) {
+  if (Object.prototype.hasOwnProperty.call(options, "project")) {
+    projectSkillDirsOverride = normalizeDirOverride(options.project);
+  }
+  if (Object.prototype.hasOwnProperty.call(options, "user")) {
+    userSkillDirsOverride = normalizeDirOverride(options.user);
+  }
+}
+
+function normalizeDirOverride(value: string | string[] | null | undefined): string[] | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return value.slice();
+  }
+  return [value];
+}
+
+export async function loadSkills(): Promise<SkillDefinition[]> {
+  const projectSkills: SkillDefinition[] = [];
+  for (const dir of getProjectSkillDirs()) {
+    projectSkills.push(...(await collectSkills(dir, "project")));
+  }
+
+  const userSkills: SkillDefinition[] = [];
+  for (const dir of getUserSkillDirs()) {
+    userSkills.push(...(await collectSkills(dir, "user")));
+  }
+
+  const deduplicatedProject = dedupeByName(projectSkills);
+  const projectNames = new Set(deduplicatedProject.map((skill) => skill.name));
+  const filteredUser = userSkills.filter((skill) => !projectNames.has(skill.name));
+  const deduplicatedUser = dedupeByName(filteredUser);
+
+  const skills = [...deduplicatedProject, ...deduplicatedUser];
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+  return skills;
+}
+
+export async function activateSkill(name: string): Promise<SkillActivation> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error("Skill name cannot be empty.");
+  }
+
+  const skills = await loadSkills();
+  const skill = skills.find((candidate) => candidate.name === trimmed);
+  if (!skill) {
+    const available = skills.map((candidate) => candidate.name).join(", ") || "(none)";
+    throw new Error(`Skill not found: ${trimmed}. Available skills: ${available}`);
+  }
+
+  const resources = await listSkillResources(skill.directoryPath);
+  const content = renderSkillContent(skill, resources);
+
+  return {
+    name: skill.name,
+    scope: skill.scope,
+    directoryPath: skill.directoryPath,
+    body: skill.body,
+    resources,
+    content,
+  };
+}
+
+export function buildActivateSkillToolDescription(skills: SkillDefinition[]): string {
+  const header = [
+    "Activate an Agent Skill to load its full instructions for a specialized task.",
+    "Skills are discovered from `.gambit/skills/` and `.agents/skills/` at the project and user scope.",
+    "Call this tool with the exact `name` of a skill listed below when a task matches its description.",
+    "The tool returns the skill's SKILL.md body along with a list of bundled resources you can read on demand.",
+  ].join(" ");
+
+  if (skills.length === 0) {
+    return `${header}\nNo skills are currently installed.`;
+  }
+
+  const lines: string[] = [];
+  for (const skill of skills) {
+    const scopeLabel = skill.scope === "project" ? "project" : "user";
+    lines.push(`- ${skill.name} (${scopeLabel}) — ${skill.description}`);
+  }
+
+  const budget = Math.max(0, skillCatalogCharBudget);
+  const segments = [header, "Available skills:", ...lines];
+
+  if (budget === 0) {
+    return header;
+  }
+
+  const assembled = assembleWithBudget(segments, budget);
+  if (assembled === null) {
+    return truncate([header, "Available skills:", lines[0] ?? ""].join("\n"), budget);
+  }
+  return assembled;
+}
+
+function assembleWithBudget(lines: string[], budget: number): string | null {
+  let used = 0;
+  const included: string[] = [];
+  let truncatedFlag = false;
+
+  for (const line of lines) {
+    const nextLength = line.length + (included.length === 0 ? 0 : 1);
+    if (used + nextLength > budget) {
+      truncatedFlag = true;
+      break;
+    }
+    included.push(line);
+    used += nextLength;
+  }
+
+  if (included.length === 0) {
+    return null;
+  }
+
+  if (!truncatedFlag) {
+    return included.join("\n");
+  }
+
+  const remaining = lines.length - included.length;
+  const note = `\n… (${remaining} more skill${remaining === 1 ? "" : "s"})`;
+  const candidate = included.join("\n") + note;
+  if (candidate.length <= budget) {
+    return candidate;
+  }
+  return truncate(candidate, budget);
+}
+
+async function collectSkills(root: string, scope: SkillScope): Promise<SkillDefinition[]> {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const skills: SkillDefinition[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillDir = path.join(root, entry.name);
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const definition = await parseSkillFile(skillFile, entry.name, skillDir, scope);
+    if (definition) {
+      skills.push(definition);
+    }
+  }
+  return skills;
+}
+
+async function parseSkillFile(
+  filePath: string,
+  directoryName: string,
+  directoryPath: string,
+  scope: SkillScope,
+): Promise<SkillDefinition | null> {
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    return null;
+  }
+
+  const content = await file.text();
+  const { frontmatter, body } = extractFrontmatter(content);
+
+  const description = frontmatter.description?.trim();
+  if (!description) {
+    console.warn(`Skipping skill at ${filePath}: missing 'description' in frontmatter.`);
+    return null;
+  }
+
+  const name = (frontmatter.name ?? directoryName).trim();
+  if (!name) {
+    console.warn(`Skipping skill at ${filePath}: skill name cannot be empty.`);
+    return null;
+  }
+
+  if (frontmatter.name && frontmatter.name !== directoryName) {
+    console.warn(
+      `Skill at ${filePath} has frontmatter name "${frontmatter.name}" that does not match directory "${directoryName}"; using frontmatter name.`,
+    );
+  }
+
+  return {
+    name,
+    description,
+    scope,
+    filePath,
+    directoryPath,
+    body: body.trim(),
+    license: frontmatter.license,
+    compatibility: frontmatter.compatibility,
+    allowedTools: frontmatter.allowedTools,
+  };
+}
+
+function extractFrontmatter(content: string): { frontmatter: Frontmatter; body: string } {
+  if (!content.startsWith("---")) {
+    return { frontmatter: {}, body: content };
+  }
+
+  const lines = content.split(/\r?\n/);
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (closingIndex === -1) {
+    return { frontmatter: {}, body: content };
+  }
+
+  const fmLines = lines.slice(1, closingIndex);
+  const body = lines.slice(closingIndex + 1).join("\n");
+  const frontmatter: Frontmatter = {};
+
+  for (const rawLine of fmLines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const colonIndex = line.indexOf(":");
+    if (colonIndex === -1) {
+      continue;
+    }
+    const key = line.slice(0, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
+
+    switch (key) {
+      case "name":
+        frontmatter.name = stripQuotes(value);
+        break;
+      case "description":
+        frontmatter.description = stripQuotes(value);
+        break;
+      case "license":
+        frontmatter.license = stripQuotes(value);
+        break;
+      case "compatibility":
+        frontmatter.compatibility = stripQuotes(value);
+        break;
+      case "allowed-tools":
+        frontmatter.allowedTools = parseAllowedTools(value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return { frontmatter, body };
+}
+
+function parseAllowedTools(value: string): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/[,\s]+/)
+    .map((entry) => stripQuotes(entry.trim()))
+    .filter(Boolean);
+}
+
+function stripQuotes(value: string): string {
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function dedupeByName(skills: SkillDefinition[]): SkillDefinition[] {
+  const seen = new Set<string>();
+  const out: SkillDefinition[] = [];
+  for (const skill of skills) {
+    if (seen.has(skill.name)) {
+      console.warn(
+        `Duplicate skill name "${skill.name}" found at ${skill.filePath}; ignoring the later entry.`,
+      );
+      continue;
+    }
+    seen.add(skill.name);
+    out.push(skill);
+  }
+  return out;
+}
+
+const RESOURCE_SKIP_DIRECTORIES = new Set([".git", "node_modules"]);
+const RESOURCE_MAX_ENTRIES = 100;
+const RESOURCE_MAX_DEPTH = 4;
+
+async function listSkillResources(directoryPath: string): Promise<string[]> {
+  const out: string[] = [];
+
+  async function walk(dir: string, relative: string, depth: number): Promise<void> {
+    if (out.length >= RESOURCE_MAX_ENTRIES || depth > RESOURCE_MAX_DEPTH) {
+      return;
+    }
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= RESOURCE_MAX_ENTRIES) {
+        return;
+      }
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      if (entry.isDirectory() && RESOURCE_SKIP_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+      const nextRelative = relative ? path.join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        await walk(path.join(dir, entry.name), nextRelative, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (nextRelative === "SKILL.md") {
+        continue;
+      }
+      out.push(nextRelative.split(path.sep).join("/"));
+    }
+  }
+
+  await walk(directoryPath, "", 0);
+  out.sort();
+  return out;
+}
+
+function renderSkillContent(skill: SkillDefinition, resources: string[]): string {
+  const parts: string[] = [];
+  parts.push(`<skill_content name="${escapeAttribute(skill.name)}" scope="${skill.scope}">`);
+  if (skill.compatibility) {
+    parts.push(`Compatibility: ${skill.compatibility}`);
+    parts.push("");
+  }
+  parts.push(skill.body || "(empty skill body)");
+  parts.push("");
+  parts.push(`Skill directory: ${skill.directoryPath}`);
+  parts.push(
+    "Files referenced by this skill use paths relative to the skill directory. Use the `readFile` tool with the full absolute path when loading them.",
+  );
+  if (resources.length > 0) {
+    parts.push("");
+    parts.push("<skill_resources>");
+    for (const resource of resources) {
+      parts.push(`  <file>${resource}</file>`);
+    }
+    if (resources.length >= RESOURCE_MAX_ENTRIES) {
+      parts.push("  <!-- resource listing truncated -->");
+    }
+    parts.push("</skill_resources>");
+  }
+  parts.push("</skill_content>");
+  return parts.join("\n");
+}
+
+function escapeAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}

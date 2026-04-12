@@ -2,6 +2,7 @@ import path from "node:path";
 
 const DEFAULT_PROJECT_DOC_MAX_BYTES = 64_000;
 const DEFAULT_SLASH_COMMAND_CHAR_BUDGET = 15_000;
+const DEFAULT_SKILL_CATALOG_CHAR_BUDGET = 8_000;
 
 export let workspaceRoot = computeWorkspaceRoot(Bun.env.WORKSPACE_ROOT);
 export const defaultModel = Bun.env.OPENROUTER_MODEL ?? "z-ai/glm-4.6";
@@ -18,6 +19,9 @@ export const projectDocFallbackFilenames = parseProjectDocFallbacks(
 );
 export const slashCommandCharBudget = parseSlashCommandCharBudget(
   Bun.env.SLASH_COMMAND_TOOL_CHAR_BUDGET,
+);
+export const skillCatalogCharBudget = parseSkillCatalogCharBudget(
+  Bun.env.SKILL_CATALOG_CHAR_BUDGET,
 );
 
 export function setWorkspaceRootForTesting(newRoot: string) {
@@ -59,6 +63,17 @@ function parseSlashCommandCharBudget(value: string | undefined): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
     return DEFAULT_SLASH_COMMAND_CHAR_BUDGET;
+  }
+  return Math.max(0, parsed);
+}
+
+function parseSkillCatalogCharBudget(value: string | undefined): number {
+  if (!value) {
+    return DEFAULT_SKILL_CATALOG_CHAR_BUDGET;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_SKILL_CATALOG_CHAR_BUDGET;
   }
   return Math.max(0, parsed);
 }

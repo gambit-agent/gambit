@@ -19,7 +19,11 @@ Source lives in `src/` organized by feature:
 - `ui/` - `@opentui/react` components
 - `workboard/` - Workboard UI
 
-Entry points: `src/index.tsx` (dev UI) and `src/gambit.tsx` (CLI binary). Runtime data stored in `.gambit/` (conversations, tasks, memories). Configuration in `tsconfig.json` and `package.json`. Use `.env` for secrets (not committed).
+Entry points: `src/index.tsx` (dev UI) and `src/gambit.tsx` (CLI binary). Runtime data stored in `.gambit/` (conversations, tasks, memories, skills). Configuration in `tsconfig.json` and `package.json`. Use `.env` for secrets (not committed).
+
+User-authored content lives alongside runtime data:
+- `.gambit/commands/` — slash command markdown files (`description`, `allowed-tools`, `model` frontmatter).
+- `.gambit/skills/` — Agent Skill directories (each with a `SKILL.md` + optional `scripts/`, `references/`, `assets/`). The cross-client `.agents/skills/` path is also scanned. See `src/lib/skills.ts` and the README for the progressive-disclosure contract.
 
 ## Build, Test, and Development Commands
 

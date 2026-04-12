@@ -3,6 +3,8 @@
 **Date:** 2026-04-11
 **Scope:** Compare gambit's tool surface against the Claude Code reference tool set (captured in the user-provided `claude-opus-4-5-20251101` tool manifest) and identify missing tools + description/schema alignment opportunities.
 
+> **Update (2026-04-11):** Agent Skills landed after the initial gap analysis — gambit now ships an `activateSkill` tool with progressive disclosure that matches Claude Code's `Skill` semantics. The entries below have been updated to reflect that; `Skill` is no longer a gap.
+
 ---
 
 ## 1. Reference sets
@@ -18,6 +20,7 @@ From `src/tools/builtins.ts` and `src/tools/mcp.ts`:
 - `patchFile`
 - `executeShell`
 - `slashCommand`
+- `activateSkill` (conditionally registered when at least one `SKILL.md` is discovered under `.gambit/skills/` or `.agents/skills/`; see `src/lib/skills.ts`)
 - `readTaskOutput`
 - `writeMemory`
 - `spawnAgent` (optional; `includeSpawnAgent: false` in default registry at `src/tools/index.ts:59`)
@@ -33,7 +36,8 @@ From `src/tools/builtins.ts` and `src/tools/mcp.ts`:
 | `writeFile` | `Write` | ⚠️ Weak | Description is one line. Missing "must Read first" guardrail text and "prefer editing over creating" guidance. |
 | `patchFile` | *(closest: `Edit`, but via unified diff)* | ⚠️ Partial | Diff-based editing is more expressive but agents often need targeted string replacements. No equivalent to `Edit`'s `old_string`/`new_string`/`replace_all`. |
 | `executeShell` | `Bash` | ⚠️ Weak | Runtime (`ShellTaskRunner`) supports background execution (`src/tasks/shell-task-runner.ts:26-101`) but the tool schema does **not** expose `run_in_background`, `timeout`, or `description` params. Description is one line. |
-| `slashCommand` | `Skill` | ⚠️ Partial | Description is dynamically built from registered commands — good — but doesn't mirror `Skill`'s invocation semantics and guardrails. |
+| `slashCommand` | *(gambit-unique; complements `Skill`)* | ✅ Keep | Workspace-scoped command templates (`.gambit/commands/*.md`). Distinct use case from `Skill`. |
+| `activateSkill` | `Skill` | ✅ Parity | Discovers `SKILL.md` under `.gambit/skills/` and `.agents/skills/` (project + user). Catalog embedded in tool description (tier 1); full body returned on activation wrapped in `<skill_content>` with a `<skill_resources>` listing (tier 2); files loaded on demand via `readFile` (tier 3). |
 | `readTaskOutput` | `TaskOutput` | ⚠️ Partial | Missing `block` (wait for completion) and `timeout` parameters. Only takes `taskId`. |
 | `spawnAgent` | `Task` | ⚠️ Partial | Has `role`, `prompt`, `description`, `background`. Missing: `resume` (continue a previous agent with full context), `model` (override), `max_turns`. Description is a single line vs Claude Code's detailed agent-usage guide. |
 | `writeMemory` | *(gambit-unique)* | ✅ Keep | No Claude Code analogue. Part of gambit's memory system. |
@@ -78,7 +82,7 @@ Even without implementing new tools, these alignment changes improve agent behav
 2. **`executeShell`** — expose `run_in_background` + `timeout` + `description` params (infra exists). Update description with Claude-Code-style guidance on when NOT to use it (prefer Grep/Glob/Read/Edit/Write).
 3. **`spawnAgent`** — add `resume`, `model`, `max_turns`. Rewrite description following Claude Code `Task` template (when to use, when NOT to use, parallel invocation guidance).
 4. **`readTaskOutput`** — add `block` (default true) + `timeout` (default 30s, max 600s) params. Update description to cover all task kinds.
-5. **`slashCommand`** — restructure description around "skill invocation" semantics so agents treat it symmetrically with Claude Code's `Skill` tool.
+5. ~~**`slashCommand`** — restructure description around "skill invocation" semantics so agents treat it symmetrically with Claude Code's `Skill` tool.~~ **Done (differently):** added a dedicated `activateSkill` tool with proper progressive-disclosure semantics (`src/lib/skills.ts`, `src/tools/builtins.ts`). `slashCommand` keeps its distinct workspace-command semantics.
 
 ---
 

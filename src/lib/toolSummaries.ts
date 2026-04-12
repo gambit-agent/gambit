@@ -239,6 +239,17 @@ function summarizeWriteMemory(input: unknown): ToolSummaryParts {
   }
 }
 
+function summarizeActivateSkill(input: unknown, output: unknown): ToolSummaryParts {
+  const args = asRecord(input)
+  const name = formatInlineText(args?.name, 64) ?? 'skill'
+  const stats = formatTextStats(extractTextOutput(output))
+
+  return {
+    headline: `Activated skill · ${name}`,
+    detail: stats ?? undefined,
+  }
+}
+
 function summarizeSpawnAgent(input: unknown, output: unknown): ToolSummaryParts {
   const args = asRecord(input)
   const role = asString(args?.role) ?? 'agent'
@@ -318,6 +329,10 @@ function summarizeStarted(toolName: string, input: unknown): ToolSummaryParts {
         headline: `Saving ${asString(args?.type) ?? 'memory'} memory`,
         detail: formatInlineText(args?.name) ?? undefined,
       }
+    case 'activateSkill':
+      return {
+        headline: `Activating skill · ${formatInlineText(args?.name, 64) ?? 'skill'}`,
+      }
     default:
       return { headline: `Running ${toolName}` }
   }
@@ -381,6 +396,10 @@ export function summarizeToolCompletion(
 
   if (toolName === 'writeMemory') {
     return withArtifactNote(summarizeWriteMemory(input), options.artifactPath)
+  }
+
+  if (toolName === 'activateSkill') {
+    return withArtifactNote(summarizeActivateSkill(input, output), options.artifactPath)
   }
 
   return withArtifactNote(summarizeGenericCompletion(toolName, input, output), options.artifactPath)

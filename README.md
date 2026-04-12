@@ -17,6 +17,7 @@ Features:
 - Headless mode (`-p` / `--prompt`) for scripting and CI usage, with JSON and streaming output formats.
 - MCP client with `stdio` and `streamable-http` transports.
 - Pluggable slash commands loaded from user and project scopes.
+- Agent Skills with progressive disclosure — the model sees a compact catalog up front and loads full instructions only when activating a skill.
 
 ## Install
 
@@ -84,6 +85,8 @@ Inside the REPL, colon commands drive the shell itself:
 
 Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`.
 
+Agent Skills are loaded from `SKILL.md` files under `~/.gambit/skills/` and `./.gambit/skills/` (and the cross-client `.agents/skills/` convention at both scopes). See [Agent Skills](#agent-skills) below.
+
 ### Headless
 
 Provide `-p` / `--prompt` to run non-interactively:
@@ -118,6 +121,7 @@ Default registered tools (see `src/tools/builtins.ts`):
 - `readFile`, `writeFile`, `patchFile` — workspace file I/O.
 - `executeShell` — run shell commands via `bash -lc`.
 - `slashCommand` — invoke a registered slash command.
+- `activateSkill` — load an Agent Skill's full instructions on demand. Only registered when at least one skill is installed.
 - `readTaskOutput` — read persisted output for a background task.
 - `writeMemory` — persist typed memory records (`user`, `feedback`, `project`, `reference`).
 - `spawnAgent` — delegate to a local subagent (`default`, `explorer`, or `worker`).
@@ -132,6 +136,49 @@ Gambit is an MCP client with two transports:
 
 Server config lives at `~/.gambit/mcp-servers.json`, or pass `--mcp-config <path>` in headless mode. Manage servers with the `:mcp` colon command or the `add-mcp-server` / `remove-mcp-server` tools.
 
+## Agent Skills
+
+Agent Skills follow the [agentskills.io](https://agentskills.io) specification: each skill is a directory containing a `SKILL.md` file with YAML frontmatter (`name`, `description`) plus any supporting `scripts/`, `references/`, or `assets/`. Gambit uses progressive disclosure to keep the context window small:
+
+1. **Catalog (~100 tokens per skill)** — discovered skills are listed as `name — description` in the description of the `activateSkill` tool. The model sees the list up front.
+2. **Instructions** — calling `activateSkill({ name })` returns the full `SKILL.md` body wrapped in `<skill_content>` tags, plus the skill's directory path and a `<skill_resources>` listing of bundled files.
+3. **Resources** — files inside the skill directory (scripts, references, assets) are loaded on demand via the existing `readFile` tool.
+
+### Discovery locations
+
+Skills are discovered, in precedence order, from:
+
+- `./.gambit/skills/` — project scope, Gambit-native.
+- `./.agents/skills/` — project scope, cross-client convention.
+- `~/.gambit/skills/` — user scope, Gambit-native.
+- `~/.agents/skills/` — user scope, cross-client convention.
+
+Project-scope skills shadow user-scope skills with the same `name`.
+
+### `SKILL.md` format
+
+```markdown
+---
+name: pdf-processing
+description: Extract PDF text, fill forms, merge files. Use when handling PDFs.
+license: Apache-2.0
+---
+
+# PDF Processing
+
+Use pdfplumber for text extraction. For scanned documents, fall back to pdf2image + pytesseract.
+
+See `references/pdf-spec-summary.md` and `scripts/extract.py`.
+```
+
+Supported frontmatter fields: `name` (required, must match the directory), `description` (required, ≤1024 chars), `license`, `compatibility`, `allowed-tools`. Skills missing a description are skipped and a warning is logged.
+
+### Configuration
+
+- `SKILL_CATALOG_CHAR_BUDGET` — truncation budget for the catalog embedded in the tool description (default `8000`). Long catalogs are summarized with a `… (N more skills)` note.
+
+When no skills are installed, the `activateSkill` tool is **not** registered, so there's zero overhead for users who don't use skills.
+
 ## Runtime data
 
 Gambit writes runtime state under `.gambit/` in your home directory and/or the current workspace:
@@ -140,6 +187,7 @@ Gambit writes runtime state under `.gambit/` in your home directory and/or the c
 - `tasks/` — background task records and output logs.
 - `memory/` — typed memory markdown files (`user`, `feedback`, `project`, `reference`).
 - `commands/` — user/project slash command definitions.
+- `skills/` — user/project Agent Skill directories (each contains a `SKILL.md`).
 - `mcp-servers.json` — MCP server config.
 - `model-selection.json` — active model.
 - `downloads/` — cache used by the installer.

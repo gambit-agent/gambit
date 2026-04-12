@@ -14,6 +14,11 @@ import {
   loadSlashCommands,
   type SlashCommandExecution,
 } from '../lib/slashCommands'
+import {
+  activateSkill,
+  buildActivateSkillToolDescription,
+  loadSkills,
+} from '../lib/skills'
 import type { ToolDefinition } from './tool-types'
 import { discoverMCPTools, mcpManagementTools } from './mcp'
 
@@ -61,6 +66,12 @@ const writeMemorySchema = z.object({
   name: z.string().describe('Memory name.'),
   description: z.string().describe('One-line memory description.'),
   content: z.string().describe('Full memory content to store.'),
+})
+
+const activateSkillSchema = z.object({
+  name: z
+    .string()
+    .describe('Exact name of the skill to activate. Must match one of the skills listed in the tool description.'),
 })
 
 function ensureNonEmptyString(value: unknown, label: string): string {
@@ -125,6 +136,7 @@ export async function createBuiltInToolDefinitions(
 ): Promise<ToolDefinition<any, any>[]> {
   const cachedSlashCommands = await loadSlashCommands()
   const slashCommandDescription = buildSlashCommandToolDescription(cachedSlashCommands)
+  const cachedSkills = await loadSkills()
 
   const readFileTool: ToolDefinition<typeof readFileSchema, string> = {
     id: 'readFile',
@@ -400,6 +412,24 @@ export async function createBuiltInToolDefinitions(
     readTaskOutputTool,
     writeMemoryTool,
   ]
+
+  if (cachedSkills.length > 0) {
+    const activateSkillTool: ToolDefinition<typeof activateSkillSchema, string> = {
+      id: 'activateSkill',
+      displayName: 'Activate Skill',
+      description: buildActivateSkillToolDescription(cachedSkills),
+      inputSchema: activateSkillSchema,
+      execute: async ({ name }) => {
+        const activation = await activateSkill(name)
+        return activation.content
+      },
+      summarize: (result, context) =>
+        formatToolSummary(
+          summarizeToolCompletion('activateSkill', context.input, result, { artifactPath: context.artifactPath }),
+        ),
+    }
+    tools.push(activateSkillTool as ToolDefinition<any, any>)
+  }
 
   if (options.includeMCPTools !== false) {
     tools.push(...(mcpManagementTools as ToolDefinition<any, any>[]))
