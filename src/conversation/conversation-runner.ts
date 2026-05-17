@@ -202,7 +202,7 @@ export class ConversationRunner {
         streamLog.event(part.type, {
           toolName: part.toolName,
           toolCallId: part.toolCallId,
-          textLen: typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
+          textLen: typeof part.text === 'string' ? part.text.length : typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
         })
 
         if (part.type === 'error') {
@@ -210,16 +210,28 @@ export class ConversationRunner {
           continue
         }
 
-        if (part.type === 'reasoning') {
+        if (part.type === 'reasoning-delta') {
           if (typeof part.text === 'string' && part.text) {
             reasoningContent += part.text
+            if (options.showReasoning && reasoningContent.trim()) {
+              const content = composeAssistantContent(assistantContent)
+              if (!assistantAdded) {
+                assistantAdded = true
+                await this.dependencies.store.pushMessage(
+                  { id: assistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
+                  { persist: false },
+                )
+              } else {
+                this.dependencies.store.updateMessage(assistantId, { content })
+              }
+            }
           }
           continue
         }
 
         if (part.type === 'text-delta') {
           const chunk =
-            typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
+            typeof part.text === 'string' ? part.text : typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
 
           if (!chunk) {
             continue

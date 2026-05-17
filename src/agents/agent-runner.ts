@@ -82,6 +82,17 @@ export class AgentRunner {
     let assistantContent = ''
     let reasoningContent = ''
     let streamError: unknown = null
+    let reasoningFlushed = false
+    const flushReasoning = async () => {
+      if (reasoningContent.trim() && !reasoningFlushed) {
+        reasoningFlushed = true
+        await options.appendTranscript({
+          type: 'reasoning',
+          content: reasoningContent.trim(),
+          timestamp: new Date().toISOString(),
+        })
+      }
+    }
 
     try {
       const result = await streamText({
@@ -103,7 +114,7 @@ export class AgentRunner {
         streamLog.event(part.type, {
           toolName: part.toolName,
           toolCallId: part.toolCallId,
-          textLen: typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
+          textLen: typeof part.text === 'string' ? part.text.length : typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
         })
 
         if (part.type === 'error') {
@@ -113,7 +124,7 @@ export class AgentRunner {
 
         if (part.type === 'text-delta') {
           const chunk =
-            typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
+            typeof part.text === 'string' ? part.text : typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
           if (!chunk) {
             continue
           }
@@ -122,11 +133,11 @@ export class AgentRunner {
           continue
         }
 
-        if (part.type === 'reasoning') {
-          if (typeof part.text === 'string' && part.text) {
-            reasoningContent += part.text
-            await options.updateProgress('Agent reasoning')
-          }
+        if (part.type === 'reasoning-delta' && typeof part.text === 'string' && part.text) {
+          reasoningContent += part.text
+          const preview = reasoningContent.trim().slice(0, 120)
+          await options.updateProgress(`Agent reasoning: ${preview}`)
+          await flushReasoning()
           continue
         }
 
@@ -137,6 +148,7 @@ export class AgentRunner {
             args: part.input ?? {},
             toolCallId: part.toolCallId,
           })
+          await flushReasoning()
           await options.appendTranscript({
             type: 'tool-call',
             toolCallId: part.toolCallId,
@@ -159,6 +171,7 @@ export class AgentRunner {
             toolCallId: part.toolCallId,
             result: part.output,
           })
+          await flushReasoning()
           await options.appendTranscript({
             type: 'tool-result',
             toolCallId: part.toolCallId,
@@ -178,6 +191,7 @@ export class AgentRunner {
               : typeof part.error === 'string'
                 ? part.error
                 : JSON.stringify(part.error, null, 2)
+          await flushReasoning()
           await options.appendTranscript({
             type: 'tool-error',
             toolCallId: part.toolCallId,
@@ -202,6 +216,7 @@ export class AgentRunner {
         ? `Reasoning:\n${reasoningContent.trim()}\n\n${finalText}`
         : finalText
 
+      await flushReasoning()
       await options.appendTranscript({
         type: 'assistant',
         content: finalOutput,

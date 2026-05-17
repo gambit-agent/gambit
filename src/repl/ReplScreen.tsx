@@ -1,4 +1,4 @@
-import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable, type TextareaRenderable } from '@opentui/core'
+import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable, type Selection, type TextareaRenderable } from '@opentui/core'
 import { useKeyboard, useRenderer } from '@opentui/react'
 import { randomUUID } from 'node:crypto'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
@@ -749,6 +749,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }
         }
 
+        if (conversation.error && key.name === 'escape') {
+          runtime.conversationStore.setError(null)
+          return
+        }
+
         if (!modelPickerState.isOpen) {
           return
         }
@@ -770,6 +775,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       },
       [
         closeModelPicker,
+        conversation.error,
         conversation.initialized,
         dismissSessionPicker,
         modelPickerState.isOpen,
@@ -779,6 +785,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         permissionSnapshot.activeRequest,
         questionSnapshot.activeRequest,
         questionController,
+        runtime.conversationStore,
         runtime.permissionEngine,
         sessionPickerState.isOpen,
         startFreshConversation,
@@ -1310,6 +1317,20 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [interactive.handleSubmit],
   )
 
+  // Auto-copy text selection to clipboard via OSC 52
+  useEffect(() => {
+    const handleSelection = (selection: Selection) => {
+      const text = selection.getSelectedText()
+      if (text?.trim() && renderer.isOsc52Supported()) {
+        renderer.copyToClipboardOSC52(text)
+      }
+    }
+    renderer.on('selection', handleSelection)
+    return () => {
+      renderer.off('selection', handleSelection)
+    }
+  }, [renderer])
+
   const handleMouseUp = useCallback(
     (event: MouseEvent) => {
       if (event.button !== MouseButton.RIGHT) {
@@ -1325,9 +1346,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       event.preventDefault()
       event.stopPropagation()
 
-      void copyTextToClipboard(selectedText).catch((error) => {
-        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-      })
+      if (renderer.isOsc52Supported()) {
+        renderer.copyToClipboardOSC52(selectedText)
+      } else {
+        void copyTextToClipboard(selectedText).catch((error) => {
+          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+        })
+      }
     },
     [renderer, runtime.conversationStore],
   )
@@ -1385,6 +1410,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       flexGrow={1}
       paddingX={layout.screenPadding}
       backgroundColor={theme.background}
+      onMouseUp={handleMouseUp}
     >
       <box
         flexDirection="row"
@@ -1422,6 +1448,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }}
         >
           <text fg="#ff6b6b" content={`Error: ${conversation.error}`} />
+          <box marginTop={1}>
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Press Esc to dismiss" />
+          </box>
         </box>
       ) : null}
 
@@ -1545,11 +1574,19 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           ) : null}
           {activeBackgroundTasks.length > 0 ? (
             activeBackgroundTasks.map((task) => (
-              <text
-                key={task.id}
-                fg={theme.assistantFg}
-                content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
-              />
+              <box key={task.id} flexDirection="column">
+                <text
+                  fg={theme.assistantFg}
+                  content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
+                />
+                {task.progressSummary ? (
+                  <text
+                    fg={theme.statusFg}
+                    attributes={TextAttributes.DIM}
+                    content={`  ${task.progressSummary.slice(0, 80)}`}
+                  />
+                ) : null}
+              </box>
             ))
           ) : (
             <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No active background tasks." />
@@ -1558,12 +1595,20 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             <>
               <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Recent" />
               {recentBackgroundTasks.map((task) => (
-                <text
-                  key={task.id}
-                  fg={theme.statusFg}
-                  attributes={TextAttributes.DIM}
-                  content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
-                />
+                <box key={task.id} flexDirection="column">
+                  <text
+                    fg={theme.statusFg}
+                    attributes={TextAttributes.DIM}
+                    content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
+                  />
+                  {task.progressSummary ? (
+                    <text
+                      fg={theme.statusFg}
+                      attributes={TextAttributes.DIM}
+                      content={`  ${task.progressSummary.slice(0, 80)}`}
+                    />
+                  ) : null}
+                </box>
               ))}
             </>
           ) : null}
