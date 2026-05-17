@@ -239,7 +239,7 @@ const listMCPToolsTool: ToolDefinition<typeof listMCPToolsSchema, string> = {
 const callMCPToolSchema = z.object({
   serverName: z.string().describe('Name of the MCP server'),
   toolName: z.string().describe('Name of the tool to call'),
-  arguments: z.record(z.unknown()).default({}).describe('Arguments to pass to the tool'),
+  arguments: z.record(z.string(), z.unknown()).default({}).describe('Arguments to pass to the tool'),
 })
 
 const callMCPToolTool: ToolDefinition<typeof callMCPToolSchema, string> = {
@@ -283,7 +283,7 @@ const addMCPServerSchema = z.object({
   command: z.string().optional().describe('Command for stdio transport'),
   args: z.array(z.string()).optional().describe('Arguments for stdio transport'),
   url: z.string().optional().describe('URL for streamable-http transport'),
-  env: z.record(z.string()).optional().describe('Environment variables (stdio only)'),
+  env: z.record(z.string(), z.string()).optional().describe('Environment variables (stdio only)'),
   bearerToken: z.string().optional().describe('Bearer token for streamable-http transport'),
   apiKey: z.string().optional().describe('API key value for streamable-http transport'),
   apiKeyHeader: z.string().optional().describe('Header name for the API key (default: X-API-Key)'),
@@ -396,7 +396,7 @@ function buildZodSchemaForTool(tool: MCPListToolsEntry): ZodTypeAny {
   const jsonSchema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] } | undefined
   const properties = jsonSchema?.properties
   if (!properties || Object.keys(properties).length === 0) {
-    return z.record(z.unknown()).describe('Arguments for the MCP tool.').default({})
+    return z.record(z.string(), z.unknown()).describe('Arguments for the MCP tool.').default({})
   }
 
   const required = new Set(jsonSchema?.required ?? [])

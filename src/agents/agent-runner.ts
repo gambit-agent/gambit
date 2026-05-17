@@ -9,6 +9,10 @@ import { getMemoryPrompt } from '../memory/memory-prompt'
 import type { AgentDefinition } from './agent-types'
 import type { ConversationMessage } from '../conversation/conversation-types'
 
+/**
+ * External dependencies injected into AgentRunner so it can operate
+ * independently of the main conversation loop (used for background tasks).
+ */
 export interface AgentRunnerOptions {
   definition: AgentDefinition
   prompt: string
@@ -27,6 +31,10 @@ export interface AgentRunnerResult {
   summary: string
 }
 
+/**
+ * Runs a single background agent turn with its own tool context and transcript.
+ * Streams reasoning and tool calls back to the caller via progress callbacks.
+ */
 export class AgentRunner {
   async run(options: AgentRunnerOptions): Promise<AgentRunnerResult> {
     const tools = await options.createTools(options.definition.allowedToolIds)
@@ -35,6 +43,7 @@ export class AgentRunner {
       ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
       : undefined
 
+    // Compose the ephemeral system prompt for this agent run.
     const systemPrompt = [
       options.baseSystemPrompt,
       getMemoryPrompt(),
@@ -83,6 +92,8 @@ export class AgentRunner {
     let reasoningContent = ''
     let streamError: unknown = null
     let reasoningFlushed = false
+
+    // Flush reasoning transcript so the user sees agent thinking in real time.
     const flushReasoning = async () => {
       if (reasoningContent.trim() && !reasoningFlushed) {
         reasoningFlushed = true

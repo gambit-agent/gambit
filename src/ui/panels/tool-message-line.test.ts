@@ -21,7 +21,7 @@ test('formats running tool messages without a chevron prefix', () => {
   const line = formatToolMessageLine(createToolMessage('started'), 1)
 
   expect(line.indicator).toBe(toolMessageRunningFrames[1])
-  expect(line.text.startsWith('Tool · executeShell · running')).toBe(true)
+  expect(line.text.startsWith('Tool: executeShell [running]')).toBe(true)
   expect(line.text.includes('> Tool')).toBe(false)
 })
 
@@ -29,5 +29,5 @@ test('omits the animated indicator once the tool finishes', () => {
   const line = formatToolMessageLine(createToolMessage('completed'), 2)
 
   expect(line.indicator).toBeNull()
-  expect(line.text.startsWith('Tool · executeShell · done')).toBe(true)
+  expect(line.text.startsWith('Tool: executeShell [done]')).toBe(true)
 })

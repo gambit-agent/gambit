@@ -1,12 +1,53 @@
 {
   "name": "gambit",
   "version": "0.6.0",
+  "description": "TUI coding agent CLI built with Bun, TypeScript, and OpenTUI.",
   "module": "src/index.tsx",
   "bin": {
     "gambit": "src/gambit.tsx"
   },
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "author": "Sergio Masellis <sergio@sergiomasellis.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergiomasellis/gambit-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sergiomasellis/gambit-cli/issues"
+  },
+  "homepage": "https://github.com/sergiomasellis/gambit-cli#readme",
+  "keywords": [
+    "cli",
+    "tui",
+    "ai",
+    "agent",
+    "coding",
+    "openrouter",
+    "mcp",
+    "bun",
+    "typescript",
+    "opentui"
+  ],
+  "engines": {
+    "bun": ">=1.2.20"
+  },
+  "files": [
+    "src",
+    "install.sh",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "bun run tsc --noEmit",
+    "compile": "bun build --compile --outfile=gambit src/gambit.tsx",
+    "test": "bun test",
+    "link-local": "bun link",
+    "install-local": "bun run compile && ./gambit install",
+    "prepublishOnly": "bun run build && bun test"
+  },
   "devDependencies": {
     "@types/bun": "^1.3.14"
   },

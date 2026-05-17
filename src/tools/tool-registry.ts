@@ -1,5 +1,10 @@
 import type { ToolDefinition } from './tool-types'
 
+/**
+ * In-memory registry for built-in tools. Tools are keyed by their `id` and
+ * must be unique. The registry is consumed by `ToolExecutor` and by the
+ * adapter layer that exposes tools to the Vercel AI SDK.
+ */
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition<any, any>>()
 

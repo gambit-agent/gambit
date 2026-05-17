@@ -1,7 +1,10 @@
 import type { ConversationMessage } from '../../conversation/conversation-types'
 import { formatCompactToolSummary } from '../../lib/toolSummaries'
 
+/** Spinner characters shown while a tool call is in the "started" state. */
 export const toolMessageRunningFrames = ['□', '▫', '◻', '▫'] as const
+
+/** Interval (ms) between spinner frame updates. */
 export const toolMessageRunningIntervalMs = 120
 
 function formatToolStatus(value?: 'started' | 'completed' | 'failed'): string | null {
@@ -23,6 +26,10 @@ function getRunningIndicator(frameIndex: number): string {
   return toolMessageRunningFrames[normalizedIndex] ?? toolMessageRunningFrames[0]
 }
 
+/**
+ * Render a single-line status string for a tool message in the REPL.
+ * Returns an optional animated indicator plus a human-readable text line.
+ */
 export function formatToolMessageLine(
   message: ConversationMessage,
   animationFrame = 0,
@@ -39,6 +46,6 @@ export function formatToolMessageLine(
 
   return {
     indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
-    text: `Tool · ${toolName} · ${toolStatus}${compactSummary ? ` · ${compactSummary}` : ''}`,
+    text: `Tool: ${toolName} [${toolStatus}]${compactSummary ? ` ${compactSummary}` : ''}`,
   }
 }

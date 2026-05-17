@@ -59,7 +59,7 @@ Environment overrides:
 
 Grab a binary from the [latest release](https://github.com/sergiomasellis/gambit-cli/releases/latest), verify its SHA256 against `manifest.json`, then run `./gambit-<platform> install` to self-install.
 
-### Run from source
+### Install from source
 
 Requires [Bun](https://bun.sh) 1.2.20+.
 
@@ -67,7 +67,23 @@ Requires [Bun](https://bun.sh) 1.2.20+.
 git clone https://github.com/sergiomasellis/gambit-cli.git
 cd gambit-cli
 bun install
-bun run src/gambit.tsx
+make install        # compile a native binary and copy to ~/.local/bin
+```
+
+Or symlink for active development:
+
+```bash
+bun install
+make link-local     # or: bun link
+```
+
+After linking, `gambit` is available globally and will run from source.
+
+You can also run directly without installing:
+
+```bash
+bun run src/gambit.tsx      # production parity entry
+bun run src/index.tsx       # dev UI with hot-reload
 ```
 
 ## Usage
@@ -137,8 +153,9 @@ Flags:
 |---|---|
 | `-p` / `--prompt` / `--print` | Prompt string (enables headless mode). |
 | `--output-format` | `text` (default), `json`, or `stream-json`. |
-| `--verbose` | Verbose logging. |
-| `--include-partial-messages` | Stream partial-message deltas. |
+| `--events` | Shortcut for `--output-format stream-json`. |
+| `--verbose` | Include intermediate events in headless output. |
+| `--include-partial-messages` | Emit in-progress deltas when streaming JSON events. |
 | `--allowed-tools` | Comma-separated allowlist of tool IDs. |
 | `--system-prompt` | Replace the system prompt. |
 | `--append-system-prompt` | Append to the system prompt (repeatable). |
@@ -233,8 +250,12 @@ None of this is committed — keep it gitignored.
 
 ```bash
 bun install                       # install dependencies
-bun run src/gambit.tsx             # run the CLI
-bun run src/index.tsx              # dev UI with hot-reload
+make build                         # type-check + test
+make compile                       # build native binary
+make install                       # compile + install to ~/.local/bin
+make link-local                    # symlink for global dev use
+bun run src/gambit.tsx             # run CLI from source
+bun run src/index.tsx              # dev UI entry with hot-reload
 bun test                           # run the test suite
 bun run tsc --noEmit               # type-check
 ```
@@ -281,4 +302,4 @@ The workflow cross-compiles for all supported platforms using `bun build --compi
 
 ## Contributing
 
-Gambit follows Conventional Commits. All PRs must pass `bun test` and `bun run tsc --noEmit`. See [AGENTS.md](AGENTS.md) for detailed contributor guidelines.
+Gambit follows Conventional Commits. All PRs must pass `bun test` and `bun run tsc --noEmit`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for detailed contributor guidelines.

@@ -4,27 +4,52 @@ const DEFAULT_PROJECT_DOC_MAX_BYTES = 64_000;
 const DEFAULT_SLASH_COMMAND_CHAR_BUDGET = 15_000;
 const DEFAULT_SKILL_CATALOG_CHAR_BUDGET = 8_000;
 
+/**
+ * Absolute path to the active workspace root. Defaults to `process.cwd()` but
+ * can be overridden via the `WORKSPACE_ROOT` environment variable.
+ */
 export let workspaceRoot = computeWorkspaceRoot(Bun.env.WORKSPACE_ROOT);
+
+/** Default LLM identifier used when no model has been explicitly selected. */
 export const defaultModel = Bun.env.GAMBIT_MODEL ?? Bun.env.OPENROUTER_MODEL ?? "codex/gpt-5.1-codex";
+
+/** HTTP Referer header sent to OpenRouter for attribution. */
 export const refererHeader = Bun.env.OPENROUTER_REFERRER ?? "https://github.com/opentui/gambit";
+
+/** X-Title header sent to OpenRouter. */
 export const titleHeader = Bun.env.OPENROUTER_TITLE ?? "Gambit TUI Agent";
+
+/** Presets shown when the user wants a free/cheap model option. */
 export const freeModelPresets = ["qwen/qwen3.6-plus"] as const;
+
+/** Presets shown when the user wants a Codex subscription model. */
 export const codexModelPresets = ["codex/gpt-5.1-codex", "codex/gpt-5-codex"] as const;
 
+/** Maximum characters to read from a single file before truncation. */
 export const MAX_FILE_CHARS = 60_000;
+
+/** Maximum characters of shell output to inline before truncation or artifact storage. */
 export const MAX_SHELL_OUTPUT = 20_000;
 
+/** Parsed byte limit for the project-doc prompt fragment. */
 export const projectDocMaxBytes = parseProjectDocMaxBytes(Bun.env.PROJECT_DOC_MAX_BYTES);
+
+/** Fallback filenames scanned for project docs when no explicit doc is provided. */
 export const projectDocFallbackFilenames = parseProjectDocFallbacks(
   Bun.env.PROJECT_DOC_FALLBACK_FILENAMES,
 );
+
+/** Character budget for embedding slash-command definitions into the system prompt. */
 export const slashCommandCharBudget = parseSlashCommandCharBudget(
   Bun.env.SLASH_COMMAND_TOOL_CHAR_BUDGET,
 );
+
+/** Character budget for the skill catalog embedded in the `activateSkill` tool description. */
 export const skillCatalogCharBudget = parseSkillCatalogCharBudget(
   Bun.env.SKILL_CATALOG_CHAR_BUDGET,
 );
 
+/** Override the workspace root at test time so tests run in a temp directory. */
 export function setWorkspaceRootForTesting(newRoot: string) {
   workspaceRoot = computeWorkspaceRoot(newRoot);
 }

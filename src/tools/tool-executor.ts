@@ -8,6 +8,11 @@ import { resolveWorkspacePath } from '../lib/workspace'
 import type { ToolDefinition, ToolEventRecord, ToolExecutionContext } from './tool-types'
 import type { ToolRegistry } from './tool-registry'
 
+/**
+ * Result of executing a single tool. The `summary` is what gets displayed in
+ * the REPL; `output` is what the AI model receives; `artifactPath` points to
+ * a file when the raw result was too large to inline.
+ */
 export interface ToolExecutionResult<Output = unknown> {
   toolId: string
   toolCallId: string
@@ -25,6 +30,14 @@ export interface ToolExecutorOptions {
   onEvent?: (event: ToolEventRecord) => void
 }
 
+/**
+ * Central dispatcher for tool invocations. Responsibilities:
+ * - Validate input against Zod schemas
+ * - Evaluate permission gates (`getPermissionRequest`)
+ * - Execute the tool implementation
+ * - Normalize and optionally persist large results to disk
+ * - Emit lifecycle events and run plugin hooks
+ */
 export class ToolExecutor {
   private readonly workspaceRoot: string
   private readonly outputDirectory: string
@@ -41,6 +54,15 @@ export class ToolExecutor {
     this.onEvent = options.onEvent
   }
 
+  /**
+   * Execute a tool by ID. The full lifecycle is:
+   * 1. Lookup definition
+   * 2. Validate + hook input
+   * 3. Permission check
+   * 4. Execute
+   * 5. Normalize output (truncate or persist to artifact file)
+   * 6. Emit completion event + after-hook
+   */
   async execute(
     toolId: string,
     input: unknown,
@@ -206,6 +228,10 @@ export class ToolExecutor {
     }
   }
 
+  /**
+   * Decide whether a result should be inlined or persisted to an artifact file.
+   * String outputs and JSON-serializable objects use separate heuristics.
+   */
   private async normalizeOutput<Output>(
     definition: ToolDefinition<any, Output>,
     output: Output,
@@ -268,6 +294,7 @@ export class ToolExecutor {
     return { output, summary, artifactPath }
   }
 
+  /** Write an oversized result to disk under `.gambit/tool-results/`. */
   private async writeArtifact(toolCallId: string, content: string, outputDirectory: string): Promise<string> {
     await mkdir(outputDirectory, { recursive: true })
     const artifactPath = path.join(outputDirectory, `${toolCallId}.txt`)

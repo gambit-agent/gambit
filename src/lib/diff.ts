@@ -1,5 +1,10 @@
 const hunkHeaderPattern = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+/**
+ * Validate that every file path referenced inside a unified diff patch is
+ * contained within the allowed `targetRelativePaths` list. Throws if a path
+ * is unexpected (safety guard against patch-file path traversal).
+ */
 export function sanitizePatchTargets(patchText: string, targetRelativePaths: string | string[]): void {
   const normalizedTargets = new Set(
     (Array.isArray(targetRelativePaths) ? targetRelativePaths : [targetRelativePaths])
@@ -54,6 +59,10 @@ export interface ParsedFilePatch {
   rawNewPath: string | null;
 }
 
+/**
+ * Split a potentially multi-file unified diff into individual per-file patches.
+ * Handles both `diff --git` headers and bare hunk sequences.
+ */
 export function splitUnifiedDiffByFile(patchText: string): ParsedFilePatch[] {
   const normalized = patchText.replace(/\r/g, "");
   const lines = normalized.split("\n");
@@ -96,6 +105,7 @@ export function splitUnifiedDiffByFile(patchText: string): ParsedFilePatch[] {
     }
 
     if (!recording) {
+      // Start recording on the first hunk or path line if there was no diff --git header.
       if (line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("@@ ")) {
         buffer = [line];
         recording = true;
@@ -118,6 +128,7 @@ export function splitUnifiedDiffByFile(patchText: string): ParsedFilePatch[] {
   return patches.filter(({ rawOldPath, rawNewPath }) => rawOldPath !== null || rawNewPath !== null);
 }
 
+/** Normalize line endings and split into an array. Empty input becomes an empty array. */
 function normalizeLines(text: string): string[] {
   if (text === '') {
     return [];
@@ -125,10 +136,16 @@ function normalizeLines(text: string): string[] {
   return text.replace(/\r/g, '').split('\n');
 }
 
+/** Tolerate trailing whitespace mismatches between the patch and the source file. */
 function linesMatch(expected: string, actual: string): boolean {
   return expected === actual || expected.trimEnd() === actual.trimEnd();
 }
 
+/**
+ * Apply a unified diff to a base text. Supports multi-hunk patches and
+ * tolerates trailing whitespace mismatches in context/deletion lines.
+ * Throws descriptive errors when hunk headers are invalid or contexts mismatch.
+ */
 export function applyUnifiedDiff(baseText: string, diffText: string): string {
   const sourceLines = normalizeLines(baseText);
   const patchLines = diffText.replace(/\r/g, "").split("\n");
@@ -146,6 +163,7 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
       throw new Error(`Invalid hunk header: ${line}`);
     }
 
+    // hunk headers are 1-based; convert to 0-based index for the source array.
     const startOld = Math.max(parseInt(match[1] ?? "0", 10) - 1, 0);
 
     while (sourceIndex < startOld) {
@@ -164,6 +182,7 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
         i++;
         continue;
       }
+      // Reached the next hunk or the end of the diff for this file.
       if (hunkLine.startsWith("@@ ") || hunkLine.startsWith("--- ") || hunkLine.startsWith("+++ ")) {
         i--;
         break;
@@ -178,6 +197,7 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
       const payload = hunkLine.slice(1);
 
       if (marker === " ") {
+        // Context line must match the source (with trailing-whitespace tolerance).
         const expected = payload;
         const actual = sourceLines[sourceIndex] ?? "";
         if (!linesMatch(expected, actual)) {
@@ -188,6 +208,7 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
         outputLines.push(actual);
         sourceIndex++;
       } else if (marker === "-") {
+        // Deletion line must match the source (with trailing-whitespace tolerance).
         const actual = sourceLines[sourceIndex] ?? "";
         if (!linesMatch(payload, actual)) {
           throw new Error(
@@ -207,6 +228,7 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
     }
   }
 
+  // Append any remaining lines from the original file after the last hunk.
   for (; sourceIndex < sourceLines.length; sourceIndex++) {
     outputLines.push(sourceLines[sourceIndex] ?? "");
   }

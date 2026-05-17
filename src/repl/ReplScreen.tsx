@@ -177,6 +177,13 @@ export interface ReplScreenProps {
   launchOptions: LaunchOptions
 }
 
+/**
+ * Main TUI screen for the interactive REPL. Orchestrates:
+ * - Keyboard input routing (prompts, colon commands, slash commands, shell, memory)
+ * - Overlay management (model picker, session picker, permission dialog, questions)
+ * - Live streaming display with reasoning and tool call animations
+ * - Background task panel and status bar
+ */
 export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const renderer = useRenderer()
   const runtime = useAppRuntime()
@@ -354,6 +361,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           ...current,
           isOpen: true,
           filterValue,
+          selectedIndex: 0,
           fetchState: 'error',
           fetchError: error instanceof Error ? error.message : String(error),
         }))
@@ -484,6 +492,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     ],
   )
 
+  // Restore persisted model selection on mount (unless already dirty).
   useEffect(() => {
     let cancelled = false
 
@@ -532,6 +541,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [conversation.messages, modelId, apiKey])
 
+  // Handle launch-time session restoration (-c, -r, resume-picker).
   useEffect(() => {
     if (launchHandledRef.current) {
       return
@@ -579,6 +589,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [launchOptions, refreshSessionPicker, runtime])
 
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     const scrollbox = scrollboxRef.current
     if (!scrollbox) {
@@ -590,6 +601,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     scrollbox.scrollTo(maxScrollTop)
   }, [conversation.messages])
 
+  // Elapsed timer while a turn is running
   useEffect(() => {
     if (conversation.status !== 'running') {
       statusStartedAtRef.current = null
@@ -612,6 +624,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [conversation.status])
 
+  // Animated spinner while the assistant is streaming
   useEffect(() => {
     if (conversation.status !== 'running') {
       setResponseSpinnerFrame(0)
@@ -688,7 +701,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }
         }
 
-        // Permission dialog
+        // Permission dialog shortcuts
         if (permissionSnapshot.activeRequest) {
           if (key.name === 'y' || key.name === 'return' || key.name === 'enter') {
             await runtime.permissionEngine.resolve(permissionSnapshot.activeRequest.id, 'allow')
@@ -797,6 +810,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const performSubmit = useCallback(
     async (value: string, { signal }: { signal: AbortSignal }) => {
+      /**
+       * Handle `:goal` and `/goal` commands. Supports show, clear, set, and run
+       * actions, and automatically injects the goal as a system prompt before
+       * sending the user message to the runner.
+       */
       const handleGoalCommand = async (
         argument: string,
         commandName: ':goal' | '/goal',
@@ -1359,6 +1377,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const [gitBranch, setGitBranch] = useState<string>('')
 
+  // Detect current git branch for the status bar
   useEffect(() => {
     const proc = Bun.spawn(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], {
       stdout: 'pipe',
@@ -1421,19 +1440,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         <text fg={theme.systemFg}>
           GAMBIT |  <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{sessionTimestampFormatter.format(new Date())}</span>
         </text>
-        {/* <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
-          Model · {modelDisplay}
-        </text> */}
-        {/* {conversation.status === 'running' ? (
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content={responseSpinner} />
-            <text
-              fg={theme.statusFg}
-              attributes={TextAttributes.DIM}
-              content="Generating response…"
-            />
-          </box>
-        ) : null} */}
       </box>
 
       {conversation.error ? (
@@ -1497,8 +1503,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           />
         </box>
       ) : null}
-
-      {/* Removed the previous status row as it is now integrated into the single input box */}
 
       {modelPickerState.isOpen ? (
         <ModelPickerOverlay
@@ -1632,7 +1636,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
           <box
             flexDirection="row"
-            // paddingTop={1}
             paddingLeft={1}
             paddingBottom={2}
           >

@@ -16,6 +16,10 @@ import { createStreamLogger } from '../lib/stream-logger'
 import { ConversationStore } from './conversation-store'
 import type { ConversationMessage, ConversationToolCall, ConversationTurnRecord } from './conversation-types'
 
+/**
+ * Dependencies required by ConversationRunner to execute a full turn.
+ * Most references come from AppRuntime via `bootstrap.ts`.
+ */
 export interface ConversationRunnerDependencies {
   store: ConversationStore
   baseSystemPrompt: string
@@ -39,6 +43,10 @@ export interface RunConversationTurnOptions {
   appendSystemPrompt?: string
 }
 
+/**
+ * Drives a single user → assistant → tool turn for the main interactive loop.
+ * Handles streaming, reasoning display, tool execution, compaction, and error recovery.
+ */
 export class ConversationRunner {
   constructor(private readonly dependencies: ConversationRunnerDependencies) {}
 
@@ -50,6 +58,7 @@ export class ConversationRunner {
     await this.dependencies.store.appendTurn(record)
   }
 
+  /** Execute a single tool call and persist the result back into the conversation store. */
   async executeToolCall(
     toolCall: ConversationToolCall,
     context: Partial<ToolExecutionContext> = {},
@@ -81,6 +90,10 @@ export class ConversationRunner {
     return result
   }
 
+  /**
+   * Compact older messages into a summary if the conversation exceeds the
+   * model's context window. Returns whether compaction actually occurred.
+   */
   async compact(options?: { apiKey?: string; modelId?: string }): Promise<{ compacted: boolean; summarizedCount: number }> {
     const snapshot = this.dependencies.store.getSnapshot()
     let maxTokens: number | undefined
@@ -95,8 +108,12 @@ export class ConversationRunner {
     return { compacted: result.compacted, summarizedCount: result.summarizedCount }
   }
 
+  /**
+   * Run one full turn: build system prompt, stream the model response,
+   * execute any requested tools, and commit everything to the store.
+   */
   async runTurn(options: RunConversationTurnOptions): Promise<ConversationTurnRecord> {
-    // Auto-compact based on model's actual context window
+    // Auto-compact based on model's actual context window before starting.
     const preSnapshot = this.dependencies.store.getSnapshot()
     const contextLength = await getModelContextLength(options.modelId, options.apiKey)
     const maxTokens = getCompactionThreshold(contextLength)
@@ -210,6 +227,7 @@ export class ConversationRunner {
           continue
         }
 
+        // Accumulate reasoning text and, if enabled, stream it into the assistant message live.
         if (part.type === 'reasoning-delta') {
           if (typeof part.text === 'string' && part.text) {
             reasoningContent += part.text
@@ -229,6 +247,7 @@ export class ConversationRunner {
           continue
         }
 
+        // Accumulate assistant text and mirror it into the store for live UI updates.
         if (part.type === 'text-delta') {
           const chunk =
             typeof part.text === 'string' ? part.text : typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
@@ -328,6 +347,8 @@ export class ConversationRunner {
       turn.finishedAt = new Date().toISOString()
       turn.assistantOutput = finalContent
 
+      // Commit the final assistant message. If we were streaming live, swap
+      // the ephemeral message for the persisted one.
       if (!assistantAdded && finalContent) {
         await this.dependencies.store.pushMessage({
           id: assistantId,
@@ -366,6 +387,7 @@ export class ConversationRunner {
     }
   }
 
+  /** Insert a new tool message or update an existing one by toolCallId. */
   private async upsertToolMessage(
     toolCallId: string,
     options: {

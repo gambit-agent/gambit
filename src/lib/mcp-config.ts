@@ -31,7 +31,7 @@ const MCPServerAuthSchema = z
     bearerToken: z.string().optional(),
     apiKey: z.string().optional(),
     headerName: z.string().optional(),
-    customHeaders: z.record(z.string()).optional(),
+    customHeaders: z.record(z.string(), z.string()).optional(),
   })
   .optional()
 
@@ -41,13 +41,13 @@ const MCPServerConfigSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   url: z.string().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   auth: MCPServerAuthSchema,
   enabled: z.boolean().default(true),
 })
 
 const MCPConfigSchema = z.object({
-  servers: z.record(MCPServerConfigSchema),
+  servers: z.record(z.string(), MCPServerConfigSchema),
 })
 
 export type MCPConfig = z.infer<typeof MCPConfigSchema>

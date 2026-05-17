@@ -2,6 +2,10 @@ export type LaunchMode = 'new' | 'continue' | 'resume-id' | 'resume-picker'
 export type OutputFormat = 'text' | 'json' | 'stream-json'
 export type HeadlessPermissionMode = 'Normal' | 'Plan' | 'Auto-accept' | 'acceptEdits'
 
+/**
+ * Structured representation of CLI arguments after parsing.
+ * `headless` is set when `-p` / `--prompt` is provided, enabling non-interactive output.
+ */
 export interface HeadlessLaunchOptions {
   prompt: string
   outputFormat: OutputFormat
@@ -28,10 +32,12 @@ const UUID_PATTERN =
 const OUTPUT_FORMATS: OutputFormat[] = ['text', 'json', 'stream-json']
 const PERMISSION_MODES: HeadlessPermissionMode[] = ['Normal', 'Plan', 'Auto-accept', 'acceptEdits']
 
+/** Heuristic to decide whether a raw string looks like a saved conversation UUID. */
 export function isConversationId(value: string): boolean {
   return UUID_PATTERN.test(value.trim())
 }
 
+/** Read the next positional argument only if it does NOT start with a dash. */
 function readOptionalValue(argv: string[], index: number): { value: string | undefined; consumed: number } {
   const next = argv[index + 1]
   if (!next || next.startsWith('-')) {
@@ -40,6 +46,7 @@ function readOptionalValue(argv: string[], index: number): { value: string | und
   return { value: next, consumed: 1 }
 }
 
+/** Read the next positional argument unconditionally (used for required flags). */
 function readRequiredValue(argv: string[], index: number): { value: string | undefined; consumed: number } {
   const next = argv[index + 1]
   if (next === undefined) {
@@ -48,6 +55,11 @@ function readRequiredValue(argv: string[], index: number): { value: string | und
   return { value: next, consumed: 1 }
 }
 
+/**
+ * Parse raw `process.argv` (minus the executable path) into a structured
+ * `LaunchOptions` object. Supports both interactive session flags and headless
+ * scripting flags.
+ */
 export function parseLaunchOptions(argv: string[]): LaunchOptions {
   let mode: LaunchMode = 'new'
   let conversationId: string | undefined

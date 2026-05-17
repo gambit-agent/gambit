@@ -11,6 +11,7 @@ import { ToolExecutor, createToolExecutor } from './tool-executor'
 import { createToolRegistry, ToolRegistry } from './tool-registry'
 import type { AnyToolDefinition, ToolExecutionContext } from './tool-types'
 
+/** Options used when constructing the runtime tool registry and executor. */
 export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   includeSpawnAgent?: boolean
   includeMCPTools?: boolean
@@ -19,6 +20,11 @@ export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   onEvent?: (event: any) => void
 }
 
+/**
+ * Wrap a single ToolDefinition into the shape expected by the Vercel AI SDK.
+ * The wrapper invokes our ToolExecutor so that hooks, permissions, and artifacts
+ * are handled uniformly.
+ */
 function toAiTool(
   definition: AnyToolDefinition,
   executor: ToolExecutor,
@@ -38,6 +44,7 @@ function toAiTool(
   })
 }
 
+/** Build a ToolRegistry containing all built-in tools (plus optionally MCP tools). */
 export async function createDefaultToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
@@ -45,10 +52,16 @@ export async function createDefaultToolRegistry(
   return createToolRegistry(definitions)
 }
 
+/** Convenience factory for the default executor backed by the default registry. */
 export async function createDefaultToolExecutor(): Promise<ToolExecutor> {
   const registry = await createDefaultToolRegistry()
   return createToolExecutor(registry, { workspaceRoot })
 }
+
+/* ------------------------------------------------------------------ */
+/*  Default singletons used by headless/bootstrap paths that need     */
+/*  tools before the full AppRuntime is available.                    */
+/* ------------------------------------------------------------------ */
 
 const defaultPermissionEngine = new PermissionEngine()
 defaultPermissionEngine.setMode('Auto-accept')
@@ -61,12 +74,17 @@ const defaultRegistry = await createDefaultToolRegistry({ includeSpawnAgent: fal
 export const toolRegistry = defaultRegistry
 export const toolExecutor = createToolExecutor(defaultRegistry, { workspaceRoot })
 
+/** Re-export for consumers that want to create a fresh registry each turn. */
 export async function createRuntimeToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
   return createDefaultToolRegistry(options)
 }
 
+/**
+ * Create an AI SDK-compatible tool map from a registry + executor pair.
+ * Filters by `allowedToolIds` if provided.
+ */
 export function createAiToolMap(
   registry: ToolRegistry,
   executor: ToolExecutor,
@@ -103,6 +121,7 @@ export function createAiToolMap(
   )
 }
 
+/** Subset of tool IDs available to child agents spawned via `spawnAgent`. */
 export type AgentToolId =
   | 'readFile'
   | 'writeFile'
@@ -114,6 +133,7 @@ export type AgentToolId =
   | 'askUserQuestion'
 export type AgentTools = Record<AgentToolId, any>
 
+/** Default tool map exposed to the agent runner with auto-accept permissions. */
 export const agentTools = createAiToolMap(defaultRegistry, toolExecutor, {
   workspaceRoot,
   permissionEngine: defaultPermissionEngine,

@@ -24,6 +24,10 @@ import {
 } from '../session/conversation-sessions'
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
 
+/**
+ * Aggregated runtime context created once at startup and shared across the
+ * React tree via `AppRuntimeProvider`. Each field maps to a major subsystem.
+ */
 export interface AppRuntime {
   baseSystemPrompt: string
   systemMessage: ConversationMessage
@@ -63,6 +67,10 @@ function buildSystemMessage(content: string): ConversationMessage {
   }
 }
 
+/**
+ * Wire together all subsystems (store, runner, tasks, permissions, hooks)
+ * and return an `AppRuntime` ready for the TUI to consume.
+ */
 export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = {}): Promise<AppRuntime> {
   const baseSystemPrompt = await loadSystemPrompt()
   const systemMessage = buildSystemMessage(baseSystemPrompt)

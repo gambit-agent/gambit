@@ -9,10 +9,12 @@ export interface AppRuntimeProviderProps {
   children: React.ReactNode
 }
 
+/** Provides the bootstrapped AppRuntime to the React tree via context. */
 export function AppRuntimeProvider({ runtime, children }: AppRuntimeProviderProps) {
   return <AppRuntimeContext.Provider value={runtime}>{children}</AppRuntimeContext.Provider>
 }
 
+/** Hook that throws if called outside of an `AppRuntimeProvider`. */
 export function useAppRuntime(): AppRuntime {
   const runtime = useContext(AppRuntimeContext)
   if (!runtime) {
@@ -21,6 +23,7 @@ export function useAppRuntime(): AppRuntime {
   return runtime
 }
 
+/** Subscribe to the mutable conversation store via `useSyncExternalStore`. */
 export function useConversationSnapshot() {
   const runtime = useAppRuntime()
   return useSyncExternalStore(
@@ -29,6 +32,7 @@ export function useConversationSnapshot() {
   )
 }
 
+/** Subscribe to the task runtime for background task updates. */
 export function useTaskSnapshot() {
   const runtime = useAppRuntime()
   return useSyncExternalStore(
@@ -37,6 +41,7 @@ export function useTaskSnapshot() {
   )
 }
 
+/** Subscribe to the permission engine for dialog state. */
 export function usePermissionSnapshot() {
   const runtime = useAppRuntime()
   return useSyncExternalStore(
@@ -45,6 +50,7 @@ export function usePermissionSnapshot() {
   )
 }
 
+/** Subscribe to the question engine for active user questions. */
 export function useQuestionSnapshot() {
   const runtime = useAppRuntime()
   return useSyncExternalStore(
