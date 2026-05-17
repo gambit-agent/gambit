@@ -106,6 +106,10 @@ function extractTextOutput(value: unknown): string | null {
     return null
   }
 
+  if (typeof record.message === 'string') {
+    return record.message
+  }
+
   const type = asString(record.type)
   if ((type === 'text' || type === 'error-text') && typeof record.value === 'string') {
     return record.value

@@ -5,10 +5,11 @@ const DEFAULT_SLASH_COMMAND_CHAR_BUDGET = 15_000;
 const DEFAULT_SKILL_CATALOG_CHAR_BUDGET = 8_000;
 
 export let workspaceRoot = computeWorkspaceRoot(Bun.env.WORKSPACE_ROOT);
-export const defaultModel = Bun.env.OPENROUTER_MODEL ?? "qwen/qwen3.6-plus";
+export const defaultModel = Bun.env.GAMBIT_MODEL ?? Bun.env.OPENROUTER_MODEL ?? "codex/gpt-5.1-codex";
 export const refererHeader = Bun.env.OPENROUTER_REFERRER ?? "https://github.com/opentui/gambit";
 export const titleHeader = Bun.env.OPENROUTER_TITLE ?? "Gambit TUI Agent";
 export const freeModelPresets = ["qwen/qwen3.6-plus"] as const;
+export const codexModelPresets = ["codex/gpt-5.1-codex", "codex/gpt-5-codex"] as const;
 
 export const MAX_FILE_CHARS = 60_000;
 export const MAX_SHELL_OUTPUT = 20_000;

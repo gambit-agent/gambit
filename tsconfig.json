@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     // Environment setup & latest features
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "dom"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
@@ -14,6 +14,9 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+
+    // Type definitions for node and bun
+    "types": ["node", "bun"],
 
     // Best practices
     "strict": true,

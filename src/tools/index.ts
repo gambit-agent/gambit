@@ -96,6 +96,7 @@ export function createAiToolMap(
         shellTaskRunner: options.shellTaskRunner,
         memoryStore: options.memoryStore,
         agentTaskRunner: options.agentTaskRunner,
+        hookManager: options.hookManager,
         agentExecutionOptions: options.agentExecutionOptions,
       }),
     ]),

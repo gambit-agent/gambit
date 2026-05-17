@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 import { defaultModel } from '../config'
 import { setMCPConfigPathOverride } from '../lib/mcp-config'
+import { modelRequiresApiKey } from '../lib/model'
 import type { PermissionMode } from '../permissions/permission-rules'
 import { readModelSelection } from '../session/model-selection'
 import { cleanupAllMCPClients } from '../tools/mcp'
@@ -56,11 +57,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const stderr = options.stderr ?? process.stderr
   const { headless } = options
 
-  const apiKey = Bun.env.OPENROUTER_API_KEY?.trim()
-  if (!apiKey) {
-    stderr.write('Error: OPENROUTER_API_KEY environment variable is required for -p mode.\n')
-    return 1
-  }
+  const apiKey = Bun.env.OPENROUTER_API_KEY?.trim() ?? ''
 
   const trimmedPrompt = headless.prompt.trim()
   if (!trimmedPrompt) {
@@ -110,6 +107,11 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const selection = await readModelSelection().catch(() => null)
   const modelId = selection?.modelId ?? defaultModel
   const reasoningEffort = selection?.reasoningEffort ?? null
+
+  if (modelRequiresApiKey(modelId) && !apiKey) {
+    stderr.write('Error: OPENROUTER_API_KEY environment variable is required for -p mode with OpenRouter models.\n')
+    return 1
+  }
 
   const format: OutputFormat = headless.outputFormat
   const startTime = Date.now()

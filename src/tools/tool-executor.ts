@@ -62,10 +62,23 @@ export class ToolExecutor {
       startedAt,
     }
     this.onEvent?.(startEvent)
+    await context.hookManager?.emit({
+      type: 'tool.execute.before',
+      sessionID: context.sessionId,
+      data: { tool: toolId, callID: toolCallId, args: input },
+    })
 
     let parsedInput: unknown
     try {
-      parsedInput = definition.inputSchema.parse(input)
+      const hookedInput = context.hookManager
+        ? await context.hookManager.runToolBefore({
+            tool: toolId,
+            sessionID: context.sessionId,
+            callID: toolCallId,
+            args: input,
+          })
+        : input
+      parsedInput = definition.inputSchema.parse(hookedInput)
     } catch (error) {
       const failedEvent: ToolEventRecord = {
         ...startEvent,
@@ -74,6 +87,11 @@ export class ToolExecutor {
         finishedAt: new Date().toISOString(),
       }
       this.onEvent?.(failedEvent)
+      await context.hookManager?.emit({
+        type: 'tool.execute.after',
+        sessionID: context.sessionId,
+        data: { tool: toolId, callID: toolCallId, status: 'failed', error: failedEvent.error },
+      })
       throw error
     }
 
@@ -122,10 +140,23 @@ export class ToolExecutor {
         shellTaskRunner: context.shellTaskRunner,
         memoryStore: context.memoryStore,
         agentTaskRunner: context.agentTaskRunner,
+        hookManager: context.hookManager,
         agentExecutionOptions: context.agentExecutionOptions,
       })
 
       const normalized = await this.normalizeOutput(definition, output, parsedInput, toolCallId, context)
+      const hookedOutput = context.hookManager
+        ? await context.hookManager.runToolAfter({
+            tool: toolId,
+            sessionID: context.sessionId,
+            callID: toolCallId,
+            args: parsedInput,
+            output: normalized.output,
+            summary: normalized.summary,
+            metadata: normalized.artifactPath ? { artifactPath: normalized.artifactPath } : undefined,
+          })
+        : normalized
+      const summary = hookedOutput.summary ?? normalized.summary
       const finishedAt = new Date().toISOString()
       const event: ToolEventRecord = {
         kind: 'tool',
@@ -133,19 +164,24 @@ export class ToolExecutor {
         toolCallId,
         status: 'completed',
         input: parsedInput,
-        output: normalized.output,
-        summary: normalized.summary,
+        output: hookedOutput.output,
+        summary,
         artifactPath: normalized.artifactPath,
         startedAt,
         finishedAt,
       }
       this.onEvent?.(event)
+      await context.hookManager?.emit({
+        type: 'tool.execute.after',
+        sessionID: context.sessionId,
+        data: { tool: toolId, callID: toolCallId, status: 'completed', output: hookedOutput.output },
+      })
       return {
         toolId,
         toolCallId,
         input: parsedInput,
-        output: normalized.output,
-        summary: normalized.summary,
+        output: hookedOutput.output,
+        summary,
         artifactPath: normalized.artifactPath,
         event,
       }
@@ -161,6 +197,11 @@ export class ToolExecutor {
         finishedAt: new Date().toISOString(),
       }
       this.onEvent?.(failedEvent)
+      await context.hookManager?.emit({
+        type: 'tool.execute.after',
+        sessionID: context.sessionId,
+        data: { tool: toolId, callID: toolCallId, status: 'failed', error: failedEvent.error },
+      })
       throw error
     }
   }

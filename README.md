@@ -23,6 +23,7 @@ Features:
 - MCP client with `stdio` and `streamable-http` transports.
 - Pluggable slash commands loaded from user and project scopes.
 - Agent Skills with progressive disclosure — the model sees a compact catalog up front and loads full instructions only when activating a skill.
+- Plugin hooks for project/user extensibility, including OpenCode-compatible `.opencode/plugins` discovery.
 
 ## Install
 
@@ -86,11 +87,14 @@ Inside the REPL, colon commands drive the shell itself:
 - `:key` — set or update the OpenRouter API key
 - `:mcp` — manage MCP servers
 - `:resume` — open the resume picker
+- `:goal <goal>` — set and run a Codex-style autonomous conversation goal
 - `:reset` — clear the current session state
 
-Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`.
+Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`. Built-ins include `/model`, `/resume`, `/clear`, and `/goal <goal>`; `/goal <goal>` starts a Codex-style autonomous run immediately, `/goal set <goal>` stores without running, `/goal run` resumes the stored goal, and `/goal clear` removes it.
 
 Agent Skills are loaded from `SKILL.md` files under `~/.gambit/skills/` and `./.gambit/skills/` (and the cross-client `.agents/skills/` convention at both scopes). See [Agent Skills](#agent-skills) below.
+
+Plugins are loaded from `./.gambit/plugins/`, `./.opencode/plugins/`, and `~/.gambit/plugins/`. A plugin exports a function returning hooks such as `tool.execute.before`, `tool.execute.after`, `command.execute.before`, `command.execute.after`, and `event`.
 
 ### Keyboard shortcuts
 

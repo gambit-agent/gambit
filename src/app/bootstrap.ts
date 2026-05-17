@@ -8,6 +8,7 @@ import { AgentRunner } from '../agents/agent-runner'
 import { MemoryStore } from '../memory/memory-store'
 import { PermissionEngine } from '../permissions/permission-engine'
 import { QuestionEngine } from '../questions/question-engine'
+import { HookManager } from '../hooks/plugin-hooks'
 import { loadSystemPrompt } from '../lib/prompt'
 import { AgentTaskRunner } from '../tasks/agent-task-runner'
 import { ShellTaskRunner } from '../tasks/shell-task-runner'
@@ -32,6 +33,7 @@ export interface AppRuntime {
   permissionEngine: PermissionEngine
   questionEngine: QuestionEngine
   taskRuntime: TaskRuntime
+  hookManager: HookManager
   shellTaskRunner: ShellTaskRunner
   agentTaskRunner: AgentTaskRunner
   resetConversation: () => Promise<string>
@@ -69,6 +71,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   const permissionEngine = new PermissionEngine()
   const questionEngine = new QuestionEngine()
   const taskRuntime = new TaskRuntime()
+  const hookManager = await HookManager.load()
   const shellTaskRunner = new ShellTaskRunner(taskRuntime)
   const agentRunner = new AgentRunner()
 
@@ -88,6 +91,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     questionEngine,
     shellTaskRunner,
     memoryStore,
+    hookManager,
     signal: options.signal,
     agentExecutionOptions: options.agentExecutionOptions,
   })
@@ -127,6 +131,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     permissionEngine,
     questionEngine,
     taskRuntime,
+    hookManager,
     shellTaskRunner,
     agentTaskRunner,
     resetConversation: async () => {

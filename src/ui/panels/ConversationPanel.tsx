@@ -2,6 +2,7 @@ import { TextAttributes, type ScrollBoxRenderable } from '@opentui/core'
 import { useEffect, useState, type RefObject } from 'react'
 
 import type { ConversationMessage } from '../../conversation/conversation-types'
+import { inferFiletype } from '../../lib/change-diff'
 import { Markdown } from '../Markdown'
 import { layout, rolePresentation, theme } from '../theme'
 import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningIntervalMs } from './tool-message-line'
@@ -32,6 +33,33 @@ function formatTimestamp(value: string): string {
   return timestampFormatter.format(new Date(value))
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function parseEmbeddedDiff(value: unknown): { message: string; diff: string } | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const match = value.match(/^(.*?)\n\nDiff:\n```diff\n([\s\S]*?)\n```\s*$/)
+  if (!match) {
+    return null
+  }
+
+  return { message: match[1] ?? '', diff: match[2] ?? '' }
+}
+
+function getToolResultMessage(value: unknown): unknown {
+  const embeddedDiff = parseEmbeddedDiff(value)
+  if (embeddedDiff) {
+    return embeddedDiff.message
+  }
+
+  const record = asRecord(value)
+  return typeof record?.message === 'string' ? record.message : value
+}
+
 function formatToolDetail(label: string, value: unknown, maxLength = 500): string | null {
   if (value === undefined || value === null) {
     return null
@@ -39,6 +67,47 @@ function formatToolDetail(label: string, value: unknown, maxLength = 500): strin
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
   const truncated = text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
   return `${label}: ${truncated}`
+}
+
+function getToolDiff(message: ConversationMessage): { diff: string; filetype?: string } | null {
+  const toolName = message.metadata?.toolName
+  const args = asRecord(message.metadata?.toolArgs)
+  const result = asRecord(message.metadata?.toolResult)
+  const embeddedDiff = parseEmbeddedDiff(message.metadata?.toolResult)
+  const diff =
+    toolName === 'patchFile' && typeof args?.patch === 'string'
+      ? args.patch
+      : embeddedDiff?.diff ?? (typeof result?.diff === 'string' ? result.diff : null)
+
+  if (!diff?.trim()) {
+    return null
+  }
+
+  const path = typeof args?.path === 'string' ? args.path : undefined
+  return { diff, filetype: inferFiletype(path) }
+}
+
+function ToolDiffView({ diff, filetype }: { diff: string; filetype?: string }) {
+  const height = Math.min(18, Math.max(6, diff.split(/\r?\n/).length + 1))
+
+  return (
+    <box marginTop={1} width="100%" height={height}>
+      <diff
+        diff={diff}
+        view="unified"
+        filetype={filetype}
+        showLineNumbers
+        wrapMode="none"
+        addedBg="#16351f"
+        removedBg="#3a1f1f"
+        addedSignColor="#3fb950"
+        removedSignColor="#f85149"
+        lineNumberFg="#8b949e"
+        width="100%"
+        height="100%"
+      />
+    </box>
+  )
 }
 
 export function ConversationPanel({ messages, scrollboxRef, transcriptMode = false }: ConversationPanelProps) {
@@ -93,10 +162,11 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
 
           if (isToolMessage) {
             const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
+            const toolDiff = message.metadata?.toolStatus === 'completed' ? getToolDiff(message) : null
 
             if (transcriptMode) {
               const argsDetail = formatToolDetail('Args', message.metadata?.toolArgs)
-              const resultDetail = formatToolDetail('Result', message.metadata?.toolResult)
+              const resultDetail = formatToolDetail('Result', getToolResultMessage(message.metadata?.toolResult))
               const artifactPath = message.metadata?.toolArtifactPath
 
               return (
@@ -137,6 +207,7 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
                       {`Path: ${artifactPath}`}
                     </text>
                   ) : null}
+                  {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
                 </box>
               )
             }
@@ -144,19 +215,22 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
             return (
               <box
                 key={message.id}
-                flexDirection="row"
-                gap={toolLine.indicator ? 1 : 0}
+                flexDirection="column"
+                gap={0}
                 paddingX={layout.messagePaddingX}
                 paddingY={0}
               >
-                {toolLine.indicator ? (
-                  <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
-                    {toolLine.indicator}
+                <box flexDirection="row" gap={toolLine.indicator ? 1 : 0}>
+                  {toolLine.indicator ? (
+                    <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                      {toolLine.indicator}
+                    </text>
+                  ) : null}
+                  <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                    {toolLine.text}
                   </text>
-                ) : null}
-                <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                  {toolLine.text}
-                </text>
+                </box>
+                {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
               </box>
             )
           }

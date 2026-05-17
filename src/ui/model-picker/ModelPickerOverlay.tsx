@@ -15,8 +15,8 @@ export interface ModelPickerOverlayProps {
   onFilterSubmit: (value: string) => void
   onReasoningChange: (value: string) => void
   onReasoningSubmit: (value: string) => void
-  onOptionChange: (index: number) => void
-  onOptionSelect: (index: number) => void
+  onOptionChange: (index: number, modelId?: string) => void
+  onOptionSelect: (index: number, modelId?: string) => void
 }
 
 function describePricing(model: ModelListItem): string | null {
@@ -235,8 +235,12 @@ export function ModelPickerOverlay({
           <select
             options={options}
             selectedIndex={state.selectedIndex}
-            onChange={(index) => onOptionChange(index ?? 0)}
-            onSelect={(index) => onOptionSelect(index ?? 0)}
+            onChange={(index, option) =>
+              onOptionChange(index ?? 0, typeof option?.value === 'string' ? option.value : undefined)
+            }
+            onSelect={(index, option) =>
+              onOptionSelect(index ?? 0, typeof option?.value === 'string' ? option.value : undefined)
+            }
             showDescription
             style={{ minHeight: 8, minWidth: 60 }}
           />

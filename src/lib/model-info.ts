@@ -2,6 +2,8 @@
  * Fetches and caches model metadata (context length) from the OpenRouter API.
  */
 
+import { isCodexModel } from './codex-auth'
+
 export interface ModelInfo {
   id: string
   contextLength: number
@@ -56,10 +58,12 @@ async function fetchAllModels(apiKey: string): Promise<void> {
  * Get the context length for a model. Fetches from OpenRouter API if not cached.
  */
 export async function getModelContextLength(modelId: string, apiKey: string): Promise<number> {
+  if (isCodexModel(modelId)) return FALLBACK_CONTEXT_LENGTH
+
   const cached = cache.get(modelId)
   if (cached) return cached.contextLength
 
-  await fetchAllModels(apiKey)
+  if (apiKey) await fetchAllModels(apiKey)
 
   return cache.get(modelId)?.contextLength ?? FALLBACK_CONTEXT_LENGTH
 }

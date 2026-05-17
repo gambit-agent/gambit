@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { defaultModel, freeModelPresets } from "../config"
+import { codexModelPresets, defaultModel, freeModelPresets } from "../config"
 import type { ReasoningEffort } from "./model"
 import { fetchOpenRouterModels, isGpt5Model, type ModelListItem } from "./openrouterModels"
 
@@ -44,12 +44,48 @@ export interface UseModelPickerResult {
   setSelection: (index: number) => void
   selectHighlighted: () => void
   selectByIndex: (index: number) => void
+  selectById: (id: string) => void
 }
 
 const DEFAULT_REASONING: ReasoningEffort = "medium"
 
+export function isFreeModel(model: ModelListItem): boolean {
+  const prices = [model.promptPrice, model.completionPrice, model.requestPrice].filter((price): price is string => price !== null)
+  if (prices.length === 0) {
+    return /(^|[^a-z])free([^a-z]|$)|:free$/i.test(`${model.id} ${model.name}`)
+  }
+  return prices.every((price) => Number.parseFloat(price) === 0)
+}
+
+export function buildModelSearchText(model: ModelListItem): string {
+  const tags = [
+    model.id,
+    model.name,
+    model.description,
+    model.provider,
+    model.promptPrice ? `prompt ${model.promptPrice}` : null,
+    model.completionPrice ? `completion ${model.completionPrice}` : null,
+    model.requestPrice ? `request ${model.requestPrice}` : null,
+    model.supportsReasoning ? 'reasoning' : null,
+    isGpt5Model(model) ? 'gpt-5 gpt5' : null,
+    isFreeModel(model) ? 'free' : null,
+  ]
+  return tags.filter(Boolean).join(' ').toLowerCase()
+}
+
+export function filterModels(models: readonly ModelListItem[], filterValue: string): ModelListItem[] {
+  const terms = filterValue.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) {
+    return [...models]
+  }
+  return models.filter((model) => {
+    const searchText = buildModelSearchText(model)
+    return terms.every((term) => searchText.includes(term))
+  })
+}
+
 function buildFallbackModels(): ModelListItem[] {
-  const candidates = new Set<string>([defaultModel, ...freeModelPresets])
+  const candidates = new Set<string>([defaultModel, ...freeModelPresets, ...codexModelPresets])
   return Array.from(candidates).map((id) => {
     const provider = id.includes("/") ? id.split("/")[0] ?? null : null
     return {
@@ -60,7 +96,7 @@ function buildFallbackModels(): ModelListItem[] {
       promptPrice: null,
       completionPrice: null,
       requestPrice: null,
-      supportsReasoning: false,
+      supportsReasoning: id.startsWith('codex/') || id.startsWith('openai-codex/'),
     }
   })
 }
@@ -155,13 +191,7 @@ export function useModelPicker({
     setReasoningInput(currentReasoning ?? DEFAULT_REASONING)
   }, [currentReasoning, isOpen])
 
-  const filteredModels = useMemo(() => {
-    const trimmed = filterValue.trim().toLowerCase()
-    if (!trimmed) {
-      return availableModels
-    }
-    return availableModels.filter((model) => `${model.id} ${model.name}`.toLowerCase().includes(trimmed))
-  }, [availableModels, filterValue])
+  const filteredModels = useMemo(() => filterModels(availableModels, filterValue), [availableModels, filterValue])
 
   useEffect(() => {
     setSelectedIndex((previous) => {
@@ -262,6 +292,7 @@ export function useModelPicker({
 
   const handleFilterChange = useCallback((value: string) => {
     setFilterValue(value)
+    setSelectedIndex(0)
     setHint(null)
   }, [])
 
@@ -316,18 +347,20 @@ export function useModelPicker({
       const directMatch = availableModels.find(
         (model) => model.id.toLowerCase() === normalized || model.name.toLowerCase() === normalized,
       )
-      const matching = directMatch
-        ? directMatch
-        : availableModels.find((model) => `${model.id} ${model.name}`.toLowerCase().includes(normalized))
+      if (directMatch) {
+        selectModel(directMatch)
+        return
+      }
 
-      if (!matching) {
+      const matching = filterModels(availableModels, trimmed)
+      if (matching.length === 0) {
         setHint("No models matched your query.")
         return
       }
 
-      selectModel(matching)
+      selectModel(matching[Math.min(selectedIndex, matching.length - 1)] ?? matching[0]!)
     },
-    [availableModels, close, fetchState, resetFetch, selectHighlighted, selectModel],
+    [availableModels, close, fetchState, resetFetch, selectHighlighted, selectModel, selectedIndex],
   )
 
   const handleReasoningInput = useCallback((value: string) => {
@@ -378,6 +411,18 @@ export function useModelPicker({
     [filteredModels, selectModel],
   )
 
+  const selectById = useCallback(
+    (id: string) => {
+      const model = availableModels.find((candidate) => candidate.id === id)
+      if (!model) {
+        setHint("No models matched your selection.")
+        return
+      }
+      selectModel(model)
+    },
+    [availableModels, selectModel],
+  )
+
   return {
     state: {
       isOpen,
@@ -405,5 +450,6 @@ export function useModelPicker({
     setSelection,
     selectHighlighted,
     selectByIndex,
+    selectById,
   }
 }

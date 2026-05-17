@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { MAX_FILE_CHARS, MAX_SHELL_OUTPUT, workspaceRoot } from '../config'
 import { readTaskOutput } from '../tasks/task-output'
+import { createUnifiedDiff } from '../lib/change-diff'
 import { applyUnifiedDiff, sanitizePatchTargets, splitUnifiedDiffByFile } from '../lib/diff'
 import { truncate } from '../lib/text'
 import { formatToolSummary, summarizeToolCompletion } from '../lib/toolSummaries'
@@ -75,6 +76,10 @@ const activateSkillSchema = z.object({
     .string()
     .describe('Exact name of the skill to activate. Must match one of the skills listed in the tool description.'),
 })
+
+function formatFileChangeResult(message: string, diff: string): string {
+  return diff.trim() ? `${message}\n\nDiff:\n\`\`\`diff\n${diff.trimEnd()}\n\`\`\`` : message
+}
 
 function ensureNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string') {
@@ -177,9 +182,20 @@ export async function createBuiltInToolDefinitions(
       }
 
       const resolvedPath = resolveWorkspacePath(normalizedPath)
+      const relativePath = relativeWorkspacePath(resolvedPath)
+      const file = Bun.file(resolvedPath)
+      const exists = await file.exists()
+      const oldText = exists ? await file.text() : ''
+      const diff = createUnifiedDiff({
+        oldPath: exists ? relativePath : null,
+        newPath: relativePath,
+        oldText,
+        newText: content,
+      })
+
       await mkdir(path.dirname(resolvedPath), { recursive: true })
       const bytesWritten = await Bun.write(resolvedPath, content)
-      return `Wrote ${bytesWritten} bytes to ${relativeWorkspacePath(resolvedPath)}.`
+      return formatFileChangeResult(`Wrote ${bytesWritten} bytes to ${relativePath}.`, diff)
     },
     getPermissionRequest: ({ path: targetPath }) => ({
       subject: `Write file: ${targetPath}`,

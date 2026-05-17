@@ -10,6 +10,7 @@ import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
 import type { ToolExecutionContext } from '../tools/tool-types'
 import { createToolExecutor, type ToolExecutionResult } from '../tools/tool-executor'
 import { compactMessages, shouldAutoCompact } from './compaction'
+import { buildGoalSystemPrompt, isGoalMessage } from './goal'
 import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { createStreamLogger } from '../lib/stream-logger'
 import { ConversationStore } from './conversation-store'
@@ -111,6 +112,7 @@ export class ConversationRunner {
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
     const systemPrompt = [
       basePrompt,
+      buildGoalSystemPrompt(snapshot.messages),
       options.appendSystemPrompt,
       getMemoryPrompt(),
       relevantMemoryContext,
@@ -181,10 +183,12 @@ export class ConversationRunner {
               timestamp: new Date(),
               hidden: true,
             },
-            ...snapshot.messages.map((message) => ({
-              ...message,
-              timestamp: new Date(message.timestamp),
-            })),
+            ...snapshot.messages
+              .filter((message) => !isGoalMessage(message))
+              .map((message) => ({
+                ...message,
+                timestamp: new Date(message.timestamp),
+              })),
           ],
         ),
         tools,

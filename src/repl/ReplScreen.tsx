@@ -14,10 +14,17 @@ import {
 } from '../app/providers'
 import { copyTextToClipboard } from '../lib/clipboard'
 import { useModelPicker } from '../lib/modelPicker'
-import type { ReasoningEffort } from '../lib/model'
+import { modelRequiresApiKey, type ReasoningEffort } from '../lib/model'
 import { executeSlashCommand, type SlashCommandExecution } from '../lib/slashCommands'
 import { executePromptTemplate } from '../lib/promptTemplates'
 import { estimateContextTokens } from '../conversation/compaction'
+import {
+  buildGoalRunPrompt,
+  clearConversationGoal,
+  getConversationGoal,
+  parseGoalCommand,
+  setConversationGoal,
+} from '../conversation/goal'
 import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { useInteractiveController } from '../lib/interactive/controller'
 import { matchShortcut } from '../lib/interactive/shortcuts'
@@ -261,6 +268,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     ]
   }, [conversation.conversationId, sessionPickerState.filterValue, sessionPickerState.sessions])
 
+  const clearComposer = useCallback(() => {
+    setInputValue('')
+    textareaRef.current?.setText('')
+  }, [])
+
   const persistModelSelection = useCallback(
     (nextModelId: string, nextReasoningEffort: ReasoningEffort | null) => {
       modelSelectionDirtyRef.current = true
@@ -302,6 +314,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     handleReasoningInput,
     handleReasoningSubmit,
     selectByIndex: selectModelByIndex,
+    selectById: selectModelById,
     setSelection: setModelSelection,
   } = modelPicker
 
@@ -777,6 +790,90 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const performSubmit = useCallback(
     async (value: string, { signal }: { signal: AbortSignal }) => {
+      const handleGoalCommand = async (
+        argument: string,
+        commandName: ':goal' | '/goal',
+        goalSignal: AbortSignal,
+      ): Promise<boolean> => {
+        const command = parseGoalCommand(argument)
+        const currentMessages = runtime.conversationStore.getSnapshot().messages
+
+        if (command.action === 'show') {
+          const goal = getConversationGoal(currentMessages)
+          await runtime.conversationStore.pushMessage({
+            id: randomUUID(),
+            role: 'system',
+            content: goal ? `Current goal: ${goal}` : `No goal is set. Use ${commandName} <goal> to set one.`,
+            timestamp: new Date().toISOString(),
+          })
+          return true
+        }
+
+        if (command.action === 'clear') {
+          await runtime.conversationStore.replaceMessages(clearConversationGoal(currentMessages))
+          await runtime.conversationStore.pushMessage({
+            id: randomUUID(),
+            role: 'system',
+            content: 'Cleared the conversation goal.',
+            timestamp: new Date().toISOString(),
+          })
+          return true
+        }
+
+        if (command.action === 'set') {
+          if (!command.goal) {
+            runtime.conversationStore.setError(`Usage: ${commandName} set <goal>`)
+            return true
+          }
+
+          await runtime.conversationStore.replaceMessages(setConversationGoal(currentMessages, command.goal))
+          const goal = getConversationGoal(runtime.conversationStore.getSnapshot().messages) ?? command.goal
+          await runtime.conversationStore.pushMessage({
+            id: randomUUID(),
+            role: 'system',
+            content: `Goal saved: ${goal}`,
+            timestamp: new Date().toISOString(),
+          })
+          return true
+        }
+
+        const goal = command.goal ?? getConversationGoal(currentMessages)
+        if (!goal) {
+          runtime.conversationStore.setError(
+            `No goal is set. Use ${commandName} run <goal> or ${commandName} <goal> first.`,
+          )
+          return true
+        }
+
+        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
+          runtime.conversationStore.setError('Set an OpenRouter API key before running a goal (:key <token>).')
+          return true
+        }
+
+        await runtime.conversationStore.replaceMessages(setConversationGoal(currentMessages, goal))
+        const prompt = buildGoalRunPrompt(goal)
+        await runtime.conversationStore.pushMessage({
+          id: randomUUID(),
+          role: 'user',
+          content: prompt,
+          timestamp: new Date().toISOString(),
+        })
+
+        try {
+          await runtime.conversationRunner.runTurn({
+            userInput: prompt,
+            apiKey: apiKey.trim(),
+            modelId,
+            reasoningEffort,
+            showReasoning: thinkingEnabled,
+            signal: goalSignal,
+          })
+        } catch {
+          // Error already surfaced via conversationStore.setError by the runner.
+        }
+        return true
+      }
+
       const routed = routeInput(value)
       if (routed.kind === 'prompt') {
         if (!routed.value) {
@@ -784,7 +881,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
-        if (!apiKey.trim()) {
+        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
           runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
           return
         }
@@ -923,6 +1020,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
+        if (routed.name === 'goal') {
+          const handled = await handleGoalCommand(routed.argument, ':goal', signal)
+          if (handled) {
+            return
+          }
+        }
+
         runtime.conversationStore.setError(`Unknown command: ${routed.name}`)
         return
       }
@@ -973,6 +1077,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       }
 
       if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'model') {
+        clearComposer()
         openModelPicker(routed.argument)
         if (routed.argument && modelPickerState.fetchState === 'success') {
           handleFilterSubmit(routed.argument)
@@ -981,6 +1086,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       }
 
       if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'resume') {
+        clearComposer()
         openSessionPicker(routed.argument)
         return
       }
@@ -992,7 +1098,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
-        if (!apiKey.trim()) {
+        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
           runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
           return
         }
@@ -1029,8 +1135,25 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
+        if (routed.name === 'goal') {
+          const handled = await handleGoalCommand(routed.argument, '/goal', signal)
+          if (handled) {
+            return
+          }
+        }
+
         const execution = await executeSlashCommand(routed.name, routed.argument)
-        const rendered = formatSlashCommandMessage(execution)
+        const rendered = await runtime.hookManager.runCommandBefore({
+          command: execution.command,
+          sessionID: conversation.conversationId,
+          arguments: execution.arguments,
+          content: formatSlashCommandMessage(execution),
+        })
+        await runtime.hookManager.emit({
+          type: 'command.executed',
+          sessionID: conversation.conversationId,
+          data: { command: execution.command, arguments: execution.arguments },
+        })
         await runtime.conversationStore.pushMessage({
           id: randomUUID(),
           role: 'user',
@@ -1038,7 +1161,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           timestamp: new Date().toISOString(),
         })
 
-        if (!apiKey.trim()) {
+        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
           runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
           return
         }
@@ -1060,6 +1183,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [
       apiKey,
       conversation.initialized,
+      clearComposer,
       handleFilterSubmit,
       modelId,
       modelPickerState.fetchState,
@@ -1098,7 +1222,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     isRunning: conversation.status === 'running',
     permissionMode: permissionSnapshot.mode,
     onCyclePermissionMode: () => {
-      runtime.permissionEngine.cycleMode()
+      const newMode = runtime.permissionEngine.cycleMode()
+      const activeRequest = runtime.permissionEngine.getSnapshot().activeRequest
+      if (newMode === 'Auto-accept' && activeRequest) {
+        void runtime.permissionEngine.resolve(activeRequest.id, 'allow')
+      }
     },
     performSubmit,
     onAbort: () => {
@@ -1255,7 +1383,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     <box
       flexDirection="column"
       flexGrow={1}
-      padding={layout.screenPadding}
+      paddingX={layout.screenPadding}
       backgroundColor={theme.background}
     >
       <box
@@ -1353,7 +1481,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           onReasoningChange={handleReasoningInput}
           onReasoningSubmit={handleReasoningSubmit}
           onOptionChange={(index) => setModelSelection(index)}
-          onOptionSelect={(index) => selectModelByIndex(index)}
+          onOptionSelect={(index, modelOptionId) => {
+            if (modelOptionId) {
+              selectModelById(modelOptionId)
+              return
+            }
+            selectModelByIndex(index)
+          }}
         />
       ) : null}
 
@@ -1483,9 +1617,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         gap={3} 
         paddingLeft={1}
         paddingBottom={0}>
-          <text fg={theme.headerAccent}>* {modelDisplay}</text>
-          <text fg={theme.statusFg}>{thinkingEnabled ? '◉ Thinking' : '○ Direct'}</text>
-          <text fg={permissionModeColor}>◇ {permissionSnapshot.mode}</text>
+          <text fg={theme.headerAccent} content={`* ${modelDisplay}`} />
+          <text fg={theme.statusFg} content={thinkingEnabled ? '◉ Thinking' : '○ Direct'} />
+          <text fg={permissionModeColor} content={`◇ ${permissionSnapshot.mode}`} />
         </box>
       </box>
 

@@ -4,6 +4,7 @@ import type { MemoryStore } from '../memory/memory-store'
 import type { PermissionEngine } from '../permissions/permission-engine'
 import type { QuestionEngine } from '../questions/question-engine'
 import type { ShellTaskRunner } from '../tasks/shell-task-runner'
+import type { HookManager } from '../hooks/plugin-hooks'
 import type { TaskRuntime } from '../tasks/task-runtime'
 
 export interface ToolExecutionContext {
@@ -19,6 +20,7 @@ export interface ToolExecutionContext {
   shellTaskRunner?: ShellTaskRunner
   memoryStore?: MemoryStore
   agentTaskRunner?: AgentTaskRunner
+  hookManager?: HookManager
   agentExecutionOptions?: {
     apiKey: string
     modelId: string

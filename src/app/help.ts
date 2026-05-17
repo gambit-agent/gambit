@@ -1,6 +1,6 @@
 import pkg from '../../package.json'
 
-const HELP_TEXT = `gambit ${pkg.version} — OpenRouter-powered TUI coding agent
+const HELP_TEXT = `gambit ${pkg.version} — TUI coding agent
 
 USAGE
   gambit [options]                          Launch the interactive TUI
@@ -29,7 +29,10 @@ HEADLESS
 
 ENVIRONMENT
   OPENROUTER_API_KEY                        API key used when not provided via :key
-  OPENROUTER_MODEL                          Default model id (e.g. qwen/qwen3-max)
+  GAMBIT_MODEL                              Default model id (default: codex/gpt-5.1-codex)
+  OPENROUTER_MODEL                          Back-compat default model id override
+  OPENAI_CODEX_ACCESS_TOKEN                 Optional Codex subscription access token
+  CODEX_AUTH_FILE                           Optional path to Codex auth.json (default ~/.codex/auth.json)
   OPENROUTER_REFERRER                       HTTP-Referer header sent to OpenRouter
   OPENROUTER_TITLE                          X-Title header sent to OpenRouter
   WORKSPACE_ROOT                            Override the workspace root directory
