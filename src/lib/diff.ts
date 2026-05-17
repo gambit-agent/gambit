@@ -118,8 +118,19 @@ export function splitUnifiedDiffByFile(patchText: string): ParsedFilePatch[] {
   return patches.filter(({ rawOldPath, rawNewPath }) => rawOldPath !== null || rawNewPath !== null);
 }
 
+function normalizeLines(text: string): string[] {
+  if (text === '') {
+    return [];
+  }
+  return text.replace(/\r/g, '').split('\n');
+}
+
+function linesMatch(expected: string, actual: string): boolean {
+  return expected === actual || expected.trimEnd() === actual.trimEnd();
+}
+
 export function applyUnifiedDiff(baseText: string, diffText: string): string {
-  const sourceLines = baseText.replace(/\r/g, "").split("\n");
+  const sourceLines = normalizeLines(baseText);
   const patchLines = diffText.replace(/\r/g, "").split("\n");
   const outputLines: string[] = [];
   let sourceIndex = 0;
@@ -169,18 +180,18 @@ export function applyUnifiedDiff(baseText: string, diffText: string): string {
       if (marker === " ") {
         const expected = payload;
         const actual = sourceLines[sourceIndex] ?? "";
-        if (expected !== actual) {
+        if (!linesMatch(expected, actual)) {
           throw new Error(
-            `Context mismatch while applying patch.\nExpected: "${expected}"\nActual: "${actual}"`,
+            `Context mismatch while applying patch at line ${sourceIndex + 1}.\nExpected: ${JSON.stringify(expected)}\nActual: ${JSON.stringify(actual)}`,
           );
         }
         outputLines.push(actual);
         sourceIndex++;
       } else if (marker === "-") {
         const actual = sourceLines[sourceIndex] ?? "";
-        if (payload !== actual) {
+        if (!linesMatch(payload, actual)) {
           throw new Error(
-            `Deletion mismatch while applying patch.\nExpected to delete: "${payload}"\nFound: "${actual}"`,
+            `Deletion mismatch while applying patch at line ${sourceIndex + 1}.\nExpected to delete: ${JSON.stringify(payload)}\nFound: ${JSON.stringify(actual)}`,
           );
         }
         sourceIndex++;

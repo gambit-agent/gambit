@@ -76,7 +76,7 @@ test("patch tool applies multi-file diff for create and update", async () => {
   );
 
   expect(await Bun.file(path.join(workspaceDir, updatePath)).text()).toBe("new line\n");
-  expect(await Bun.file(path.join(workspaceDir, newPath)).text()).toBe("hello world\n");
+  expect(await Bun.file(path.join(workspaceDir, newPath)).text()).toBe("hello world");
 });
 
 test("patch tool handles rename within diff", async () => {
@@ -100,4 +100,39 @@ test("patch tool handles rename within diff", async () => {
   expect(result).toContain(`Moved ${oldRelative} -> ${newRelative} via patch.`);
   expect(await Bun.file(path.join(workspaceDir, oldRelative)).exists()).toBe(false);
   expect(await Bun.file(path.join(workspaceDir, newRelative)).text()).toBe("alpha-renamed\nbeta\n");
+});
+
+test("patch tool creates file from empty base", async () => {
+  const newPath = "from-empty.txt";
+  const diff = `diff --git a/${newPath} b/${newPath}\n` +
+    "new file mode 100644\n" +
+    "--- /dev/null\n" +
+    `+++ b/${newPath}\n` +
+    "@@ -0,0 +1,2 @@\n" +
+    "+first line\n" +
+    "+second line\n";
+
+  const result = await patchTool({ patch: diff });
+
+  expect(result).toContain(`Created ${newPath} via patch.`);
+  expect(await Bun.file(path.join(workspaceDir, newPath)).text()).toBe("first line\nsecond line");
+});
+
+test("patch tool tolerates trailing whitespace differences in context", async () => {
+  const relativePath = "trailing.txt";
+  const absolutePath = path.join(workspaceDir, relativePath);
+  await writeFile(absolutePath, "keep me\nchange me\n");
+
+  const diff = `diff --git a/${relativePath} b/${relativePath}\n` +
+    `--- a/${relativePath}\n` +
+    `+++ b/${relativePath}\n` +
+    "@@ -1,2 +1,2 @@\n" +
+    " keep me \n" +
+    "-change me\n" +
+    "+changed\n";
+
+  const result = await patchTool({ path: relativePath, patch: diff });
+
+  expect(result).toContain(`Updated ${relativePath} via patch.`);
+  expect(await Bun.file(absolutePath).text()).toBe("keep me\nchanged\n");
 });
