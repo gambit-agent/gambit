@@ -5,6 +5,7 @@ import type { ConversationMessage } from '../../conversation/conversation-types'
 import { inferFiletype } from '../../lib/change-diff'
 import { Markdown } from '../Markdown'
 import { layout, rolePresentation, theme } from '../theme'
+import { HoverClipboardBox } from '../components/HoverClipboardBox'
 import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningIntervalMs } from './tool-message-line'
 
 export interface ConversationPanelProps {
@@ -184,26 +185,26 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
                 >
                   <box flexDirection="row" gap={1}>
                     {toolLine.indicator ? (
-                      <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                      <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
                         {toolLine.indicator}
                       </text>
                     ) : null}
-                    <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                    <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
                       {toolLine.text}
                     </text>
                   </box>
                   {argsDetail ? (
-                    <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                    <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
                       {argsDetail}
                     </text>
                   ) : null}
                   {resultDetail ? (
-                    <text fg={theme.statusFg}>
+                    <text selectable fg={theme.statusFg}>
                       {resultDetail}
                     </text>
                   ) : null}
                   {artifactPath ? (
-                    <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                    <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
                       {`Path: ${artifactPath}`}
                     </text>
                   ) : null}
@@ -222,11 +223,11 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
               >
                 <box flexDirection="row" gap={toolLine.indicator ? 1 : 0}>
                   {toolLine.indicator ? (
-                    <text fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                    <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
                       {toolLine.indicator}
                     </text>
                   ) : null}
-                  <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                  <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
                     {toolLine.text}
                   </text>
                 </box>
@@ -236,8 +237,9 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
           }
 
           return (
-            <box
+            <HoverClipboardBox
               key={message.id}
+              content={message.content}
               flexDirection="column"
               alignItems={isUser ? 'flex-end' : 'flex-start'}
               paddingX={layout.messagePaddingX}
@@ -248,11 +250,11 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
                 <Markdown content={message.content} textColor={presentation.textColor} />
               </box>
               <box marginTop={1}>
-                <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+                <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
                   {formatTimestamp(message.timestamp)}
                 </text>
               </box>
-            </box>
+            </HoverClipboardBox>
           )
         })}
     </scrollbox>

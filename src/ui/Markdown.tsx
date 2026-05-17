@@ -173,7 +173,7 @@ function renderTable(token: Tokens.Table, key: string): ReactNode {
       }}
     >
       {lines.map((line, index) => (
-        <text key={`${key}-line-${index}`} content={line.length > 0 ? line : ' '} fg={theme.tableFg} />
+        <text selectable key={`${key}-line-${index}`} content={line.length > 0 ? line : ' '} fg={theme.tableFg} />
       ))}
     </box>
   )
@@ -206,9 +206,9 @@ function renderListItem(
 
   return (
     <box key={key} flexDirection="row" gap={1} alignItems="flex-start">
-      <text content={symbol} fg={theme.listBulletFg} />
+      <text selectable content={symbol} fg={theme.listBulletFg} />
       <box flexDirection="column" gap={nestedContent ? layout.markdownBlockGap : 0} flexGrow={1}>
-        {inlineContent.length ? <text fg={options.textColor}>{inlineContent}</text> : null}
+        {inlineContent.length ? <text selectable fg={options.textColor}>{inlineContent}</text> : null}
         {nestedContent}
       </box>
     </box>
@@ -236,7 +236,7 @@ function renderBlocks(
       }
       case 'paragraph': {
         elements.push(
-          <text key={key} fg={options.textColor}>
+          <text selectable key={key} fg={options.textColor}>
             {renderInline(token.tokens, key)}
           </text>,
         )
@@ -245,7 +245,7 @@ function renderBlocks(
       case 'heading': {
         const attributes = headingSizeToAttributes[token.depth] ?? TextAttributes.BOLD
         elements.push(
-          <text key={key} attributes={attributes} fg={theme.headingFg}>
+          <text selectable key={key} attributes={attributes} fg={theme.headingFg}>
             {renderInline(token.tokens, key)}
           </text>,
         )
@@ -267,10 +267,10 @@ function renderBlocks(
             }}
           >
             {token.lang ? (
-              <text fg={theme.codeBlockAccent} attributes={TextAttributes.DIM} content={`// ${token.lang}`} />
+              <text selectable fg={theme.codeBlockAccent} attributes={TextAttributes.DIM} content={`// ${token.lang}`} />
             ) : null}
             {lines.map((line: string, lineIndex: number) => (
-              <text key={`${key}-line-${lineIndex}`} content={line.length > 0 ? line : ' '} fg={theme.codeBlockFg} />
+              <text selectable key={`${key}-line-${lineIndex}`} content={line.length > 0 ? line : ' '} fg={theme.codeBlockFg} />
             ))}
           </box>,
         )
@@ -313,7 +313,7 @@ function renderBlocks(
       }
       case 'hr': {
         elements.push(
-          <text key={key} fg={theme.divider} attributes={TextAttributes.DIM} content={HORIZONTAL_RULE} />,
+          <text selectable key={key} fg={theme.divider} attributes={TextAttributes.DIM} content={HORIZONTAL_RULE} />,
         )
         break
       }
@@ -324,7 +324,7 @@ function renderBlocks(
       case 'html':
       case 'tag': {
         elements.push(
-          <text key={key} fg={options.textColor}>
+          <text selectable key={key} fg={options.textColor}>
             {token.text ?? token.raw}
           </text>,
         )
@@ -333,7 +333,7 @@ function renderBlocks(
       case 'text': {
         const inlineTokens = token.tokens?.length ? token.tokens : [token]
         elements.push(
-          <text key={key} fg={options.textColor}>
+          <text selectable key={key} fg={options.textColor}>
             {renderInline(inlineTokens, key)}
           </text>,
         )
@@ -341,7 +341,7 @@ function renderBlocks(
       }
       default: {
         elements.push(
-          <text key={key} fg={options.textColor}>
+          <text selectable key={key} fg={options.textColor}>
             {token.raw ?? ''}
           </text>,
         )
@@ -358,7 +358,7 @@ export function Markdown({ content, textColor }: MarkdownProps) {
   const resolvedColor = textColor ?? theme.assistantFg
 
   if (!tokens.length) {
-    return <text content={content.length ? content : ' '} />
+    return <text selectable content={content.length ? content : ' '} />
   }
 
   return (
