@@ -1,5 +1,5 @@
 import type { ConversationMessage } from '../../conversation/conversation-types'
-import { formatCompactToolSummary } from '../../lib/toolSummaries'
+import { summarizeToolEvent } from '../../lib/toolSummaries'
 
 /** Spinner characters shown while a tool call is in the "started" state. */
 export const toolMessageRunningFrames = ['□', '▫', '◻', '▫'] as const
@@ -36,7 +36,8 @@ export function formatToolMessageLine(
 ): { indicator: string | null; text: string } {
   const toolName = message.metadata?.toolName ?? 'tool'
   const toolStatus = formatToolStatus(message.metadata?.toolStatus) ?? 'done'
-  const compactSummary = formatCompactToolSummary({
+
+  const summary = summarizeToolEvent({
     toolName,
     status: message.metadata?.toolStatus,
     args: message.metadata?.toolArgs,
@@ -44,8 +45,10 @@ export function formatToolMessageLine(
     artifactPath: message.metadata?.toolArtifactPath,
   })
 
+  const detail = summary.detail ?? summary.headline ?? toolName
+
   return {
     indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
-    text: `Tool: ${toolName} [${toolStatus}]${compactSummary ? ` ${compactSummary}` : ''}`,
+    text: `Ran: ${detail}`,
   }
 }

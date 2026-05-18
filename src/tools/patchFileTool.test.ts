@@ -136,3 +136,45 @@ test("patch tool tolerates trailing whitespace differences in context", async ()
   expect(result).toContain(`Updated ${relativePath} via patch.`);
   expect(await Bun.file(absolutePath).text()).toBe("keep me\nchanged\n");
 });
+
+test("patch tool tolerates hunk offset forward by a few lines", async () => {
+  const relativePath = "offset-forward.txt";
+  const absolutePath = path.join(workspaceDir, relativePath);
+  await writeFile(absolutePath, "a\nb\nc\nd\ne\n");
+
+  // Hunk header claims start at line 4, but context actually starts at line 2.
+  const diff = `diff --git a/${relativePath} b/${relativePath}\n` +
+    `--- a/${relativePath}\n` +
+    `+++ b/${relativePath}\n` +
+    "@@ -4,3 +4,3 @@\n" +
+    " b\n" +
+    "-c\n" +
+    "+C\n" +
+    " d\n";
+
+  const result = await patchTool({ path: relativePath, patch: diff });
+
+  expect(result).toContain(`Updated ${relativePath} via patch.`);
+  expect(await Bun.file(absolutePath).text()).toBe("a\nb\nC\nd\ne\n");
+});
+
+test("patch tool tolerates hunk offset backward by a few lines", async () => {
+  const relativePath = "offset-backward.txt";
+  const absolutePath = path.join(workspaceDir, relativePath);
+  await writeFile(absolutePath, "a\nb\nc\nd\ne\n");
+
+  // Hunk header claims start at line 1, but context actually starts at line 2.
+  const diff = `diff --git a/${relativePath} b/${relativePath}\n` +
+    `--- a/${relativePath}\n` +
+    `+++ b/${relativePath}\n` +
+    "@@ -1,3 +1,3 @@\n" +
+    " b\n" +
+    "-c\n" +
+    "+C\n" +
+    " d\n";
+
+  const result = await patchTool({ path: relativePath, patch: diff });
+
+  expect(result).toContain(`Updated ${relativePath} via patch.`);
+  expect(await Bun.file(absolutePath).text()).toBe("a\nb\nC\nd\ne\n");
+});

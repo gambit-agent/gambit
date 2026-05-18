@@ -17,17 +17,16 @@ function createToolMessage(status: 'started' | 'completed' | 'failed'): Conversa
   }
 }
 
-test('formats running tool messages without a chevron prefix', () => {
+test('formats running tool messages with Ran: prefix', () => {
   const line = formatToolMessageLine(createToolMessage('started'), 1)
 
   expect(line.indicator).toBe(toolMessageRunningFrames[1])
-  expect(line.text.startsWith('Tool: executeShell [running]')).toBe(true)
-  expect(line.text.includes('> Tool')).toBe(false)
+  expect(line.text).toBe('Ran: echo hello')
 })
 
 test('omits the animated indicator once the tool finishes', () => {
   const line = formatToolMessageLine(createToolMessage('completed'), 2)
 
   expect(line.indicator).toBeNull()
-  expect(line.text.startsWith('Tool: executeShell [done]')).toBe(true)
+  expect(line.text).toBe('Ran: echo hello')
 })

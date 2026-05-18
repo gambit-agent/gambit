@@ -35,14 +35,14 @@ export function PlanApprovalOverlay({ request, planContent }: PlanApprovalOverla
         style={{
           border: ['left'],
           borderStyle: 'heavy',
-          borderColor: '#79c0ff',
+          borderColor: theme.infoFg,
           padding: 2,
           backgroundColor: theme.header,
           minWidth: 60,
           maxWidth: 100,
         }}
       >
-        <text fg="#79c0ff" attributes={TextAttributes.BOLD} content="Plan Review" />
+        <text fg={theme.infoFg} attributes={TextAttributes.BOLD} content="Plan Review" />
 
         {displayPlan ? (
           <box flexDirection="column" gap={1}>
@@ -51,7 +51,7 @@ export function PlanApprovalOverlay({ request, planContent }: PlanApprovalOverla
             <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="────────────" />
           </box>
         ) : (
-          <text fg="#f85149" content="No plan content found. The model should write the plan file first." />
+          <text fg={theme.errorFg} content="No plan content found. The model should write the plan file first." />
         )}
 
         <text

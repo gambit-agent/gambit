@@ -141,6 +141,87 @@ function linesMatch(expected: string, actual: string): boolean {
   return expected === actual || expected.trimEnd() === actual.trimEnd();
 }
 
+interface HunkOp {
+  type: 'context' | 'delete' | 'add';
+  payload: string;
+}
+
+interface Hunk {
+  expectedStart: number; // 0-based
+  ops: HunkOp[];
+}
+
+function parseHunks(patchLines: string[]): Hunk[] {
+  const hunks: Hunk[] = [];
+  let currentOps: HunkOp[] | null = null;
+  let currentExpectedStart = 0;
+
+  for (let i = 0; i < patchLines.length; i++) {
+    const line = patchLines[i];
+    if (!line) continue;
+    if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+      continue;
+    }
+
+    if (line.startsWith("@@ ")) {
+      if (currentOps) {
+        hunks.push({ expectedStart: currentExpectedStart, ops: currentOps });
+      }
+      const match = hunkHeaderPattern.exec(line);
+      if (!match) throw new Error(`Invalid hunk header: ${line}`);
+      currentExpectedStart = Math.max(parseInt(match[1] ?? "0", 10) - 1, 0);
+      currentOps = [];
+    } else if (currentOps) {
+      if (line.startsWith("\\ No newline")) continue;
+      const marker = line[0] ?? "";
+      const payload = line.slice(1);
+      if (marker === " ") currentOps.push({ type: 'context', payload });
+      else if (marker === "-") currentOps.push({ type: 'delete', payload });
+      else if (marker === "+") currentOps.push({ type: 'add', payload });
+      else throw new Error(`Unsupported patch line: ${line}`);
+    }
+  }
+
+  if (currentOps) {
+    hunks.push({ expectedStart: currentExpectedStart, ops: currentOps });
+  }
+
+  return hunks;
+}
+
+function hunkSignature(ops: HunkOp[]): string[] {
+  return ops.filter(op => op.type === 'context' || op.type === 'delete').map(op => op.payload);
+}
+
+function findHunkOffset(sourceLines: string[], startIdx: number, hunk: Hunk): number {
+  const sig = hunkSignature(hunk.ops);
+  if (sig.length === 0) {
+    return Math.min(startIdx, sourceLines.length);
+  }
+
+  const offsets = [0];
+  for (let d = 1; d <= 15; d++) {
+    offsets.push(d, -d);
+  }
+
+  for (const offset of offsets) {
+    const idx = startIdx + offset;
+    if (idx < 0 || idx >= sourceLines.length) continue;
+    if (idx + sig.length > sourceLines.length) continue;
+
+    let match = true;
+    for (let s = 0; s < sig.length; s++) {
+      if (!linesMatch(sig[s]!, sourceLines[idx + s]!)) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return idx;
+  }
+
+  return -1;
+}
+
 /**
  * Apply a unified diff to a base text. Supports multi-hunk patches and
  * tolerates trailing whitespace mismatches in context/deletion lines.
@@ -149,86 +230,46 @@ function linesMatch(expected: string, actual: string): boolean {
 export function applyUnifiedDiff(baseText: string, diffText: string): string {
   const sourceLines = normalizeLines(baseText);
   const patchLines = diffText.replace(/\r/g, "").split("\n");
+  const hunks = parseHunks(patchLines);
   const outputLines: string[] = [];
   let sourceIndex = 0;
 
-  for (let i = 0; i < patchLines.length; i++) {
-    const line = patchLines[i];
-    if (!line || !line.startsWith("@@ ")) {
-      continue;
+  for (const hunk of hunks) {
+    const actualStart = findHunkOffset(sourceLines, hunk.expectedStart, hunk);
+    if (actualStart === -1) {
+      const sig = hunkSignature(hunk.ops);
+      const expectedLine = hunk.expectedStart + 1;
+      throw new Error(
+        `Context mismatch while applying patch near line ${expectedLine}. ` +
+        `Tried offsets -15 to +15 around expected position. ` +
+        `Context signature starts with: ${JSON.stringify(sig.slice(0, 3))}`
+      );
     }
 
-    const match = hunkHeaderPattern.exec(line);
-    if (!match) {
-      throw new Error(`Invalid hunk header: ${line}`);
+    if (actualStart < sourceIndex) {
+      throw new Error(
+        `Patch hunk at line ${actualStart + 1} overlaps with a previously applied hunk. ` +
+        `Current position in source is ${sourceIndex + 1}.`
+      );
     }
 
-    // hunk headers are 1-based; convert to 0-based index for the source array.
-    const startOld = Math.max(parseInt(match[1] ?? "0", 10) - 1, 0);
-
-    while (sourceIndex < startOld) {
-      const originalLine = sourceLines[sourceIndex];
-      if (originalLine === undefined) {
-        throw new Error("Patch hunk exceeds original file length.");
-      }
-      outputLines.push(originalLine);
+    while (sourceIndex < actualStart) {
+      outputLines.push(sourceLines[sourceIndex] ?? "");
       sourceIndex++;
     }
 
-    i++;
-    while (i < patchLines.length) {
-      const hunkLine = patchLines[i];
-      if (!hunkLine) {
-        i++;
-        continue;
-      }
-      // Reached the next hunk or the end of the diff for this file.
-      if (hunkLine.startsWith("@@ ") || hunkLine.startsWith("--- ") || hunkLine.startsWith("+++ ")) {
-        i--;
-        break;
-      }
-
-      if (hunkLine.startsWith("\\ No newline")) {
-        i++;
-        continue;
-      }
-
-      const marker = hunkLine[0] ?? "";
-      const payload = hunkLine.slice(1);
-
-      if (marker === " ") {
-        // Context line must match the source (with trailing-whitespace tolerance).
-        const expected = payload;
-        const actual = sourceLines[sourceIndex] ?? "";
-        if (!linesMatch(expected, actual)) {
-          throw new Error(
-            `Context mismatch while applying patch at line ${sourceIndex + 1}.\nExpected: ${JSON.stringify(expected)}\nActual: ${JSON.stringify(actual)}`,
-          );
-        }
-        outputLines.push(actual);
+    for (const op of hunk.ops) {
+      if (op.type === 'context') {
+        outputLines.push(sourceLines[sourceIndex] ?? "");
         sourceIndex++;
-      } else if (marker === "-") {
-        // Deletion line must match the source (with trailing-whitespace tolerance).
-        const actual = sourceLines[sourceIndex] ?? "";
-        if (!linesMatch(payload, actual)) {
-          throw new Error(
-            `Deletion mismatch while applying patch at line ${sourceIndex + 1}.\nExpected to delete: ${JSON.stringify(payload)}\nFound: ${JSON.stringify(actual)}`,
-          );
-        }
+      } else if (op.type === 'delete') {
         sourceIndex++;
-      } else if (marker === "+") {
-        outputLines.push(payload);
-      } else if (marker.trim() === "") {
-        outputLines.push("");
-      } else {
-        throw new Error(`Unsupported patch line: ${hunkLine}`);
+      } else if (op.type === 'add') {
+        outputLines.push(op.payload);
       }
-
-      i++;
     }
   }
 
-  // Append any remaining lines from the original file after the last hunk.
   for (; sourceIndex < sourceLines.length; sourceIndex++) {
     outputLines.push(sourceLines[sourceIndex] ?? "");
   }

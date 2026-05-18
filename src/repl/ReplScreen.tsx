@@ -1391,6 +1391,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   }, [])
 
   const modelDisplay = reasoningEffort ? `${modelId} (effort: ${reasoningEffort})` : modelId
+  const shortModelId = modelId.includes('/') ? modelId.split('/').pop()! : modelId
+  const shortModelDisplay = reasoningEffort ? `${shortModelId}·${reasoningEffort}` : shortModelId
   const followUpCount = interactive.followUpQueue.length
   const statusDisplay =
     conversation.status === 'running' && statusElapsed
@@ -1399,11 +1401,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const responseSpinner = responseSpinnerFrames[responseSpinnerFrame] ?? responseSpinnerFrames[0]
   const permissionModeColor =
     permissionSnapshot.mode === 'Auto-accept'
-      ? '#7ee787'
+      ? theme.successFg
       : permissionSnapshot.mode === 'Plan'
-        ? '#79c0ff'
+        ? theme.infoFg
         : permissionSnapshot.mode === 'Normal'
-          ? '#f2cc60'
+          ? theme.warningFg
           : theme.statusFg
   const isPermissionDialogOpen = Boolean(permissionSnapshot.activeRequest)
   const isQuestionDialogOpen = Boolean(questionSnapshot.activeRequest)
@@ -1437,7 +1439,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         alignItems="center"
         paddingBottom={1}
       >
-        <text fg={theme.systemFg}>
+        <text fg={theme.logoFg} attributes={TextAttributes.BOLD}>
           GAMBIT |  <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{sessionTimestampFormatter.format(new Date())}</span>
         </text>
       </box>
@@ -1453,7 +1455,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             backgroundColor: theme.systemBg,
           }}
         >
-          <text fg="#ff6b6b" content={`Error: ${conversation.error}`} />
+          <text fg={theme.errorFg} content={`Error: ${conversation.error}`} />
           <box marginTop={1}>
             <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Press Esc to dismiss" />
           </box>
@@ -1484,7 +1486,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
       {interactive.exitPending ? (
         <box paddingY={0} paddingX={layout.panelPaddingX}>
-          <text fg="#ff6b6b" attributes={TextAttributes.BOLD} content="Press again to exit." />
+          <text fg={theme.errorFg} attributes={TextAttributes.BOLD} content="Press again to exit." />
         </box>
       ) : null}
 
@@ -1563,12 +1565,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         <box
           flexDirection="column"
           border={['top', 'bottom', 'left', 'right']}
-          borderStyle="rounded"
+          borderStyle="heavy"
           paddingX={1}
           paddingY={1}
           marginBottom={1}
           style={{
-            borderColor: theme.bodyBorder,
+            borderColor: theme.inputBorder,
             backgroundColor: theme.background,
           }}
         >
@@ -1625,19 +1627,17 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         flexShrink={0}
         border={['top', 'bottom', 'left', 'right']}
         borderStyle="rounded"
-        minHeight={6}
-        justifyContent="space-between"
+        justifyContent="flex-start"
         style={{
           borderColor: theme.bodyBorder,
           backgroundColor: theme.background,
         }}
       >
-        <box flexDirection="column" gap={inputPreview ? 1 : 0} padding={0}>
+        <box flexDirection="column" gap={inputPreview ? 1 : 0}>
           {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
           <box
             flexDirection="row"
             paddingLeft={1}
-            paddingBottom={2}
           >
             <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="› " />
             <box flexGrow={1} flexDirection="column">
@@ -1659,43 +1659,31 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             </box>
           </box>
         </box>
-
-        <box 
-        flexDirection="row" 
-        gap={3} 
-        paddingLeft={1}
-        paddingBottom={0}>
-          <text fg={theme.headerAccent} content={`* ${modelDisplay}`} />
-          <text fg={theme.statusFg} content={thinkingEnabled ? '◉ Thinking' : '○ Direct'} />
-          <text fg={permissionModeColor} content={`◇ ${permissionSnapshot.mode}`} />
-        </box>
       </box>
-
+      
       <box flexDirection="row" flexShrink={0} justifyContent="space-between" paddingX={1}>
-        <box flexDirection="row" gap={3}>
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={'◈ Local'} />
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂ ${gitBranch || 'unknown'}`} />
-          <text
-            fg={theme.statusFg}
-            attributes={TextAttributes.DIM}
-            content={`◦ ${conversation.conversationId.slice(0, 8)}`}
-          />
-          {conversation.status === 'running' ? (<text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content={responseSpinner} />) : <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`•`} />}
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`${statusDisplay}`} />
+        <box flexDirection="row" gap={1}>
+          <text fg={thinkingEnabled ? theme.successFg : theme.infoFg} attributes={TextAttributes.BOLD} content={thinkingEnabled ? '◉' : '○'} />
+          <text fg={permissionModeColor} content={`◇ ${permissionSnapshot.mode}`} />
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂${gitBranch || '?'}`} />
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`◦${conversation.conversationId.slice(0, 6)}`} />
+          <text fg={conversation.status === 'running' ? theme.headerAccent : theme.statusFg} attributes={conversation.status === 'running' ? TextAttributes.BOLD : TextAttributes.DIM} content={conversation.status === 'running' ? `${responseSpinner} ${statusElapsed ?? ''}` : `• ${statusDisplay}`} />
         </box>
-        <box flexDirection="row" gap={3}>
+        <box flexDirection="row" gap={1}>
           {contextUsage ? (
             <text
               fg={
                 contextUsage.used / contextUsage.max > 0.85
-                  ? '#ff6b6b'
+                  ? theme.errorFg
                   : contextUsage.used / contextUsage.max > 0.6
-                    ? '#f2cc60'
+                    ? theme.warningFg
                     : theme.statusFg
               }
               attributes={TextAttributes.DIM}
-              content={`ctx ${formatTokenCount(contextUsage.used)}/${formatTokenCount(contextUsage.max)} (${Math.round((contextUsage.used / contextUsage.max) * 100)}%)`}
-            />
+            >
+              <span fg={theme.headerAccent}>{shortModelDisplay}</span>
+              {` ${formatTokenCount(contextUsage.used)}/${formatTokenCount(contextUsage.max)}`}
+            </text>
           ) : null}
           <TaskPanel tasks={activeBackgroundTasks} />
         </box>

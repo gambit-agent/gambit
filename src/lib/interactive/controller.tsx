@@ -84,7 +84,7 @@ export function useInteractiveController({
   const historyRef = useRef<InteractiveHistory | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: "", match: null })
-  const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [thinkingEnabled, setThinkingEnabled] = useState(true)
   const [localPermissionMode, setLocalPermissionMode] = useState<PermissionMode>("Normal")
   const [exitPending, setExitPending] = useState(false)
   const followUpQueueRef = useRef<string[]>([])

@@ -128,10 +128,10 @@ export function ModelPickerOverlay({
             border: ["left"],
             borderStyle: "heavy",
             borderColor: theme.inputBorder,
-            padding: 2,
-            backgroundColor: theme.header,
-            minWidth: 60,
-            maxWidth: 80,
+            padding: 1,
+            backgroundColor: theme.background,
+            minWidth: 45,
+            maxWidth: 65,
           }}
         >
           <text
@@ -171,7 +171,7 @@ export function ModelPickerOverlay({
               content={`Current effort · ${state.reasoningEffort}`}
             />
           ) : null}
-          {state.reasoningError ? <text fg="#ff6b6b" content={state.reasoningError} /> : null}
+          {state.reasoningError ? <text fg={theme.errorFg} content={state.reasoningError} /> : null}
           <input
             value={state.reasoningInput}
             onInput={onReasoningChange}
@@ -203,24 +203,19 @@ export function ModelPickerOverlay({
           border: ["left"],
           borderStyle: "heavy",
           borderColor: theme.inputBorder,
-          padding: 2,
-          backgroundColor: theme.header,
-          minWidth: 70,
-          maxWidth: 90,
+          padding: 1,
+          backgroundColor: theme.background,
+          minWidth: 50,
+          maxWidth: 70,
         }}
       >
         <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="/model · Select a model" />
-        <text
-          fg={theme.statusFg}
-          attributes={TextAttributes.DIM}
-          content={'Type to filter models. Enter selects the highlighted result. Type "cancel" to exit.'}
-        />
         {state.fetchState === "loading" ? (
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Loading models…" />
         ) : null}
         {state.fetchState === "error" ? (
           <>
-            <text fg="#ff6b6b" content={`Failed to load models: ${state.fetchError ?? "Unknown error"}`} />
+            <text fg={theme.errorFg} content={`Failed to load models: ${state.fetchError ?? "Unknown error"}`} />
             <text
               fg={theme.statusFg}
               attributes={TextAttributes.DIM}
@@ -242,15 +237,24 @@ export function ModelPickerOverlay({
               onOptionSelect(index ?? 0, typeof option?.value === 'string' ? option.value : undefined)
             }
             showDescription
-            style={{ minHeight: 8, minWidth: 60 }}
+            backgroundColor={theme.background}
+            selectedBackgroundColor={theme.selectedBg}
+            selectedTextColor={theme.selectedFg}
+            textColor={theme.statusFg}
+            descriptionColor={theme.descriptionFg}
+            focusedBackgroundColor={theme.selectedBg}
+            focusedTextColor={theme.selectedFg}
+            selectedDescriptionColor={theme.descriptionFg}
+            style={{ minHeight: 5, minWidth: 50 }}
           />
         ) : null}
-        {state.hint ? <text fg="#ffae42" content={state.hint} /> : null}
+        {state.hint ? <text fg={theme.warningAccent} content={state.hint} /> : null}
         <input
           value={state.filterValue}
           onInput={onFilterChange}
           onSubmit={handleFilterSubmit}
           focused={hasFocus}
+          placeholder={'Type to filter models. Enter selects. "cancel" to exit.'}
         />
       </box>
     </box>

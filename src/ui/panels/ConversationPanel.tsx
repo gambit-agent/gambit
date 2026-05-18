@@ -99,11 +99,11 @@ function ToolDiffView({ diff, filetype }: { diff: string; filetype?: string }) {
         filetype={filetype}
         showLineNumbers
         wrapMode="none"
-        addedBg="#16351f"
-        removedBg="#3a1f1f"
-        addedSignColor="#3fb950"
-        removedSignColor="#f85149"
-        lineNumberFg="#8b949e"
+        addedBg={theme.successBg}
+        removedBg={theme.errorBg}
+        addedSignColor={theme.diffAddedFg}
+        removedSignColor={theme.diffRemovedFg}
+        lineNumberFg={theme.diffLineNumberFg}
         width="100%"
         height="100%"
       />

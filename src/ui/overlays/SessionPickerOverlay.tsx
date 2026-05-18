@@ -94,7 +94,7 @@ export function SessionPickerOverlay({
         ) : null}
         {fetchState === 'error' ? (
           <>
-            <text fg="#ff6b6b" content={`Failed to load saved conversations: ${fetchError ?? 'Unknown error'}`} />
+            <text fg={theme.errorFg} content={`Failed to load saved conversations: ${fetchError ?? 'Unknown error'}`} />
             <text
               fg={theme.statusFg}
               attributes={TextAttributes.DIM}
@@ -116,6 +116,14 @@ export function SessionPickerOverlay({
             onChange={(index) => onOptionChange(index ?? 0)}
             onSelect={(index) => onOptionSelect(index ?? 0)}
             showDescription
+            backgroundColor={theme.background}
+            selectedBackgroundColor={theme.selectedBg}
+            selectedTextColor={theme.selectedFg}
+            textColor={theme.statusFg}
+            descriptionColor={theme.descriptionFg}
+            focusedBackgroundColor={theme.selectedBg}
+            focusedTextColor={theme.selectedFg}
+            selectedDescriptionColor={theme.descriptionFg}
             style={{ minHeight: 8, minWidth: 62 }}
           />
         ) : null}
