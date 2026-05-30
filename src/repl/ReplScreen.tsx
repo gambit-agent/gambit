@@ -15,7 +15,7 @@ import {
 import { copyTextToClipboard } from '../lib/clipboard'
 import { useModelPicker } from '../lib/modelPicker'
 import { modelRequiresApiKey, type ReasoningEffort } from '../lib/model'
-import { executeSlashCommand, type SlashCommandExecution } from '../lib/slashCommands'
+import { executeSlashCommand, loadSlashCommands, type SlashCommandExecution } from '../lib/slashCommands'
 import { executePromptTemplate } from '../lib/promptTemplates'
 import { estimateContextTokens } from '../conversation/compaction'
 import {
@@ -32,6 +32,7 @@ import type { UIMessage } from '../types/chat'
 import type { ConversationSessionSummary } from '../session/conversation-sessions'
 import { readModelSelection, writeModelSelection } from '../session/model-selection'
 import { routeInput } from './input-router'
+import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from './help'
 import { layout, theme } from '../ui/theme'
 import { ModelPickerOverlay } from '../ui/model-picker/ModelPickerOverlay'
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
@@ -103,6 +104,18 @@ function formatSlashCommandMessage(execution: SlashCommandExecution): string {
 
   const headerBlock = header.join('\n')
   return execution.content ? `${headerBlock}\n\n${execution.content}` : headerBlock
+}
+
+async function pushSystemMessage(
+  runtime: ReturnType<typeof useAppRuntime>,
+  content: string,
+): Promise<void> {
+  await runtime.conversationStore.pushMessage({
+    id: randomUUID(),
+    role: 'system',
+    content,
+    timestamp: new Date().toISOString(),
+  })
 }
 
 function formatTokenCount(tokens: number): string {
@@ -1155,6 +1168,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       }
 
       if (routed.channel === 'slash') {
+        if (routed.name === 'help') {
+          const commands = await loadSlashCommands()
+          await pushSystemMessage(runtime, formatInteractiveHelp(commands))
+          return
+        }
+
         if (routed.name === 'clear') {
           await startFreshConversation()
           return
@@ -1167,7 +1186,21 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }
         }
 
-        const execution = await executeSlashCommand(routed.name, routed.argument)
+        let execution: SlashCommandExecution
+        try {
+          execution = await executeSlashCommand(routed.name, routed.argument, {
+            allowDisabledModelInvocation: true,
+          })
+        } catch (error) {
+          const commands = await loadSlashCommands()
+          const message =
+            error instanceof Error && error.message.startsWith('Slash command not found:')
+              ? formatUnknownSlashCommandMessage(routed.name, commands)
+              : `Could not run /${routed.name}: ${error instanceof Error ? error.message : String(error)}`
+          await pushSystemMessage(runtime, message)
+          return
+        }
+
         const rendered = await runtime.hookManager.runCommandBefore({
           command: execution.command,
           sessionID: conversation.conversationId,

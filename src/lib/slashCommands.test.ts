@@ -144,6 +144,27 @@ test("ignores user command when project command shares base name", async () => {
   expect(commands[0]?.scope).toBe("project");
 });
 
+test("allows direct user execution of model-disabled slash commands", async () => {
+  await writeFile(
+    path.join(projectCommandsDir, "local-only.md"),
+    "---\n" +
+      "description: Local helper\n" +
+      "disable-model-invocation: true\n" +
+      "---\n" +
+      "Local content: $ARGUMENTS\n",
+  );
+
+  await expect(executeSlashCommand("local-only", "now"))
+    .rejects.toThrow(/disabled for model invocation/);
+
+  const result = await executeSlashCommand("local-only", "now", {
+    allowDisabledModelInvocation: true,
+  });
+
+  expect(result.command).toBe("/local-only");
+  expect(result.content).toContain("Local content: now");
+});
+
 async function removeDirectoryWithRetry(directory: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {

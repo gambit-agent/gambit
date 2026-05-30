@@ -83,6 +83,7 @@ export async function loadSlashCommands(): Promise<SlashCommandDefinition[]> {
 export async function executeSlashCommand(
   identifier: string,
   args: string | undefined,
+  options: { allowDisabledModelInvocation?: boolean } = {},
 ): Promise<SlashCommandExecution> {
   const trimmed = identifier.replace(/^\//, "").trim();
   if (!trimmed) {
@@ -95,7 +96,7 @@ export async function executeSlashCommand(
     throw new Error(`Slash command not found: /${trimmed}`);
   }
 
-  if (command.disableModelInvocation) {
+  if (command.disableModelInvocation && !options.allowDisabledModelInvocation) {
     throw new Error(`Slash command /${command.id} is disabled for model invocation.`);
   }
 
