@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP="gambit"
-REPO="${GAMBIT_REPO:-sergiomasellis/gambit-cli}"
+REPO="${GAMBIT_REPO:-gambit-agent/gambit}"
 INSTALL_DIR="${GAMBIT_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
 MUTED='\033[0;2m'
 RED='\033[0;31m'
@@ -31,13 +31,13 @@ Options:
   --no-modify-path       Do not update shell startup files.
 
 Environment:
-  GAMBIT_REPO            GitHub repository to download from. Default: sergiomasellis/gambit-cli.
+  GAMBIT_REPO            GitHub repository to download from. Default: gambit-agent/gambit.
   GAMBIT_BIN_DIR         Install directory. Default: ~/.local/bin.
   VERSION                Release version to install.
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
-  curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --version 0.6.0
+  curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
+  curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.6.0
   ./install --binary ./gambit
 EOF
 }

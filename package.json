@@ -11,12 +11,12 @@
   "author": "Sergio Masellis <sergio@sergiomasellis.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sergiomasellis/gambit-cli.git"
+    "url": "git+https://github.com/gambit-agent/gambit.git"
   },
   "bugs": {
-    "url": "https://github.com/sergiomasellis/gambit-cli/issues"
+    "url": "https://github.com/gambit-agent/gambit/issues"
   },
-  "homepage": "https://github.com/sergiomasellis/gambit-cli#readme",
+  "homepage": "https://github.com/gambit-agent/gambit#readme",
   "keywords": [
     "cli",
     "tui",

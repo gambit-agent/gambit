@@ -7,8 +7,8 @@
 [![Bun](https://img.shields.io/badge/Bun-1.2+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?logo=typescript&logoColor=white&labelColor=14151a)](https://www.typescriptlang.org/)
 [![OpenTUI](https://img.shields.io/badge/OpenTUI-0.3.0-6c5ce7?labelColor=14151a)](https://github.com/opentui/opentui)
-[![License](https://img.shields.io/github/license/sergiomasellis/gambit-cli?labelColor=14151a)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/sergiomasellis/gambit-cli?labelColor=14151a)](https://github.com/sergiomasellis/gambit-cli/releases/latest)
+[![License](https://img.shields.io/github/license/gambit-agent/gambit?labelColor=14151a)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/gambit-agent/gambit?labelColor=14151a)](https://github.com/gambit-agent/gambit/releases/latest)
 
 ## Overview
 
@@ -30,7 +30,7 @@ Features:
 ### Quick install (Linux / macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 ```
 
 The installer detects your platform (including musl Linux and Rosetta on macOS), downloads the matching prebuilt binary from GitHub Releases, verifies its SHA256 against the release `manifest.json`, installs it to `~/.local/bin/gambit`, and updates your shell PATH when possible.
@@ -39,13 +39,13 @@ Install a specific version, choose a directory, or install a local binary:
 
 ```bash
 # default: latest stable release
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
 # specific version
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --version 0.6.0
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.6.0
 
 # custom install directory
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --install-dir "$HOME/bin"
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --install-dir "$HOME/bin"
 
 # local compiled binary
 ./install --binary ./gambit
@@ -55,21 +55,21 @@ Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-
 
 Environment overrides:
 
-- `GAMBIT_REPO` — `owner/repo` to download from (default: `sergiomasellis/gambit-cli`).
+- `GAMBIT_REPO` — `owner/repo` to download from (default: `gambit-agent/gambit`).
 - `GAMBIT_BIN_DIR` — install location for the launcher (default: `~/.local/bin`).
 - `VERSION` — version to install when `--version` is not passed.
 
 ### Manual install
 
-Grab a binary from the [latest release](https://github.com/sergiomasellis/gambit-cli/releases/latest), verify its SHA256 against `manifest.json`, then install it with `./install --binary ./gambit-<platform>`.
+Grab a binary from the [latest release](https://github.com/gambit-agent/gambit/releases/latest), verify its SHA256 against `manifest.json`, then install it with `./install --binary ./gambit-<platform>`.
 
 ### Install from source
 
 Requires [Bun](https://bun.sh) 1.2.20+.
 
 ```bash
-git clone https://github.com/sergiomasellis/gambit-cli.git
-cd gambit-cli
+git clone https://github.com/gambit-agent/gambit.git
+cd gambit
 bun install
 make install        # compile a native binary and copy to ~/.local/bin
 ```

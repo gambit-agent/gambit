@@ -4,9 +4,9 @@ set -euo pipefail
 
 # Compatibility entrypoint. The extensionless ./install script is the canonical
 # installer so users can run:
-#   curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+#   curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
-repo="${GAMBIT_REPO:-sergiomasellis/gambit-cli}"
+repo="${GAMBIT_REPO:-gambit-agent/gambit}"
 ref="${GAMBIT_INSTALL_REF:-main}"
 script_dir=""
 

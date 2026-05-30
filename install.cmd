@@ -6,7 +6,7 @@ echo.
 echo Recommended Windows install:
 echo   1. Open WSL.
 echo   2. Run:
-echo      curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install ^| bash
+echo      curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install ^| bash
 echo.
 echo Source checkout install with Bun:
 echo   bun install

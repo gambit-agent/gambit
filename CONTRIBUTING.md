@@ -10,8 +10,8 @@ Thank you for considering a contribution! Gambit is a Bun + TypeScript TUI for A
 ## Setup
 
 ```bash
-git clone https://github.com/sergiomasellis/gambit-cli.git
-cd gambit-cli
+git clone https://github.com/gambit-agent/gambit.git
+cd gambit
 bun install
 ```
 
@@ -123,6 +123,6 @@ See `AGENTS.md` for a detailed architecture guide. Key directories:
 
 ## Getting help
 
-Open a [discussion](https://github.com/sergiomasellis/gambit-cli/discussions) or [issue](https://github.com/sergiomasellis/gambit-cli/issues) if you have questions.
+Open a [discussion](https://github.com/gambit-agent/gambit/discussions) or [issue](https://github.com/gambit-agent/gambit/issues) if you have questions.
 
 For installer behavior and supported release targets, see [INSTALL.md](INSTALL.md).

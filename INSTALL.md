@@ -3,7 +3,7 @@
 Gambit publishes self-contained binaries for Linux and macOS on GitHub Releases. The recommended install is the extensionless Bash installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 ```
 
 The installer downloads the matching binary for your platform, verifies it against the release `manifest.json`, installs it to `~/.local/bin/gambit`, and adds that directory to your shell PATH when possible.
@@ -12,10 +12,10 @@ The installer downloads the matching binary for your platform, verifies it again
 
 ```bash
 # Latest stable release
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
 # Specific release
-curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --version 0.6.0
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.6.0
 
 # Local compiled binary
 ./install --binary ./gambit
@@ -41,8 +41,8 @@ Supported release targets:
 Source installs require [Bun](https://bun.sh) 1.2.20 or newer.
 
 ```bash
-git clone https://github.com/sergiomasellis/gambit-cli.git
-cd gambit-cli
+git clone https://github.com/gambit-agent/gambit.git
+cd gambit
 bun install
 make build
 make install
