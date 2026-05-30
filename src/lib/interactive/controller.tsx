@@ -219,6 +219,14 @@ export function useInteractiveController({
         return
       }
 
+      if (isRunning) {
+        followUpQueueRef.current = [...followUpQueueRef.current, trimmed]
+        setFollowUpQueue([...followUpQueueRef.current])
+        clearPreviewLabel()
+        setInputValueWithRef("")
+        return
+      }
+
       if (!historyLoaded || !historyRef.current) {
         const history = await InteractiveHistory.load()
         historyRef.current = history
@@ -244,6 +252,7 @@ export function useInteractiveController({
     [
       clearPreviewLabel,
       historyLoaded,
+      isRunning,
       messages,
       performSubmit,
       persistHistory,

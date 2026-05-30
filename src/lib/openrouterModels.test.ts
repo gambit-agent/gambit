@@ -89,7 +89,9 @@ test("fetchOpenRouterModels requires an API key", async () => {
   )
 })
 
-test("fetchOpenRouterModels returns live models from OpenRouter", async () => {
+const liveTest: boolean = Bun.env.GAMBIT_RUN_LIVE_TESTS === "1" && Boolean(Bun.env.OPENROUTER_API_KEY);
+
+(liveTest ? test : test.skip)("fetchOpenRouterModels returns live models from OpenRouter", async () => {
   const models = await fetchOpenRouterModels(Bun.env.OPENROUTER_API_KEY ?? undefined)
 
   expect(Array.isArray(models)).toBe(true)

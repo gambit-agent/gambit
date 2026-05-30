@@ -1,31 +1,26 @@
-# PowerShell setup script for Gambit CLI command
-Write-Host "Setting up Gambit CLI command..."
+$ErrorActionPreference = "Stop"
 
-# Get the current directory
- = Get-Location
+# Source checkout bootstrap. For released binaries, prefer the Bash installer
+# from WSL or install from a GitHub release asset.
 
-# Create the gambit function
- = @"
-function gambit {
-    Set-Location ''
-    bun run .
-}
-"@
+Set-Location $PSScriptRoot
 
-# Add to PowerShell profile
- = .CurrentUserAllHosts
-if (-not (Test-Path )) {
-    New-Item -Path  -ItemType File -Force
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+  Write-Error "Bun is required. Install it from https://bun.sh, then rerun setup.ps1."
+  exit 1
 }
 
-# Check if function already exists
- = Get-Content  -Raw
-if ( -notmatch "function gambit") {
-    Add-Content  
-    Write-Host "Added gambit function to PowerShell profile"
-} else {
-    Write-Host "gambit function already exists in PowerShell profile"
-}
+bun install
+bun run tsc --noEmit
+bun build --compile --outfile=gambit.exe src/gambit.tsx
 
-Write-Host "Setup complete! Please restart PowerShell to use the 'gambit' command."
-Write-Host "You can now run 'gambit' from anywhere to start the application."
+$binDir = if ($env:GAMBIT_BIN_DIR) { $env:GAMBIT_BIN_DIR } else { Join-Path $HOME ".local\bin" }
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+Copy-Item -Force ".\gambit.exe" (Join-Path $binDir "gambit.exe")
+
+Write-Host ""
+Write-Host "Installed gambit.exe to $binDir"
+if (($env:Path -split ";") -notcontains $binDir) {
+  Write-Host "Add this directory to PATH before running gambit from a new terminal:"
+  Write-Host "  $binDir"
+}

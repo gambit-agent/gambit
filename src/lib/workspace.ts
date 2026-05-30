@@ -3,7 +3,8 @@ import { workspaceRoot } from "../config";
 
 export function resolveWorkspacePath(targetPath: string): string {
   const resolved = path.resolve(workspaceRoot, targetPath);
-  if (!resolved.startsWith(workspaceRoot)) {
+  const relative = path.relative(workspaceRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Access denied: path escapes workspace root.");
   }
   return resolved;

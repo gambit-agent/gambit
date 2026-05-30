@@ -3,6 +3,7 @@ import path from "node:path";
 const DEFAULT_PROJECT_DOC_MAX_BYTES = 64_000;
 const DEFAULT_SLASH_COMMAND_CHAR_BUDGET = 15_000;
 const DEFAULT_SKILL_CATALOG_CHAR_BUDGET = 8_000;
+const DEFAULT_MAX_AGENT_STEPS = 200;
 
 /**
  * Absolute path to the active workspace root. Defaults to `process.cwd()` but
@@ -48,6 +49,9 @@ export const slashCommandCharBudget = parseSlashCommandCharBudget(
 export const skillCatalogCharBudget = parseSkillCatalogCharBudget(
   Bun.env.SKILL_CATALOG_CHAR_BUDGET,
 );
+
+/** Maximum model/tool loop steps per agent turn. */
+export const maxAgentSteps = parseMaxAgentSteps(Bun.env.GAMBIT_MAX_AGENT_STEPS);
 
 /** Override the workspace root at test time so tests run in a temp directory. */
 export function setWorkspaceRootForTesting(newRoot: string) {
@@ -102,4 +106,15 @@ function parseSkillCatalogCharBudget(value: string | undefined): number {
     return DEFAULT_SKILL_CATALOG_CHAR_BUDGET;
   }
   return Math.max(0, parsed);
+}
+
+function parseMaxAgentSteps(value: string | undefined): number {
+  if (!value) {
+    return DEFAULT_MAX_AGENT_STEPS;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_MAX_AGENT_STEPS;
+  }
+  return Math.max(1, parsed);
 }

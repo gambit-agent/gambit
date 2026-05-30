@@ -6,8 +6,10 @@ import { createModelSelector, type ReasoningEffort } from '../lib/model'
 import { createStreamLogger } from '../lib/stream-logger'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
+import { maxAgentSteps } from '../config'
 import type { AgentDefinition } from './agent-types'
 import type { ConversationMessage } from '../conversation/conversation-types'
+import type { ToolExecutionContext } from '../tools/tool-types'
 
 /**
  * External dependencies injected into AgentRunner so it can operate
@@ -20,7 +22,11 @@ export interface AgentRunnerOptions {
   modelId: string
   reasoningEffort?: ReasoningEffort | null
   baseSystemPrompt: string
-  createTools: (allowedToolIds?: readonly string[]) => Promise<Record<string, any>>
+  agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
+  createTools: (
+    allowedToolIds?: readonly string[],
+    agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+  ) => Promise<Record<string, any>>
   appendTranscript: (entry: unknown) => Promise<void>
   updateProgress: (summary: string) => Promise<void>
   signal?: AbortSignal
@@ -37,7 +43,15 @@ export interface AgentRunnerResult {
  */
 export class AgentRunner {
   async run(options: AgentRunnerOptions): Promise<AgentRunnerResult> {
-    const tools = await options.createTools(options.definition.allowedToolIds)
+    const tools = await options.createTools(options.definition.allowedToolIds, {
+      apiKey: options.apiKey,
+      modelId: options.modelId,
+      reasoningEffort: options.reasoningEffort,
+      baseSystemPrompt: options.baseSystemPrompt,
+      delegationDepth: options.agentExecutionOptions?.delegationDepth ?? 1,
+      maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
+      maxSteps: options.agentExecutionOptions?.maxSteps,
+    })
     const selectModel = createModelSelector(options.apiKey)
     const modelSettings = options.reasoningEffort
       ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
@@ -115,7 +129,7 @@ export class AgentRunner {
           })),
         ),
         tools,
-        stopWhen: stepCountIs(50),
+        stopWhen: stepCountIs(options.agentExecutionOptions?.maxSteps ?? maxAgentSteps),
         abortSignal: options.signal,
       })
 

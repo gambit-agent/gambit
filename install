@@ -1,0 +1,389 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+APP="gambit"
+REPO="${GAMBIT_REPO:-sergiomasellis/gambit-cli}"
+INSTALL_DIR="${GAMBIT_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
+MUTED='\033[0;2m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+requested_version="${VERSION:-}"
+binary_path=""
+no_modify_path=false
+
+usage() {
+  cat <<EOF
+Install Gambit CLI.
+
+Usage:
+  install [stable|latest|VERSION]
+  install --version VERSION
+  install --binary /path/to/gambit
+
+Options:
+  -h, --help             Show this help.
+  -v, --version VERSION  Install a specific release version, with or without leading v.
+  -b, --binary PATH      Install from a local compiled binary.
+  --install-dir PATH     Install directory. Defaults to ~/.local/bin.
+  --no-modify-path       Do not update shell startup files.
+
+Environment:
+  GAMBIT_REPO            GitHub repository to download from. Default: sergiomasellis/gambit-cli.
+  GAMBIT_BIN_DIR         Install directory. Default: ~/.local/bin.
+  VERSION                Release version to install.
+
+Examples:
+  curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+  curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --version 0.6.0
+  ./install --binary ./gambit
+EOF
+}
+
+print_info() {
+  printf '%b\n' "$1"
+}
+
+print_error() {
+  printf '%b\n' "${RED}$1${NC}" >&2
+}
+
+print_warning() {
+  printf '%b\n' "${YELLOW}$1${NC}" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -v|--version)
+      if [[ -z "${2:-}" ]]; then
+        print_error "Error: --version requires a version argument."
+        exit 1
+      fi
+      requested_version="$2"
+      shift 2
+      ;;
+    -b|--binary)
+      if [[ -z "${2:-}" ]]; then
+        print_error "Error: --binary requires a path argument."
+        exit 1
+      fi
+      binary_path="$2"
+      shift 2
+      ;;
+    --install-dir)
+      if [[ -z "${2:-}" ]]; then
+        print_error "Error: --install-dir requires a path argument."
+        exit 1
+      fi
+      INSTALL_DIR="$2"
+      shift 2
+      ;;
+    --no-modify-path)
+      no_modify_path=true
+      shift
+      ;;
+    -*)
+      print_error "Error: unknown option '$1'."
+      usage
+      exit 1
+      ;;
+    *)
+      if [[ -n "$requested_version" ]]; then
+        print_error "Error: multiple versions provided ('$requested_version' and '$1')."
+        exit 1
+      fi
+      requested_version="$1"
+      shift
+      ;;
+  esac
+done
+
+download_file() {
+  local url="$1"
+  local output="${2:-}"
+
+  if command -v curl >/dev/null 2>&1; then
+    if [[ -n "$output" ]]; then
+      curl -fsSL -o "$output" "$url"
+    else
+      curl -fsSL "$url"
+    fi
+    return
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    if [[ -n "$output" ]]; then
+      wget -q -O "$output" "$url"
+    else
+      wget -q -O - "$url"
+    fi
+    return
+  fi
+
+  print_error "Error: curl or wget is required."
+  exit 1
+}
+
+json_string_field() {
+  local json="$1"
+  local field="$2"
+
+  json=$(printf '%s' "$json" | tr -d '\n\r\t' | tr -s ' ')
+  if [[ "$json" =~ \"$field\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+manifest_checksum() {
+  local json="$1"
+  local platform="$2"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -r ".platforms[\"$platform\"].checksum // empty" <<<"$json"
+    return
+  fi
+
+  json=$(printf '%s' "$json" | tr -d '\n\r\t' | tr -s ' ')
+  if [[ "$json" =~ \"$platform\"[[:space:]]*:[[:space:]]*\{[^}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-fA-F0-9]{64})\" ]]; then
+    printf '%s\n' "${BASH_REMATCH[1],,}"
+    return 0
+  fi
+  return 1
+}
+
+detect_platform() {
+  local raw_os raw_arch os arch
+  raw_os="$(uname -s)"
+  raw_arch="$(uname -m)"
+
+  case "$raw_os" in
+    Darwin*) os="darwin" ;;
+    Linux*) os="linux" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      print_error "Error: this installer supports Linux and macOS. On Windows, use WSL or install from source with Bun."
+      exit 1
+      ;;
+    *)
+      print_error "Error: unsupported operating system: $raw_os."
+      exit 1
+      ;;
+  esac
+
+  case "$raw_arch" in
+    x86_64|amd64) arch="x64" ;;
+    arm64|aarch64) arch="arm64" ;;
+    *)
+      print_error "Error: unsupported architecture: $raw_arch."
+      exit 1
+      ;;
+  esac
+
+  if [[ "$os" == "darwin" && "$arch" == "x64" ]]; then
+    if [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" == "1" ]]; then
+      arch="arm64"
+    fi
+  fi
+
+  if [[ "$os" == "linux" ]]; then
+    if [[ -f /etc/alpine-release ]]; then
+      printf 'linux-%s-musl\n' "$arch"
+      return
+    fi
+    if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
+      printf 'linux-%s-musl\n' "$arch"
+      return
+    fi
+  fi
+
+  printf '%s-%s\n' "$os" "$arch"
+}
+
+checksum_file() {
+  local file="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{ print $1 }'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{ print $1 }'
+    return
+  fi
+
+  print_error "Error: sha256sum or shasum is required."
+  exit 1
+}
+
+install_binary() {
+  local source="$1"
+  local destination="$INSTALL_DIR/$APP"
+
+  mkdir -p "$INSTALL_DIR"
+  cp "$source" "$destination"
+  chmod 755 "$destination"
+  print_info "Installed ${APP} to ${destination}"
+}
+
+add_to_path() {
+  local config_file="$1"
+  local command="$2"
+
+  if grep -Fxq "$command" "$config_file" 2>/dev/null; then
+    print_info "${MUTED}${APP} PATH entry already exists in ${config_file}.${NC}"
+    return
+  fi
+
+  if [[ -w "$config_file" ]]; then
+    {
+      printf '\n# Gambit CLI\n'
+      printf '%s\n' "$command"
+    } >> "$config_file"
+    print_info "Added ${INSTALL_DIR} to PATH in ${config_file}"
+    return
+  fi
+
+  print_warning "Could not write to ${config_file}. Add this manually:"
+  print_info "  $command"
+}
+
+configure_path() {
+  if [[ "$no_modify_path" == "true" ]]; then
+    return
+  fi
+
+  case ":${PATH:-}:" in
+    *":$INSTALL_DIR:"*) return ;;
+  esac
+
+  local shell_name="${SHELL:-}"
+  shell_name="${shell_name##*/}"
+  local xdg_config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  local config_files command
+
+  case "$shell_name" in
+    fish)
+      config_files="$HOME/.config/fish/config.fish"
+      command="fish_add_path \"$INSTALL_DIR\""
+      ;;
+    zsh)
+      config_files="${ZDOTDIR:-$HOME}/.zshrc ${ZDOTDIR:-$HOME}/.zshenv $xdg_config_home/zsh/.zshrc $xdg_config_home/zsh/.zshenv"
+      command="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+    bash)
+      config_files="$HOME/.bashrc $HOME/.bash_profile $HOME/.profile $xdg_config_home/bash/.bashrc $xdg_config_home/bash/.bash_profile"
+      command="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+    ash|sh)
+      config_files="$HOME/.profile $HOME/.ashrc"
+      command="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+    *)
+      config_files="$HOME/.profile $HOME/.bashrc $HOME/.zshrc"
+      command="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+  esac
+
+  local config_file=""
+  for file in $config_files; do
+    if [[ -f "$file" ]]; then
+      config_file="$file"
+      break
+    fi
+  done
+
+  if [[ -n "$config_file" ]]; then
+    add_to_path "$config_file" "$command"
+  else
+    print_warning "${INSTALL_DIR} is not on PATH. Add this to your shell profile:"
+    print_info "  $command"
+  fi
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_PATH:-}" ]]; then
+    printf '%s\n' "$INSTALL_DIR" >> "$GITHUB_PATH"
+  fi
+}
+
+if [[ -n "$binary_path" ]]; then
+  if [[ ! -f "$binary_path" ]]; then
+    print_error "Error: binary not found: $binary_path"
+    exit 1
+  fi
+  install_binary "$binary_path"
+  configure_path
+  print_info ""
+  print_info "Run ${APP} with: ${APP}"
+  exit 0
+fi
+
+platform="$(detect_platform)"
+binary_name="${APP}-${platform}"
+release_base="https://github.com/${REPO}/releases"
+
+if [[ -z "$requested_version" || "$requested_version" == "stable" || "$requested_version" == "latest" ]]; then
+  manifest_url="${release_base}/latest/download/manifest.json"
+  binary_url="${release_base}/latest/download/${binary_name}"
+  version_label="latest"
+else
+  requested_version="${requested_version#v}"
+  if [[ ! "$requested_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
+    print_error "Error: version must look like 1.2.3, v1.2.3, or latest."
+    exit 1
+  fi
+  manifest_url="${release_base}/download/v${requested_version}/manifest.json"
+  binary_url="${release_base}/download/v${requested_version}/${binary_name}"
+  version_label="v${requested_version}"
+fi
+
+print_info "Installing ${APP} ${MUTED}(${version_label}, ${platform})${NC}"
+
+manifest_json="$(download_file "$manifest_url")" || {
+  print_error "Error: failed to download manifest: $manifest_url"
+  exit 1
+}
+
+specific_version="$(json_string_field "$manifest_json" "version" || true)"
+checksum="$(manifest_checksum "$manifest_json" "$platform" || true)"
+
+if [[ -z "$checksum" || ! "$checksum" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  print_error "Error: ${platform} is not available in the release manifest."
+  print_error "See: ${release_base}"
+  exit 1
+fi
+
+tmp_dir="${TMPDIR:-/tmp}/gambit_install_$$"
+mkdir -p "$tmp_dir"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+download_path="$tmp_dir/$binary_name"
+download_file "$binary_url" "$download_path" || {
+  print_error "Error: failed to download binary: $binary_url"
+  exit 1
+}
+
+actual_checksum="$(checksum_file "$download_path")"
+if [[ "${actual_checksum,,}" != "${checksum,,}" ]]; then
+  print_error "Error: checksum verification failed."
+  print_error "  expected: $checksum"
+  print_error "  actual:   $actual_checksum"
+  exit 1
+fi
+
+install_binary "$download_path"
+configure_path
+
+print_info ""
+if [[ -n "$specific_version" ]]; then
+  print_info "Gambit ${specific_version} is installed."
+else
+  print_info "Gambit is installed."
+fi
+print_info "Run it with: ${APP}"

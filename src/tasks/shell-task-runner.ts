@@ -25,7 +25,7 @@ export class ShellTaskRunner {
 
   async run(
     command: string,
-    options: { background: boolean },
+    options: { background: boolean; timeoutMs?: number },
   ): Promise<ShellTaskResult> {
     const trimmedCommand = command.trim()
     if (!trimmedCommand) {
@@ -42,6 +42,13 @@ export class ShellTaskRunner {
       metadata: { command: trimmedCommand },
     })
 
+    const controller = new AbortController()
+    const unregister = this.taskRuntime.registerController(createdTask.id, controller)
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timeout = setTimeout(() => controller.abort(), options.timeoutMs)
+    }
+
     const runProcess = async (): Promise<ShellTaskResult> => {
       const process = Bun.spawn(['bash', '-lc', trimmedCommand], {
         cwd: workspaceRoot,
@@ -49,30 +56,50 @@ export class ShellTaskRunner {
         stderr: 'pipe',
       })
 
-      const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
-      const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
-      const [stdout, stderr, exitCode] = await Promise.all([
-        stdoutPromise,
-        stderrPromise,
-        process.exited,
-      ])
+      const onAbort = () => {
+        process.kill()
+      }
+      controller.signal.addEventListener('abort', onAbort, { once: true })
 
-      const formattedOutput = formatShellResult(exitCode, stdout, stderr)
-      await writeTaskOutput(createdTask.id, formattedOutput)
+      try {
+        const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
+        const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+        const [stdout, stderr, exitCode] = await Promise.all([
+          stdoutPromise,
+          stderrPromise,
+          process.exited,
+        ])
 
-      const updatedTask = await this.taskRuntime.updateTask(createdTask.id, {
-        status: exitCode === 0 ? 'completed' : 'failed',
-        finishedAt: new Date().toISOString(),
-        progressSummary: exitCode === 0 ? 'Shell command completed' : `Shell command failed with ${exitCode}`,
-        error: exitCode === 0 ? null : `Shell exited with code ${exitCode}`,
-      })
+        const wasCancelled = controller.signal.aborted
+        const formattedOutput = wasCancelled
+          ? `${formatShellResult(exitCode, stdout, stderr)}\n\ncancelled: true`
+          : formatShellResult(exitCode, stdout, stderr)
+        await writeTaskOutput(createdTask.id, formattedOutput)
 
-      return {
-        task: updatedTask ?? createdTask,
-        stdout,
-        stderr,
-        exitCode,
-        formattedOutput,
+        const updatedTask = await this.taskRuntime.updateTask(createdTask.id, {
+          status: wasCancelled ? 'cancelled' : exitCode === 0 ? 'completed' : 'failed',
+          finishedAt: new Date().toISOString(),
+          progressSummary: wasCancelled
+            ? 'Shell command cancelled'
+            : exitCode === 0
+              ? 'Shell command completed'
+              : `Shell command failed with ${exitCode}`,
+          error: wasCancelled ? null : exitCode === 0 ? null : `Shell exited with code ${exitCode}`,
+        })
+
+        return {
+          task: updatedTask ?? createdTask,
+          stdout,
+          stderr,
+          exitCode,
+          formattedOutput,
+        }
+      } finally {
+        controller.signal.removeEventListener('abort', onAbort)
+        if (timeout) {
+          clearTimeout(timeout)
+        }
+        unregister()
       }
     }
 

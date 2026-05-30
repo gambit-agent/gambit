@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { MAX_FILE_CHARS, MAX_SHELL_OUTPUT, workspaceRoot } from '../config'
 import { readTaskOutput } from '../tasks/task-output'
+import type { TaskRecord } from '../tasks/task-types'
 import { createUnifiedDiff } from '../lib/change-diff'
 import { applyUnifiedDiff, sanitizePatchTargets, splitUnifiedDiffByFile } from '../lib/diff'
 import { truncate } from '../lib/text'
@@ -41,6 +42,13 @@ const patchFileSchema = z.object({
 
 const executeShellSchema = z.object({
   command: z.string().describe('Command to execute using bash -lc.'),
+  timeoutMs: z.number().int().positive().optional().describe('Optional timeout in milliseconds.'),
+})
+
+const searchFilesSchema = z.object({
+  pattern: z.string().describe('Text or regex pattern to search for with ripgrep.'),
+  path: z.string().optional().describe('Optional workspace-relative directory or file to search.'),
+  glob: z.string().optional().describe('Optional ripgrep glob, for example "*.ts".'),
 })
 
 const slashCommandSchema = z.object({
@@ -62,6 +70,16 @@ const spawnAgentSchema = z.object({
 
 const readTaskOutputSchema = z.object({
   taskId: z.string().describe('Task id to inspect.'),
+})
+
+const listTasksSchema = z.object({})
+
+const getTaskStatusSchema = z.object({
+  taskId: z.string().describe('Task id to inspect.'),
+})
+
+const cancelTaskSchema = z.object({
+  taskId: z.string().describe('Task id to cancel.'),
 })
 
 const writeMemorySchema = z.object({
@@ -105,6 +123,49 @@ async function runShell(command: string): Promise<{ stdout: string; stderr: stri
   const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
   const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
   return { stdout, stderr, exitCode }
+}
+
+async function runRipgrepSearch(input: { pattern: string; path?: string; glob?: string }): Promise<string> {
+  const pattern = ensureNonEmptyString(input.pattern, 'pattern')
+  const searchPath = input.path?.trim() ? relativeWorkspacePath(resolveWorkspacePath(input.path)) : '.'
+  const args = ['--line-number', '--no-heading', '--color=never']
+  if (input.glob?.trim()) {
+    args.push('--glob', input.glob.trim())
+  }
+  args.push('--', pattern, searchPath)
+
+  const process = Bun.spawn(['rg', ...args], {
+    cwd: workspaceRoot,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
+  const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+  const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
+  if (exitCode === 0) {
+    return truncate(stdout, MAX_SHELL_OUTPUT)
+  }
+  if (exitCode === 1) {
+    return 'No matches found.'
+  }
+  throw new Error(stderr.trim() || `rg exited with code ${exitCode}`)
+}
+
+function summarizeTask(task: TaskRecord): Record<string, unknown> {
+  return {
+    id: task.id,
+    kind: task.kind,
+    title: task.title,
+    status: task.status,
+    background: task.background,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    progressSummary: task.progressSummary,
+    error: task.error,
+    metadata: task.metadata,
+  }
 }
 
 function formatShellResult(exitCode: number, stdout: string, stderr: string): string {
@@ -163,6 +224,20 @@ export async function createBuiltInToolDefinitions(
       }
       const content = await file.text()
       return truncate(content, MAX_FILE_CHARS)
+    },
+  }
+
+  const searchFilesTool: ToolDefinition<typeof searchFilesSchema, string> = {
+    id: 'searchFiles',
+    displayName: 'Search Files',
+    description: 'Search workspace files with ripgrep. Read-only.',
+    inputSchema: searchFilesSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('searchFiles', context.input, result, { artifactPath: context.artifactPath }),
+      ),
+    execute: async (input) => {
+      return runRipgrepSearch(input)
     },
   }
 
@@ -341,7 +416,7 @@ export async function createBuiltInToolDefinitions(
       formatToolSummary(
         summarizeToolCompletion('executeShell', context.input, result, { artifactPath: context.artifactPath }),
       ),
-    execute: async ({ command }, context) => {
+    execute: async ({ command, timeoutMs }, context) => {
       if (typeof command !== 'string') {
         throw new Error('Parameter "command" must be a string.')
       }
@@ -352,7 +427,7 @@ export async function createBuiltInToolDefinitions(
       }
 
       if (context.shellTaskRunner) {
-        const result = await context.shellTaskRunner.run(trimmedCommand, { background: false })
+        const result = await context.shellTaskRunner.run(trimmedCommand, { background: false, timeoutMs })
         return result.formattedOutput
       }
 
@@ -393,6 +468,58 @@ export async function createBuiltInToolDefinitions(
     },
   }
 
+  const listTasksTool: ToolDefinition<typeof listTasksSchema, Record<string, unknown>[]> = {
+    id: 'listTasks',
+    displayName: 'List Tasks',
+    description: 'List runtime shell and agent tasks with status summaries.',
+    inputSchema: listTasksSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('listTasks', context.input, result, { artifactPath: context.artifactPath }),
+      ),
+    execute: async (_input, context) => {
+      const tasks = context.taskRuntime?.getSnapshot().tasks ?? []
+      return tasks.map(summarizeTask)
+    },
+  }
+
+  const getTaskStatusTool: ToolDefinition<typeof getTaskStatusSchema, Record<string, unknown> | string> = {
+    id: 'getTaskStatus',
+    displayName: 'Get Task Status',
+    description: 'Read status metadata for a runtime task.',
+    inputSchema: getTaskStatusSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('getTaskStatus', context.input, result, { artifactPath: context.artifactPath }),
+      ),
+    execute: async ({ taskId }, context) => {
+      const task = await context.taskRuntime?.getTask(taskId)
+      return task ? summarizeTask(task) : `Task not found: ${taskId}`
+    },
+  }
+
+  const cancelTaskTool: ToolDefinition<typeof cancelTaskSchema, Record<string, unknown> | string> = {
+    id: 'cancelTask',
+    displayName: 'Cancel Task',
+    description: 'Cancel a pending or running runtime task.',
+    inputSchema: cancelTaskSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('cancelTask', context.input, result, { artifactPath: context.artifactPath }),
+      ),
+    execute: async ({ taskId }, context) => {
+      if (!context.taskRuntime) {
+        throw new Error('Task runtime is not configured.')
+      }
+      const task = await context.taskRuntime.cancelTask(taskId)
+      return task ? summarizeTask(task) : `Task not found: ${taskId}`
+    },
+    getPermissionRequest: ({ taskId }) => ({
+      subject: `Cancel task: ${taskId}`,
+      metadata: { taskId },
+    }),
+  }
+
   const writeMemoryTool: ToolDefinition<typeof writeMemorySchema, string> = {
     id: 'writeMemory',
     displayName: 'Write Memory',
@@ -423,11 +550,15 @@ export async function createBuiltInToolDefinitions(
 
   const tools: ToolDefinition<any, any>[] = [
     readFileTool,
+    searchFilesTool,
     writeFileTool,
     patchFileTool,
     executeShellTool,
     slashCommandTool,
     readTaskOutputTool,
+    listTasksTool,
+    getTaskStatusTool,
+    cancelTaskTool,
     writeMemoryTool,
     enterPlanModeTool,
     exitPlanModeTool,
@@ -479,6 +610,11 @@ export async function createBuiltInToolDefinitions(
         if (!context.agentTaskRunner || !context.agentExecutionOptions) {
           throw new Error('Agent task runner is not configured.')
         }
+        const currentDepth = context.agentExecutionOptions.delegationDepth ?? 0
+        const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? 3
+        if (currentDepth >= maxDepth) {
+          throw new Error(`Maximum delegation depth reached (${maxDepth}).`)
+        }
 
         const result = await context.agentTaskRunner.run({
           role,
@@ -489,6 +625,11 @@ export async function createBuiltInToolDefinitions(
           modelId: context.agentExecutionOptions.modelId,
           reasoningEffort: context.agentExecutionOptions.reasoningEffort,
           baseSystemPrompt: context.agentExecutionOptions.baseSystemPrompt,
+          agentExecutionOptions: {
+            ...context.agentExecutionOptions,
+            delegationDepth: currentDepth + 1,
+            maxDelegationDepth: maxDepth,
+          },
           signal: context.signal,
         })
 

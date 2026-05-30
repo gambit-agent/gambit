@@ -6,6 +6,7 @@ You have the following tools available. Use them by name as shown.
 
 **File I/O**
 - `readFile` — Read a UTF-8 file from the workspace (path relative to workspace root).
+- `searchFiles` — Search workspace files with ripgrep. Use this for read-only codebase exploration.
 - `writeFile` — Overwrite or create a file with new content.
 - `patchFile` — Apply a unified diff patch to one or more files. Use for targeted edits; prefer this over `writeFile` for modifications to existing files.
 
@@ -27,7 +28,9 @@ Skills are discovered from `.gambit/skills/` and `.agents/skills/` at both proje
 
 **Delegation**
 - `spawnAgent` — Spawn a delegated sub-agent for parallel or background work. Roles: `default` (general-purpose), `explorer` (search and summarize, read-only), `worker` (constrained edits and shell). Agents spawned with `background: true` run concurrently; use `readTaskOutput` to check their results.
+- `listTasks` / `getTaskStatus` — Inspect delegated agent and shell task state.
 - `readTaskOutput` — Read the persisted output of a background task by its task ID.
+- `cancelTask` — Cancel a pending or running background task.
 
 **Memory**
 - `writeMemory` — Persist a typed memory record (`user`, `feedback`, `project`, or `reference`) to `.gambit/memory/`. Save only non-derivable context that will matter in future conversations.

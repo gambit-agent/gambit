@@ -67,6 +67,28 @@ describe('task runtime', () => {
     expect(runtime.getSnapshot().tasks).toHaveLength(3)
   })
 
+  test('cancelTask aborts a registered running task', async () => {
+    const runtime = new TaskRuntime()
+    await runtime.initialize()
+    const task = await createTask({
+      kind: 'agent',
+      title: 'Running child agent',
+      background: true,
+      status: 'running',
+    })
+    const controller = new AbortController()
+    runtime.registerController(task.id, controller)
+
+    const cancelled = await runtime.cancelTask(task.id)
+
+    expect(controller.signal.aborted).toBe(true)
+    expect(cancelled).toMatchObject({
+      id: task.id,
+      status: 'cancelled',
+      progressSummary: 'Task was cancelled.',
+    })
+  })
+
   afterEach(async () => {
     await rm(root, { recursive: true, force: true })
   })

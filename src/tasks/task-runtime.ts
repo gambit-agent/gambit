@@ -12,6 +12,7 @@ type Listener = () => void
 export class TaskRuntime {
   private snapshot: TaskRuntimeSnapshot = { tasks: [] }
   private readonly listeners = new Set<Listener>()
+  private readonly controllers = new Map<string, AbortController>()
 
   async initialize(): Promise<void> {
     await reconcileInterruptedTasks()
@@ -49,6 +50,7 @@ export class TaskRuntime {
   }
 
   async removeTask(id: string): Promise<TaskRecord | null> {
+    await this.cancelTask(id)
     const task = await removeTask(id)
     await this.refresh()
     return task
@@ -56,6 +58,41 @@ export class TaskRuntime {
 
   async getTask(id: string): Promise<TaskRecord | null> {
     return getTask(id)
+  }
+
+  registerController(id: string, controller: AbortController): () => void {
+    this.controllers.set(id, controller)
+    return () => {
+      if (this.controllers.get(id) === controller) {
+        this.controllers.delete(id)
+      }
+    }
+  }
+
+  async cancelTask(id: string): Promise<TaskRecord | null> {
+    const current = await getTask(id)
+    if (!current) {
+      return null
+    }
+
+    const controller = this.controllers.get(id)
+    if (controller && !controller.signal.aborted) {
+      controller.abort()
+    }
+    this.controllers.delete(id)
+
+    if (current.status !== 'pending' && current.status !== 'running') {
+      await this.refresh()
+      return current
+    }
+
+    const task = await updateTask(id, {
+      status: 'cancelled',
+      finishedAt: new Date().toISOString(),
+      progressSummary: 'Task was cancelled.',
+    })
+    await this.refresh()
+    return task
   }
 
   createEventId(): string {

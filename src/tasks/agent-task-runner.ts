@@ -5,6 +5,7 @@ import type { ReasoningEffort } from '../lib/model'
 import type { AgentRole } from '../agents/agent-types'
 import { TaskRuntime } from './task-runtime'
 import type { TaskRecord } from './task-types'
+import type { ToolExecutionContext } from '../tools/tool-types'
 
 export interface RunAgentTaskInput {
   role: AgentRole
@@ -15,6 +16,7 @@ export interface RunAgentTaskInput {
   modelId: string
   reasoningEffort?: ReasoningEffort | null
   baseSystemPrompt: string
+  agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   signal?: AbortSignal
 }
 
@@ -28,7 +30,10 @@ export class AgentTaskRunner {
   constructor(
     private readonly taskRuntime: TaskRuntime,
     private readonly agentRunner: AgentRunner,
-    private readonly createChildTools: (allowedToolIds?: readonly string[]) => Promise<Record<string, any>>,
+    private readonly createChildTools: (
+      allowedToolIds?: readonly string[],
+      agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+    ) => Promise<Record<string, any>>,
   ) {}
 
   async run(input: RunAgentTaskInput): Promise<AgentTaskResult> {
@@ -57,6 +62,17 @@ export class AgentTaskRunner {
       },
     })
 
+    const controller = new AbortController()
+    const unregister = this.taskRuntime.registerController(createdTask.id, controller)
+    const onAbort = () => controller.abort()
+    if (input.signal) {
+      if (input.signal.aborted) {
+        controller.abort()
+      } else {
+        input.signal.addEventListener('abort', onAbort, { once: true })
+      }
+    }
+
     const execute = async (): Promise<AgentTaskResult> => {
       try {
         const result = await this.agentRunner.run({
@@ -66,6 +82,7 @@ export class AgentTaskRunner {
           modelId: input.modelId,
           reasoningEffort: input.reasoningEffort,
           baseSystemPrompt: input.baseSystemPrompt,
+          agentExecutionOptions: input.agentExecutionOptions,
           createTools: this.createChildTools,
           appendTranscript: runHandle.appendTranscript,
           updateProgress: async (summary) => {
@@ -74,7 +91,7 @@ export class AgentTaskRunner {
               progressSummary: summary,
             })
           },
-          signal: input.signal,
+          signal: controller.signal,
         })
 
         await runHandle.complete(result.output, result.summary)
@@ -92,13 +109,26 @@ export class AgentTaskRunner {
       } catch (error) {
         await runHandle.fail(error)
         const message = error instanceof Error ? error.message : String(error)
+        const cancelled = controller.signal.aborted
         const failedTask = await this.taskRuntime.updateTask(createdTask.id, {
-          status: 'failed',
+          status: cancelled ? 'cancelled' : 'failed',
           finishedAt: new Date().toISOString(),
-          progressSummary: 'Delegated agent failed',
-          error: message,
+          progressSummary: cancelled ? 'Delegated agent cancelled' : 'Delegated agent failed',
+          error: cancelled ? null : message,
         })
+        if (cancelled) {
+          return {
+            task: failedTask ?? createdTask,
+            output: '',
+            summary: 'Delegated agent cancelled',
+          }
+        }
         throw Object.assign(new Error(message), { task: failedTask ?? createdTask })
+      } finally {
+        if (input.signal) {
+          input.signal.removeEventListener('abort', onAbort)
+        }
+        unregister()
       }
     }
 

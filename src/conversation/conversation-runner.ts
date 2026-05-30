@@ -1,9 +1,10 @@
-import { streamText } from 'ai'
+import { stepCountIs, streamText } from 'ai'
 import { randomUUID } from 'node:crypto'
 
 import { toCoreMessages } from '../lib/messages'
 import { createModelSelector, type ReasoningEffort } from '../lib/model'
 import { formatToolEvent } from '../lib/toolSummaries'
+import { maxAgentSteps } from '../config'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import { MemoryStore } from '../memory/memory-store'
 import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
@@ -144,6 +145,9 @@ export class ConversationRunner {
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort,
         baseSystemPrompt: basePrompt,
+        delegationDepth: 0,
+        maxDelegationDepth: 3,
+        maxSteps: maxAgentSteps,
       },
     })
     const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
@@ -209,7 +213,7 @@ export class ConversationRunner {
           ],
         ),
         tools,
-        stopWhen: [],
+        stopWhen: stepCountIs(maxAgentSteps),
         abortSignal: options.signal,
       })
 

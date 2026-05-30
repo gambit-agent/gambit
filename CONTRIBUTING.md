@@ -21,6 +21,12 @@ Verify everything works:
 make build
 ```
 
+If you only need a type-check while iterating:
+
+```bash
+make typecheck
+```
+
 ## Development workflow
 
 ### Running from source
@@ -43,6 +49,13 @@ make install
 
 # Option B: symlink the source project globally
 make link-local   # or: bun link
+```
+
+To test the public installer against a local binary:
+
+```bash
+make compile
+./install --binary ./gambit --no-modify-path
 ```
 
 ### Testing
@@ -82,8 +95,9 @@ Before opening a PR, please ensure:
 
 - [ ] `make build` passes (type-check + tests).
 - [ ] New logic is covered by tests when possible.
-- [ ] JSDoc comments are added for new public APIs.
+- [ ] Public APIs have explicit types and comments where they clarify non-obvious behavior.
 - [ ] `README.md` or other docs are updated if user-facing behavior changed.
+- [ ] Installer, release, or packaging changes are reflected in `INSTALL.md` and `CHANGELOG.md`.
 - [ ] Commit messages follow Conventional Commits.
 
 ## Project structure
@@ -110,3 +124,5 @@ See `AGENTS.md` for a detailed architecture guide. Key directories:
 ## Getting help
 
 Open a [discussion](https://github.com/sergiomasellis/gambit-cli/discussions) or [issue](https://github.com/sergiomasellis/gambit-cli/issues) if you have questions.
+
+For installer behavior and supported release targets, see [INSTALL.md](INSTALL.md).

@@ -104,16 +104,21 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     agentExecutionOptions: options.agentExecutionOptions,
   })
 
-  const createChildTools = async (allowedToolIds?: readonly string[]): Promise<Record<string, any>> => {
-    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: false })
+  let agentTaskRunner: AgentTaskRunner
+  const createChildTools = async (
+    allowedToolIds?: readonly string[],
+    agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+  ): Promise<Record<string, any>> => {
+    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true })
     const executor = createToolExecutor(registry, { workspaceRoot })
     return createAiToolMap(registry, executor, {
-      ...createToolContext(),
+      ...createToolContext({ agentExecutionOptions }),
+      agentTaskRunner,
       allowedToolIds,
     })
   }
 
-  const agentTaskRunner = new AgentTaskRunner(taskRuntime, agentRunner, createChildTools)
+  agentTaskRunner = new AgentTaskRunner(taskRuntime, agentRunner, createChildTools)
   const conversationStore = createConversationStore()
   if (!options.deferConversationInitialization) {
     await conversationStore.initialize()

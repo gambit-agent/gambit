@@ -31,6 +31,9 @@ export interface ToolExecutionContext {
     modelId: string
     reasoningEffort?: 'low' | 'medium' | 'high' | null
     baseSystemPrompt: string
+    delegationDepth?: number
+    maxDelegationDepth?: number
+    maxSteps?: number
   }
 }
 

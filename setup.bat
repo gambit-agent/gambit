@@ -1,27 +1,34 @@
 @echo off
-REM Batch setup script for Gambit CLI command
+setlocal
 
-echo Setting up Gambit CLI command...
+REM Source checkout bootstrap for Windows CMD.
 
-REM Create the gambit.bat file in current directory
-echo @echo off > gambit.bat
-echo cd /d %~dp0 >> gambit.bat
-echo bun run . >> gambit.bat
+cd /d "%~dp0"
 
-REM Move to a directory in PATH (if possible)
-if exist "C:\Windows\System32\" (
-    copy gambit.bat C:\Windows\System32\gambit.bat >nul 2>&1
-    if exist "C:\Windows\System32\gambit.bat" (
-        echo Created gambit.bat in C:\Windows\System32
-        del gambit.bat
-        echo Setup complete! You can now run 'gambit' from anywhere.
-    ) else (
-        echo Could not create system-wide shortcut. 
-        echo You can manually copy gambit.bat to a directory in your PATH.
-    )
-) else (
-    echo Created gambit.bat in current directory.
-    echo You can run it with .\gambit.bat or move it to a directory in your PATH.
+where bun >nul 2>nul
+if errorlevel 1 (
+  echo Error: Bun is required. Install it from https://bun.sh, then rerun setup.bat.
+  exit /b 1
 )
 
-pause
+bun install
+if errorlevel 1 exit /b %errorlevel%
+
+bun run tsc --noEmit
+if errorlevel 1 exit /b %errorlevel%
+
+bun build --compile --outfile=gambit.exe src/gambit.tsx
+if errorlevel 1 exit /b %errorlevel%
+
+if "%GAMBIT_BIN_DIR%"=="" (
+  set "BIN_DIR=%USERPROFILE%\.local\bin"
+) else (
+  set "BIN_DIR=%GAMBIT_BIN_DIR%"
+)
+
+if not exist "%BIN_DIR%" mkdir "%BIN_DIR%"
+copy /Y gambit.exe "%BIN_DIR%\gambit.exe" >nul
+
+echo.
+echo Installed gambit.exe to %BIN_DIR%
+echo Add that directory to PATH before running gambit from a new terminal.

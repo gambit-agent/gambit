@@ -17,7 +17,10 @@ export function cyclePermissionMode(mode: PermissionMode): PermissionMode {
 /** Tool IDs that are always safe to run (read-only). */
 const READ_ONLY_TOOLS = new Set([
   'readFile',
+  'searchFiles',
   'readTaskOutput',
+  'listTasks',
+  'getTaskStatus',
   'slashCommand',
   'enterPlanMode',
 ])
@@ -28,6 +31,7 @@ const WRITE_TOOLS = new Set([
   'patchFile',
   'executeShell',
   'spawnAgent',
+  'cancelTask',
   'writeMemory',
 ])
 

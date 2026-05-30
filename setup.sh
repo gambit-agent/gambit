@@ -1,30 +1,19 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Setup script for Gambit CLI command
-echo "Setting up Gambit CLI command..."
+set -euo pipefail
 
-# Get the current directory
-CURRENT_DIR=/mnt/c/Users/sergi/DEV/gambit/gambit-opentui
+# Source checkout bootstrap. For released binaries, prefer ./install.
 
-# Add alias to bashrc
-if [ -f ~/.bashrc ]; then
-    if ! grep -q "alias gambit=" ~/.bashrc; then
-        echo "alias gambit='cd  && bun run .'" >> ~/.bashrc
-        echo "Added gambit alias to ~/.bashrc"
-    else
-        echo "gambit alias already exists in ~/.bashrc"
-    fi
+cd "$(dirname "$0")"
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Error: Bun is required. Install it from https://bun.sh, then rerun setup.sh." >&2
+  exit 1
 fi
 
-# Add alias to zshrc
-if [ -f ~/.zshrc ]; then
-    if ! grep -q "alias gambit=" ~/.zshrc; then
-        echo "alias gambit='cd  && bun run .'" >> ~/.zshrc
-        echo "Added gambit alias to ~/.zshrc"
-    else
-        echo "gambit alias already exists in ~/.zshrc"
-    fi
-fi
+bun install
+bun run tsc --noEmit
+make install
 
-echo "Setup complete! Please run 'source ~/.bashrc' or restart your terminal to use the 'gambit' command."
-echo "You can now run 'gambit' from anywhere to start the application."
+echo ""
+echo "Gambit is installed. Run it with: gambit"

@@ -124,11 +124,16 @@ export function createAiToolMap(
 /** Subset of tool IDs available to child agents spawned via `spawnAgent`. */
 export type AgentToolId =
   | 'readFile'
+  | 'searchFiles'
   | 'writeFile'
   | 'patchFile'
   | 'executeShell'
   | 'slashCommand'
   | 'readTaskOutput'
+  | 'listTasks'
+  | 'getTaskStatus'
+  | 'cancelTask'
+  | 'spawnAgent'
   | 'writeMemory'
   | 'askUserQuestion'
 export type AgentTools = Record<AgentToolId, any>

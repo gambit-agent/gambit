@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSDoc comments and module-level documentation across core source files.
 - `make install` and `make compile` targets for compiling and installing a native binary locally.
 - `bun link` / `make link-local` workflow for global development installs.
+- Extensionless `install` script for `curl .../install | bash` installs, with version pinning, local binary installs, checksum verification, custom install directories, and optional PATH updates.
+
+### Changed
+- Reworked installation docs around GitHub Release binaries and source checkout workflows.
+- Replaced stale `setup.*` scripts with Bun-based source checkout bootstrap scripts.
+
+### Removed
+- Removed leftover Claude Code / local alias behavior from Windows and setup scripts.
 
 ## [0.6.0] — 2025-05-17
 

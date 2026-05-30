@@ -1,54 +1,74 @@
-# Installation Instructions
+# Install Gambit
 
-To run Gambit with just  instead of , follow these steps:
+Gambit publishes self-contained binaries for Linux and macOS on GitHub Releases. The recommended install is the extensionless Bash installer:
 
-## Option 1: Local Development (Recommended)
+```bash
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
+```
 
-Install the package locally to make the  command available:
+The installer downloads the matching binary for your platform, verifies it against the release `manifest.json`, installs it to `~/.local/bin/gambit`, and adds that directory to your shell PATH when possible.
 
+## Options
 
+```bash
+# Latest stable release
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash
 
-This will create a symlink in your global Bun bin directory, allowing you to run  from anywhere.
+# Specific release
+curl -fsSL https://raw.githubusercontent.com/sergiomasellis/gambit-cli/main/install | bash -s -- --version 0.6.0
 
-## Option 2: Global Installation
+# Local compiled binary
+./install --binary ./gambit
 
-Install globally:
+# Custom install directory
+GAMBIT_BIN_DIR="$HOME/bin" ./install
 
+# Do not edit shell startup files
+./install --no-modify-path
+```
 
+Supported release targets:
 
-## Option 3: Manual Setup (Alternative)
+- `linux-x64`
+- `linux-x64-musl`
+- `linux-arm64`
+- `linux-arm64-musl`
+- `darwin-x64`
+- `darwin-arm64`
 
-If the above doesn't work, you can create a manual alias:
+## Install From Source
 
-### Bash/Zsh
-Add to your ~/.bashrc or ~/.zshrc:
+Source installs require [Bun](https://bun.sh) 1.2.20 or newer.
 
+```bash
+git clone https://github.com/sergiomasellis/gambit-cli.git
+cd gambit-cli
+bun install
+make build
+make install
+```
 
-### PowerShell
-Add to your PowerShell profile:
+For active development, link the checkout instead of copying a compiled binary:
 
+```bash
+bun install
+make link-local
+```
 
-### Windows CMD
-Create a batch file gambit.bat in a directory in your PATH:
+## Windows
 
+Native Windows release binaries are not published yet. Use WSL with the Bash installer, or run from source with Bun:
 
-## For Your Current Setup (Windows + WSL)
+```powershell
+bun install
+bun run src/gambit.tsx
+```
 
-Since you're using WSL with Windows, you have a few options:
+From a Windows source checkout, `setup.ps1` and `setup.bat` compile `gambit.exe` and copy it to `%USERPROFILE%\.local\bin` unless `GAMBIT_BIN_DIR` is set.
 
-1. **In WSL (bash):**
-   
+## Verify
 
-2. **In PowerShell:**
-   
-
-3. **In CMD:**
-   Create :
-   
-
-## Verification
-
-After installation, test it:
-
-
-The application should start just like running 
+```bash
+gambit --version
+gambit --help
+```

@@ -2,9 +2,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { getTaskOutputPath } from '../session/session-paths'
+import { getTask } from './task-store'
 
 export async function readTaskOutput(taskId: string, fileName?: string): Promise<string> {
-  const outputPath = getTaskOutputPath(taskId, fileName)
+  const task = fileName ? null : await getTask(taskId)
+  const outputPath = task?.outputPath ?? getTaskOutputPath(taskId, fileName)
 
   try {
     return await readFile(outputPath, 'utf8')

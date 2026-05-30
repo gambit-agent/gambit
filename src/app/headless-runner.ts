@@ -13,6 +13,8 @@ import type { HeadlessLaunchOptions, HeadlessPermissionMode, LaunchMode, OutputF
 const TOOL_NAME_ALIASES: Record<string, string> = {
   read: 'readFile',
   readfile: 'readFile',
+  search: 'searchFiles',
+  searchfiles: 'searchFiles',
   write: 'writeFile',
   writefile: 'writeFile',
   edit: 'patchFile',
@@ -26,6 +28,10 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
   spawnagent: 'spawnAgent',
   slashcommand: 'slashCommand',
   readtaskoutput: 'readTaskOutput',
+  listtasks: 'listTasks',
+  taskstatus: 'getTaskStatus',
+  gettaskstatus: 'getTaskStatus',
+  canceltask: 'cancelTask',
   writememory: 'writeMemory',
 }
 
