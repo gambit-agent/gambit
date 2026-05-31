@@ -1,6 +1,7 @@
 import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable, type Selection, type TextareaRenderable } from '@opentui/core'
 import { useKeyboard, useRenderer } from '@opentui/react'
 import { randomUUID } from 'node:crypto'
+import pkg from '../../package.json'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 
 import type { LaunchOptions } from '../app/launch-options'
@@ -1473,7 +1474,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         paddingBottom={1}
       >
         <text fg={theme.logoFg} attributes={TextAttributes.BOLD}>
-          GAMBIT |  <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{sessionTimestampFormatter.format(new Date())}</span>
+          GAMBIT | v{pkg.version} | <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{sessionTimestampFormatter.format(new Date())}</span>
         </text>
       </box>
 
