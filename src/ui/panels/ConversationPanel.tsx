@@ -4,7 +4,7 @@ import { useEffect, useState, type RefObject } from 'react'
 import type { ConversationMessage } from '../../conversation/conversation-types'
 import { inferFiletype } from '../../lib/change-diff'
 import { Markdown } from '../Markdown'
-import { layout, rolePresentation, theme } from '../theme'
+import { getRolePresentation, layout, theme } from '../theme'
 import { HoverClipboardBox } from '../components/HoverClipboardBox'
 import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningIntervalMs } from './tool-message-line'
 
@@ -158,7 +158,7 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
         .filter((message) => !message.hidden)
         .map((message) => {
           const isToolMessage = message.role === 'tool'
-          const presentation = rolePresentation[message.role] ?? rolePresentation.system
+          const presentation = getRolePresentation(message.role, theme)
           const isUser = message.role === 'user'
 
           if (isToolMessage) {

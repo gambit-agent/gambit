@@ -177,6 +177,7 @@ export function ModelPickerOverlay({
             onInput={onReasoningChange}
             onSubmit={handleReasoningSubmit}
             focused={hasFocus}
+            textColor={theme.userFg}
           />
         </box>
       </box>
@@ -254,6 +255,7 @@ export function ModelPickerOverlay({
           onInput={onFilterChange}
           onSubmit={handleFilterSubmit}
           focused={hasFocus}
+          textColor={theme.userFg}
           placeholder={'Type to filter models. Enter selects. "cancel" to exit.'}
         />
       </box>

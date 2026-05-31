@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { buildInstallerArgs, parseUpdateArgs } from './update'
+import { buildInstallerArgs, parseUpdateArgs, patchInstallerScript } from './update'
 
 test('parses update defaults', () => {
   expect(parseUpdateArgs([])).toEqual({
@@ -32,4 +32,25 @@ test('rejects invalid update arguments', () => {
   expect(() => parseUpdateArgs(['--install-dir'])).toThrow('--install-dir requires a path argument.')
   expect(() => parseUpdateArgs(['--bad'])).toThrow('Unknown update option: --bad')
   expect(() => parseUpdateArgs(['0.8.0', '0.8.1'])).toThrow('Multiple versions provided')
+})
+
+test('patches installer cp to handle busy binary', () => {
+  const original = `install_binary() {
+  local source="$1"
+  local destination="$INSTALL_DIR/$APP"
+
+  mkdir -p "$INSTALL_DIR"
+  cp "$source" "$destination"
+  chmod 755 "$destination"
+}`
+
+  const patched = patchInstallerScript(original)
+  expect(patched).toContain('if cp "$source" "$destination" 2>/dev/null; then')
+  expect(patched).toContain('mv -f "$tmp_dest" "$destination"')
+  expect(patched).not.toContain('\n  cp "$source" "$destination"\n')
+})
+
+test('patchInstallerScript warns on unknown installer', () => {
+  const result = patchInstallerScript('some random script')
+  expect(result).toBe('some random script')
 })

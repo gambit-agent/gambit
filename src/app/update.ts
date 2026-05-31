@@ -118,6 +118,28 @@ async function downloadInstaller(url: string): Promise<string> {
   return response.text()
 }
 
+export function patchInstallerScript(installer: string): string {
+  const oldLine = '  cp "$source" "$destination"'
+  const newBlock = `  # Try cp first (works across filesystems). If the destination is a running
+  # binary, fall back to same-dir temp copy + atomic mv.
+  if cp "$source" "$destination" 2>/dev/null; then
+    : # success
+  else
+    local tmp_dest="\${destination}.tmp.$$"
+    cp "$source" "$tmp_dest" || { print_error "Failed to copy binary to temp path."; exit 1; }
+    mv -f "$tmp_dest" "$destination" || { rm -f "$tmp_dest"; print_error "Failed to move binary into place."; exit 1; }
+  fi`
+
+  if (!installer.includes(oldLine)) {
+    console.warn(
+      'Warning: could not patch installer for "Text file busy" workaround.',
+    )
+    return installer
+  }
+
+  return installer.replace(oldLine, newBlock)
+}
+
 export async function runUpdate(args: string[]): Promise<number> {
   let options: UpdateOptions
   try {
@@ -146,9 +168,10 @@ export async function runUpdate(args: string[]): Promise<number> {
   let tempDir: string | undefined
   try {
     const installer = await downloadInstaller(installerUrl)
+    const patchedInstaller = patchInstallerScript(installer)
     tempDir = await mkdtemp(path.join(tmpdir(), 'gambit-update-'))
     const installerPath = path.join(tempDir, 'install')
-    await writeFile(installerPath, installer, 'utf8')
+    await writeFile(installerPath, patchedInstaller, 'utf8')
 
     const child = Bun.spawn(['bash', installerPath, ...installerArgs], {
       stdout: 'inherit',

@@ -173,16 +173,53 @@ export class ConversationRunner {
     this.dependencies.store.setStatus('running')
     this.dependencies.store.setError(null)
 
-    const assistantId = randomUUID()
     let assistantContent = ''
     let reasoningContent = ''
-    let assistantAdded = false
+    let currentAssistantId: string | null = null
+    let currentAssistantText = ''
+    let currentAssistantReasoning = ''
+    let assistantSegmentAdded = false
+    const currentTurnAssistantIds = new Set<string>()
 
-    const composeAssistantContent = (text: string): string => {
-      if (!options.showReasoning || !reasoningContent.trim()) {
+    const composeAssistantContent = (reasoning: string, text: string): string => {
+      if (!options.showReasoning || !reasoning.trim()) {
         return text
       }
-      return `Reasoning:\n${reasoningContent.trim()}\n\n${text}`
+      return `Reasoning:\n${reasoning.trim()}\n\n${text}`
+    }
+
+    const composeCurrentAssistantContent = (): string => {
+      return composeAssistantContent(currentAssistantReasoning, currentAssistantText)
+    }
+
+    const updateCurrentAssistantMessage = async (): Promise<void> => {
+      const content = composeCurrentAssistantContent()
+      if (!content.trim()) {
+        return
+      }
+
+      if (!currentAssistantId) {
+        currentAssistantId = randomUUID()
+      }
+
+      if (!assistantSegmentAdded) {
+        assistantSegmentAdded = true
+        currentTurnAssistantIds.add(currentAssistantId)
+        await this.dependencies.store.pushMessage(
+          { id: currentAssistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
+          { persist: false },
+        )
+        return
+      }
+
+      this.dependencies.store.updateMessage(currentAssistantId, { content })
+    }
+
+    const startNextAssistantSegment = (): void => {
+      currentAssistantId = null
+      currentAssistantText = ''
+      currentAssistantReasoning = ''
+      assistantSegmentAdded = false
     }
 
     const streamLog = createStreamLogger(turn.id, {
@@ -235,17 +272,9 @@ export class ConversationRunner {
         if (part.type === 'reasoning-delta') {
           if (typeof part.text === 'string' && part.text) {
             reasoningContent += part.text
-            if (options.showReasoning && reasoningContent.trim()) {
-              const content = composeAssistantContent(assistantContent)
-              if (!assistantAdded) {
-                assistantAdded = true
-                await this.dependencies.store.pushMessage(
-                  { id: assistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
-                  { persist: false },
-                )
-              } else {
-                this.dependencies.store.updateMessage(assistantId, { content })
-              }
+            currentAssistantReasoning += part.text
+            if (options.showReasoning && currentAssistantReasoning.trim()) {
+              await updateCurrentAssistantMessage()
             }
           }
           continue
@@ -261,25 +290,13 @@ export class ConversationRunner {
           }
 
           assistantContent += chunk
-          const content = composeAssistantContent(assistantContent)
-          if (!assistantAdded) {
-            assistantAdded = true
-            await this.dependencies.store.pushMessage(
-              {
-                id: assistantId,
-                role: 'assistant',
-                content,
-                timestamp: new Date().toISOString(),
-              },
-              { persist: false },
-            )
-          } else {
-            this.dependencies.store.updateMessage(assistantId, { content })
-          }
+          currentAssistantText += chunk
+          await updateCurrentAssistantMessage()
           continue
         }
 
         if (part.type === 'tool-call') {
+          startNextAssistantSegment()
           const content = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
             status: 'started',
@@ -347,31 +364,27 @@ export class ConversationRunner {
       streamLog.finish({ textChars: assistantContent.length, reasoningChars: reasoningContent.length })
 
       const resolvedText = ((await result.text) || assistantContent).trim()
-      const finalContent = composeAssistantContent(resolvedText)
+      const finalContent = composeAssistantContent(reasoningContent, resolvedText)
       turn.finishedAt = new Date().toISOString()
       turn.assistantOutput = finalContent
 
-      // Commit the final assistant message. If we were streaming live, swap
-      // the ephemeral message for the persisted one.
-      if (!assistantAdded && finalContent) {
+      if (!assistantContent.trim() && resolvedText) {
+        currentAssistantText = resolvedText
+        await updateCurrentAssistantMessage()
+      }
+
+      if (currentTurnAssistantIds.size === 0 && finalContent) {
+        const assistantId = randomUUID()
+        currentTurnAssistantIds.add(assistantId)
         await this.dependencies.store.pushMessage({
           id: assistantId,
           role: 'assistant',
           content: finalContent,
           timestamp: new Date().toISOString(),
         })
-      } else if (assistantAdded) {
-        this.dependencies.store.removeMessage(assistantId)
-        if (finalContent) {
-          await this.dependencies.store.pushMessage({
-            id: assistantId,
-            role: 'assistant',
-            content: finalContent,
-            timestamp: new Date().toISOString(),
-          })
-        }
       }
 
+      await this.dependencies.store.replaceMessages(this.dependencies.store.getSnapshot().messages)
       await this.dependencies.store.appendTurn(turn)
       this.dependencies.store.setStatus('idle')
       return turn
@@ -382,7 +395,7 @@ export class ConversationRunner {
       } else {
         streamLog.error(error, { textChars: assistantContent.length })
       }
-      if (assistantAdded) {
+      for (const assistantId of currentTurnAssistantIds) {
         this.dependencies.store.removeMessage(assistantId)
       }
       this.dependencies.store.setStatus('idle')

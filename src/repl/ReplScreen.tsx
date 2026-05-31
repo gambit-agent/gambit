@@ -34,7 +34,7 @@ import type { ConversationSessionSummary } from '../session/conversation-session
 import { readModelSelection, writeModelSelection } from '../session/model-selection'
 import { routeInput } from './input-router'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from './help'
-import { layout, theme } from '../ui/theme'
+import { layout, theme, useTheme } from '../ui/theme'
 import { ModelPickerOverlay } from '../ui/model-picker/ModelPickerOverlay'
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { TaskPanel } from '../ui/panels/TaskPanel'
@@ -238,6 +238,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const statusStartedAtRef = useRef<Date | null>(null)
   const launchHandledRef = useRef(false)
   const modelSelectionDirtyRef = useRef(false)
+  const inputFromTextareaRef = useRef(false)
+  const { isLight, toggleTheme } = useTheme()
   const interactiveMessages = useMemo<UIMessage[]>(
     () =>
       conversation.messages.map((message) => ({
@@ -703,6 +705,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           }
         }
 
+        // Theme toggle: Ctrl+T
+        if (key.name === 't' && key.ctrl) {
+          toggleTheme()
+          return
+        }
+
         // Transcript mode: ctrl+o toggles, q/Escape/ctrl+c exits
         if (scrollShortcut?.action === 'toggle-transcript') {
           setTranscriptMode((prev) => !prev)
@@ -818,6 +826,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         startFreshConversation,
         mcpOverlayOpen,
         transcriptMode,
+        toggleTheme,
       ],
     ),
   )
@@ -1339,6 +1348,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   // Sync external inputValue changes into the textarea buffer
   useEffect(() => {
+    if (inputFromTextareaRef.current) {
+      inputFromTextareaRef.current = false
+      return
+    }
     const ta = textareaRef.current
     if (!ta) return
     if (ta.plainText !== inputValue) {
@@ -1346,10 +1359,21 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [inputValue])
 
+  // Sync textarea colors when theme changes
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.backgroundColor = theme.background
+    ta.focusedBackgroundColor = theme.background
+    ta.textColor = theme.userFg
+    ta.focusedTextColor = theme.userFg
+  }, [isLight])
+
   const handleTextareaContentChange = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
     const text = ta.plainText
+    inputFromTextareaRef.current = true
     interactive.handleInput(text)
   }, [interactive])
 
@@ -1698,6 +1722,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       <box flexDirection="row" flexShrink={0} justifyContent="space-between" paddingX={1}>
         <box flexDirection="row" gap={1}>
           <text fg={thinkingEnabled ? theme.successFg : theme.infoFg} attributes={TextAttributes.BOLD} content={thinkingEnabled ? '◉' : '○'} />
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={isLight ? '☀' : '☾'} />
           <text fg={permissionModeColor} content={`◇ ${permissionSnapshot.mode}`} />
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂${gitBranch || '?'}`} />
           <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`◦${conversation.conversationId.slice(0, 6)}`} />

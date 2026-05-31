@@ -26,6 +26,42 @@ function getRunningIndicator(frameIndex: number): string {
   return toolMessageRunningFrames[normalizedIndex] ?? toolMessageRunningFrames[0]
 }
 
+function getToolActionVerb(toolName: string): string {
+  switch (toolName) {
+    case 'readFile':
+    case 'readTaskOutput':
+    case 'read-mcp-resource':
+      return 'Read'
+    case 'searchFiles':
+      return 'Searched'
+    case 'writeFile':
+    case 'patchFile':
+    case 'writeMemory':
+    case 'add-mcp-server':
+    case 'remove-mcp-server':
+    case 'toggle-mcp-server':
+      return 'Edited'
+    case 'listTasks':
+    case 'getTaskStatus':
+    case 'list-mcp-resources':
+    case 'list-mcp-tools':
+    case 'list-mcp-servers':
+      return 'Explored'
+    case 'executeShell':
+    case 'slashCommand':
+    case 'call-mcp-tool':
+      return 'Ran'
+    case 'activateSkill':
+      return 'Activated'
+    case 'spawnAgent':
+      return 'Delegated'
+    case 'cancelTask':
+      return 'Canceled'
+    default:
+      return 'Used'
+  }
+}
+
 /**
  * Render a single-line status string for a tool message in the REPL.
  * Returns an optional animated indicator plus a human-readable text line.
@@ -49,6 +85,6 @@ export function formatToolMessageLine(
 
   return {
     indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
-    text: `Ran: ${detail}`,
+    text: `${getToolActionVerb(toolName)}: ${detail}`,
   }
 }

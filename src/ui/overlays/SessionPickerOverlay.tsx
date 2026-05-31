@@ -132,6 +132,7 @@ export function SessionPickerOverlay({
           onInput={onFilterChange}
           onSubmit={handleSubmit}
           focused={hasFocus}
+          textColor={theme.userFg}
         />
       </box>
     </box>
