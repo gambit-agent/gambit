@@ -27,28 +27,47 @@ Features:
 
 ## Install
 
-### Quick install (Linux / macOS)
+### Quick install
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1 | iex
+```
+
+Linux, macOS, and WSL:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 ```
 
-The installer detects your platform (including musl Linux and Rosetta on macOS), downloads the matching prebuilt binary from GitHub Releases, verifies its SHA256 against the release `manifest.json`, installs it to `~/.local/bin/gambit`, and updates your shell PATH when possible.
+The installer detects your platform (including Windows, WSL, musl Linux, and Rosetta on macOS), downloads the matching prebuilt binary from GitHub Releases, verifies its SHA256 against the release `manifest.json`, installs it to the user-local bin directory, and updates PATH when possible.
 
 Install a specific version, choose a directory, or install a local binary:
 
 ```bash
-# default: latest stable release
+# Bash: latest stable release
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
-# specific version
+# Bash: specific version
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.7.0
 
-# custom install directory
+# Bash: custom install directory
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --install-dir "$HOME/bin"
 
-# local compiled binary
+# Bash: local compiled binary
 ./install --binary ./gambit
+```
+
+```powershell
+# PowerShell: specific version
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.7.0
+
+# PowerShell: custom install directory
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -InstallDir "$HOME\bin"
+
+# PowerShell: local compiled binary
+.\install.ps1 -Binary .\gambit.exe
 ```
 
 After installing, update to the latest release with:
@@ -57,19 +76,19 @@ After installing, update to the latest release with:
 gambit update
 ```
 
-To update to a specific version, run `gambit update 0.7.0`.
+To update to a specific version, run `gambit update 0.7.0`. On Windows, `gambit update` uses the PowerShell installer and waits for the running `gambit.exe` to exit before replacing it.
 
-Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`.
+Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
 
 Environment overrides:
 
 - `GAMBIT_REPO` — `owner/repo` to download from (default: `gambit-agent/gambit`).
-- `GAMBIT_BIN_DIR` — install location for the launcher (default: `~/.local/bin`).
+- `GAMBIT_BIN_DIR` — install location for the launcher (default: `~/.local/bin` on Unix and `$HOME\.local\bin` on Windows).
 - `VERSION` — version to install when `--version` is not passed.
 
 ### Manual install
 
-Grab a binary from the [latest release](https://github.com/gambit-agent/gambit/releases/latest), verify its SHA256 against `manifest.json`, then install it with `./install --binary ./gambit-<platform>`.
+Grab a binary from the [latest release](https://github.com/gambit-agent/gambit/releases/latest), verify its SHA256 against `manifest.json`, then install it with `./install --binary ./gambit-<platform>` or `.\install.ps1 -Binary .\gambit-<platform>.exe` on Windows.
 
 ### Install from source
 

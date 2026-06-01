@@ -36,6 +36,7 @@
     "src",
     "install",
     "install.sh",
+    "install.ps1",
     "install.cmd",
     "AGENTS.md",
     "README.md",

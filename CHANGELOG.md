@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Windows PowerShell installer (`install.ps1`) with release download, SHA256 verification, PATH updates, local binary installs, and `gambit update` support.
+- Windows release artifacts for `windows-x64` and `windows-arm64`.
+
 ## [0.7.0] — 2026-05-30
 
 ### Added

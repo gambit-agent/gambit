@@ -1,7 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-# Source checkout bootstrap. For released binaries, prefer the Bash installer
-# from WSL or install from a GitHub release asset.
+# Source checkout bootstrap. For released binaries, prefer install.ps1.
 
 Set-Location $PSScriptRoot
 

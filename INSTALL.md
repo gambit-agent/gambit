@@ -1,30 +1,52 @@
 # Install Gambit
 
-Gambit publishes self-contained binaries for Linux and macOS on GitHub Releases. The recommended install is the extensionless Bash installer:
+Gambit publishes self-contained binaries for Windows, Linux, and macOS on GitHub Releases.
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1 | iex
+```
+
+Linux, macOS, and WSL:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 ```
 
-The installer downloads the matching binary for your platform, verifies it against the release `manifest.json`, installs it to `~/.local/bin/gambit`, and adds that directory to your shell PATH when possible.
+The installer downloads the matching binary for your platform, verifies it against the release `manifest.json`, installs it to the user-local bin directory, and adds that directory to PATH when possible.
 
 ## Options
 
 ```bash
-# Latest stable release
+# Bash: latest stable release
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
-# Specific release
+# Bash: specific release
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.7.0
 
-# Local compiled binary
+# Bash: local compiled binary
 ./install --binary ./gambit
 
-# Custom install directory
+# Bash: custom install directory
 GAMBIT_BIN_DIR="$HOME/bin" ./install
 
-# Do not edit shell startup files
+# Bash: do not edit shell startup files
 ./install --no-modify-path
+```
+
+```powershell
+# PowerShell: specific release
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.7.0
+
+# PowerShell: local compiled binary
+.\install.ps1 -Binary .\gambit.exe
+
+# PowerShell: custom install directory
+$env:GAMBIT_BIN_DIR = "$HOME\bin"; .\install.ps1
+
+# PowerShell: do not update the user PATH
+.\install.ps1 -NoModifyPath
 ```
 
 ## Update
@@ -41,6 +63,8 @@ To install a specific release, run:
 gambit update 0.7.0
 ```
 
+On Windows, `gambit update` downloads `install.ps1`, waits for the running `gambit.exe` to exit, then replaces it. On WSL, it uses the Bash installer and installs the Linux binary inside WSL.
+
 Supported release targets:
 
 - `linux-x64`
@@ -49,6 +73,8 @@ Supported release targets:
 - `linux-arm64-musl`
 - `darwin-x64`
 - `darwin-arm64`
+- `windows-x64`
+- `windows-arm64`
 
 ## Install From Source
 
@@ -69,9 +95,9 @@ bun install
 make link-local
 ```
 
-## Windows
+## Windows Source Installs
 
-Native Windows release binaries are not published yet. Use WSL with the Bash installer, or run from source with Bun:
+Native Windows release binaries are installed with `install.ps1`. To run from source with Bun instead:
 
 ```powershell
 bun install

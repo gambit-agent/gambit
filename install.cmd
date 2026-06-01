@@ -1,18 +1,15 @@
 @echo off
 setlocal
 
-echo Gambit does not currently publish native Windows release binaries.
-echo.
-echo Recommended Windows install:
-echo   1. Open WSL.
-echo   2. Run:
-echo      curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install ^| bash
-echo.
-echo Source checkout install with Bun:
-echo   bun install
-echo   bun run tsc --noEmit
-echo   bun run src/gambit.tsx
-echo.
-echo If you are working from this repository on Windows, run setup.bat.
+set "SCRIPT_DIR=%~dp0"
 
+if exist "%SCRIPT_DIR%install.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%install.ps1" %*
+  exit /b %errorlevel%
+)
+
+echo install.ps1 was not found next to install.cmd.
+echo.
+echo Run this from Windows PowerShell instead:
+echo   irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1 ^| iex
 exit /b 1

@@ -1,6 +1,11 @@
 import { expect, test } from 'bun:test'
 
-import { buildInstallerArgs, parseUpdateArgs, patchInstallerScript } from './update'
+import {
+  buildInstallerArgs,
+  buildPowerShellInstallerArgs,
+  parseUpdateArgs,
+  patchInstallerScript,
+} from './update'
 
 test('parses update defaults', () => {
   expect(parseUpdateArgs([])).toEqual({
@@ -23,8 +28,20 @@ test('passes install options through to the installer', () => {
   expect(buildInstallerArgs(options)).toEqual(['latest', '--install-dir', '/tmp/bin', '--no-modify-path'])
 })
 
+test('passes install options through to the PowerShell installer', () => {
+  const options = parseUpdateArgs(['latest', '--install-dir', 'C:\\Users\\me\\bin', '--no-modify-path'])
+  expect(buildPowerShellInstallerArgs(options)).toEqual([
+    '-Version',
+    'latest',
+    '-InstallDir',
+    'C:\\Users\\me\\bin',
+    '-NoModifyPath',
+  ])
+})
+
 test('treats stable as the latest release alias', () => {
   expect(buildInstallerArgs(parseUpdateArgs(['stable']))).toEqual(['latest'])
+  expect(buildPowerShellInstallerArgs(parseUpdateArgs(['stable']))).toEqual(['-Version', 'latest'])
 })
 
 test('rejects invalid update arguments', () => {

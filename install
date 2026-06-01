@@ -168,7 +168,7 @@ detect_platform() {
     Darwin*) os="darwin" ;;
     Linux*) os="linux" ;;
     MINGW*|MSYS*|CYGWIN*)
-      print_error "Error: this installer supports Linux and macOS. On Windows, use WSL or install from source with Bun."
+      print_error "Error: this Bash installer supports Linux, macOS, and WSL. On native Windows, use install.ps1 from PowerShell."
       exit 1
       ;;
     *)

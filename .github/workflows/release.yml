@@ -159,6 +159,9 @@ jobs:
           - name: darwin-arm64
             os: macos-latest
             targets: darwin-arm64
+          - name: windows-x64
+            os: windows-latest
+            targets: windows-x64 windows-arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,12 +182,16 @@ jobs:
           mkdir -p dist
           for target in ${{ matrix.targets }}; do
             echo "Building gambit-$target on ${{ matrix.os }}..."
+            ext=""
+            case "$target" in
+              windows-*) ext=".exe" ;;
+            esac
             bun build \
               --compile \
               --minify \
               --target="bun-$target" \
               src/gambit.tsx \
-              --outfile "dist/gambit-$target"
+              --outfile "dist/gambit-$target$ext"
           done
           ls -la dist
 
@@ -226,6 +233,7 @@ jobs:
               [ -f "$bin" ] || continue
               name=$(basename "$bin")
               platform="${name#gambit-}"
+              platform="${platform%.exe}"
               checksum=$(sha256sum "$bin" | cut -d' ' -f1)
               if [ "$first" = true ]; then
                 first=false
@@ -257,5 +265,7 @@ jobs:
             dist/gambit-linux-arm64-musl
             dist/gambit-darwin-x64
             dist/gambit-darwin-arm64
+            dist/gambit-windows-x64.exe
+            dist/gambit-windows-arm64.exe
             dist/manifest.json
             dist/SHA256SUMS

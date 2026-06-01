@@ -21,13 +21,13 @@ Usage:
 Options:
   -h, --help             Show this help.
   -v, --version VERSION  Install a specific release version, with or without leading v.
-  --install-dir PATH     Install directory. Defaults to ~/.local/bin.
-  --no-modify-path       Do not update shell startup files.
+  --install-dir PATH     Install directory. Defaults to the user-local bin directory.
+  --no-modify-path       Do not update PATH.
 
 Environment:
   GAMBIT_REPO            GitHub repository to download from. Default: gambit-agent/gambit.
   GAMBIT_INSTALL_REF     Git ref for the installer script. Default: main.
-  GAMBIT_BIN_DIR         Install directory. Default: ~/.local/bin.
+  GAMBIT_BIN_DIR         Install directory. Defaults to the user-local bin directory.
 `
 
 export function printUpdateHelp(): void {
@@ -104,10 +104,30 @@ export function buildInstallerArgs(options: UpdateOptions): string[] {
   return installerArgs
 }
 
-function resolveInstallerUrl(): string {
+export function buildPowerShellInstallerArgs(options: UpdateOptions): string[] {
+  const installerArgs: string[] = []
+
+  if (options.version && options.version !== 'stable') {
+    installerArgs.push('-Version', options.version)
+  } else {
+    installerArgs.push('-Version', 'latest')
+  }
+
+  if (options.installDir) {
+    installerArgs.push('-InstallDir', options.installDir)
+  }
+
+  if (options.noModifyPath) {
+    installerArgs.push('-NoModifyPath')
+  }
+
+  return installerArgs
+}
+
+function resolveInstallerUrl(scriptName = 'install'): string {
   const repo = process.env.GAMBIT_REPO || DEFAULT_REPO
   const ref = process.env.GAMBIT_INSTALL_REF || DEFAULT_REF
-  return `https://raw.githubusercontent.com/${repo}/${ref}/install`
+  return `https://raw.githubusercontent.com/${repo}/${ref}/${scriptName}`
 }
 
 async function downloadInstaller(url: string): Promise<string> {
@@ -140,6 +160,54 @@ export function patchInstallerScript(installer: string): string {
   return installer.replace(oldLine, newBlock)
 }
 
+async function runWindowsUpdate(options: UpdateOptions): Promise<number> {
+  const installerUrl = resolveInstallerUrl('install.ps1')
+  const installerArgs = buildPowerShellInstallerArgs(options)
+
+  console.log(`Updating Gambit using ${installerUrl}`)
+
+  let tempDir: string | undefined
+  try {
+    const installer = await downloadInstaller(installerUrl)
+    tempDir = await mkdtemp(path.join(tmpdir(), 'gambit-update-'))
+    const installerPath = path.join(tempDir, 'install.ps1')
+    await writeFile(installerPath, installer, 'utf8')
+
+    const child = Bun.spawn(
+      [
+        'powershell.exe',
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        installerPath,
+        ...installerArgs,
+        '-WaitForPid',
+        String(process.pid),
+        '-CleanupPath',
+        tempDir,
+      ],
+      {
+        stdout: 'inherit',
+        stderr: 'inherit',
+        stdin: 'ignore',
+        env: process.env,
+        detached: true,
+      },
+    )
+    child.unref()
+
+    console.log('The Windows installer will continue after Gambit exits.')
+    return 0
+  } catch (error) {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+    console.error(error instanceof Error ? error.message : String(error))
+    return 1
+  }
+}
+
 export async function runUpdate(args: string[]): Promise<number> {
   let options: UpdateOptions
   try {
@@ -156,8 +224,7 @@ export async function runUpdate(args: string[]): Promise<number> {
   }
 
   if (process.platform === 'win32') {
-    console.error('gambit update is supported on Linux and macOS. On Windows, use WSL or install from source with Bun.')
-    return 1
+    return runWindowsUpdate(options)
   }
 
   const installerUrl = resolveInstallerUrl()
