@@ -12,6 +12,7 @@ export interface ConversationPanelProps {
   messages: ConversationMessage[]
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
   transcriptMode?: boolean
+  onClipboardError?: (error: Error) => void
 }
 
 const timestampFormatter = new Intl.DateTimeFormat(undefined, {
@@ -111,7 +112,12 @@ function ToolDiffView({ diff, filetype }: { diff: string; filetype?: string }) {
   )
 }
 
-export function ConversationPanel({ messages, scrollboxRef, transcriptMode = false }: ConversationPanelProps) {
+export function ConversationPanel({
+  messages,
+  scrollboxRef,
+  transcriptMode = false,
+  onClipboardError,
+}: ConversationPanelProps) {
   const [toolMessageAnimationFrame, setToolMessageAnimationFrame] = useState(0)
   const hasRunningToolMessage = messages.some(
     (message) => message.role === 'tool' && message.metadata?.toolStatus === 'started',
@@ -240,6 +246,7 @@ export function ConversationPanel({ messages, scrollboxRef, transcriptMode = fal
             <HoverClipboardBox
               key={message.id}
               content={message.content}
+              onCopyError={onClipboardError}
               flexDirection="column"
               alignItems={isUser ? 'flex-end' : 'flex-start'}
               paddingX={layout.messagePaddingX}

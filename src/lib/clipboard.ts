@@ -1,3 +1,13 @@
+import type { CliRenderer } from '@opentui/core'
+
+const COPY_NOTIFICATION_MESSAGE = 'Copied text to clipboard'
+const COPY_NOTIFICATION_TITLE = 'Gambit'
+
+export type ClipboardRenderer = Pick<
+  CliRenderer,
+  'copyToClipboardOSC52' | 'isOsc52Supported' | 'triggerNotification'
+>
+
 export function getClipboardCommandCandidates(platform: NodeJS.Platform): string[][] {
   switch (platform) {
     case 'win32':
@@ -54,4 +64,23 @@ export async function copyTextToClipboard(text: string): Promise<void> {
       ? `Failed to copy selection to clipboard: ${lastError.message}`
       : 'Failed to copy selection to clipboard.',
   )
+}
+
+export async function copyTextWithRendererClipboard(
+  renderer: ClipboardRenderer,
+  text: string,
+  fallbackCopy: (value: string) => Promise<void> = copyTextToClipboard,
+): Promise<boolean> {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  const copiedViaOsc52 = renderer.isOsc52Supported() && renderer.copyToClipboardOSC52(text)
+  if (!copiedViaOsc52) {
+    await fallbackCopy(text)
+  }
+
+  renderer.triggerNotification(COPY_NOTIFICATION_MESSAGE, COPY_NOTIFICATION_TITLE)
+  return true
 }

@@ -13,7 +13,7 @@ import {
   useQuestionSnapshot,
   useTaskSnapshot,
 } from '../app/providers'
-import { copyTextToClipboard } from '../lib/clipboard'
+import { copyTextWithRendererClipboard } from '../lib/clipboard'
 import { useModelPicker } from '../lib/modelPicker'
 import { modelRequiresApiKey, type ReasoningEffort } from '../lib/model'
 import { executeSlashCommand, loadSlashCommands, type SlashCommandExecution } from '../lib/slashCommands'
@@ -1584,19 +1584,21 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [interactive.handleSubmit],
   )
 
-  // Auto-copy text selection to clipboard via OSC 52
+  // Auto-copy explicit text selections to clipboard.
   useEffect(() => {
     const handleSelection = (selection: Selection) => {
       const text = selection.getSelectedText()
-      if (text?.trim() && renderer.isOsc52Supported()) {
-        renderer.copyToClipboardOSC52(text)
+      if (text?.trim()) {
+        void copyTextWithRendererClipboard(renderer, text).catch((error) => {
+          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+        })
       }
     }
     renderer.on('selection', handleSelection)
     return () => {
       renderer.off('selection', handleSelection)
     }
-  }, [renderer])
+  }, [renderer, runtime.conversationStore])
 
   const handleMouseUp = useCallback(
     (event: MouseEvent) => {
@@ -1613,13 +1615,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       event.preventDefault()
       event.stopPropagation()
 
-      if (renderer.isOsc52Supported()) {
-        renderer.copyToClipboardOSC52(selectedText)
-      } else {
-        void copyTextToClipboard(selectedText).catch((error) => {
-          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-        })
-      }
+      void copyTextWithRendererClipboard(renderer, selectedText).catch((error) => {
+        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+      })
     },
     [renderer, runtime.conversationStore],
   )
@@ -1710,7 +1708,14 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         </box>
       ) : null}
 
-      <ConversationPanel messages={conversation.messages} scrollboxRef={scrollboxRef} transcriptMode={transcriptMode} />
+      <ConversationPanel
+        messages={conversation.messages}
+        scrollboxRef={scrollboxRef}
+        transcriptMode={transcriptMode}
+        onClipboardError={(error) => {
+          runtime.conversationStore.setError(error.message)
+        }}
+      />
 
       {interactive.historySearch.active ? (
         <box

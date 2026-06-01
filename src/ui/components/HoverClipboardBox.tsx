@@ -1,13 +1,14 @@
-import type { AlignString, MouseEvent } from '@opentui/core'
+import { MouseButton, type AlignString, type MouseEvent } from '@opentui/core'
 import { useRenderer } from '@opentui/react'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback } from 'react'
 import type { ReactNode } from 'react'
 
-const HOVER_DEBOUNCE_MS = 300
+import { copyTextWithRendererClipboard } from '../../lib/clipboard'
 
 interface HoverClipboardBoxProps {
   children: ReactNode
   content: string
+  onCopyError?: (error: Error) => void
   flexDirection?: 'row' | 'column'
   gap?: number
   alignItems?: AlignString
@@ -19,9 +20,14 @@ interface HoverClipboardBoxProps {
   borderColor?: string
 }
 
+export function isRightClickCopyEvent(event: Pick<MouseEvent, 'button'>): boolean {
+  return event.button === MouseButton.RIGHT
+}
+
 export function HoverClipboardBox({
   children,
   content,
+  onCopyError,
   flexDirection,
   gap,
   alignItems,
@@ -33,30 +39,27 @@ export function HoverClipboardBox({
   borderColor,
 }: HoverClipboardBoxProps) {
   const renderer = useRenderer()
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-      }
-    }
-  }, [])
-
-  const handleMouseMove = useCallback(
-    (_event: MouseEvent) => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
+  const handleMouseUp = useCallback(
+    (event: MouseEvent) => {
+      if (!isRightClickCopyEvent(event)) {
+        return
       }
 
-      timerRef.current = setTimeout(() => {
-        const trimmed = content.trim()
-        if (trimmed && renderer.isOsc52Supported()) {
-          renderer.copyToClipboardOSC52(trimmed)
-        }
-      }, HOVER_DEBOUNCE_MS)
+      event.preventDefault()
+      event.stopPropagation()
+
+      const trimmed = content.trim()
+      if (!trimmed) {
+        return
+      }
+
+      void copyTextWithRendererClipboard(renderer, trimmed)
+        .catch((error) => {
+          onCopyError?.(error instanceof Error ? error : new Error(String(error)))
+        })
     },
-    [content, renderer],
+    [content, onCopyError, renderer],
   )
 
   const style: Record<string, unknown> = {}
@@ -66,7 +69,7 @@ export function HoverClipboardBox({
 
   return (
     <box
-      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       flexDirection={flexDirection}
       gap={gap}
       alignItems={alignItems}
