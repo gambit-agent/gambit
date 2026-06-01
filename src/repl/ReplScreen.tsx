@@ -32,6 +32,7 @@ import { matchShortcut } from '../lib/interactive/shortcuts'
 import type { UIMessage } from '../types/chat'
 import type { ConversationSessionSummary } from '../session/conversation-sessions'
 import { readModelSelection, writeModelSelection } from '../session/model-selection'
+import { readOpenRouterApiKey, writeOpenRouterApiKey } from '../session/user-config'
 import { routeInput } from './input-router'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from './help'
 import { layout, theme, useTheme } from '../ui/theme'
@@ -212,7 +213,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   })
   const [inputValue, setInputValue] = useState('')
   const [inputPreview, setInputPreview] = useState<string | null>(null)
-  const [modelId, setModelId] = useState(defaultModel)
+  const [modelId, setModelId] = useState<string | null>(defaultModel)
   const [apiKey, setApiKey] = useState<string>(Bun.env.OPENROUTER_API_KEY ?? '')
   const [statusElapsed, setStatusElapsed] = useState<string | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
@@ -238,6 +239,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const statusStartedAtRef = useRef<Date | null>(null)
   const launchHandledRef = useRef(false)
   const modelSelectionDirtyRef = useRef(false)
+  const apiKeyDirtyRef = useRef(false)
   const inputFromTextareaRef = useRef(false)
   const { isLight, toggleTheme } = useTheme()
   const interactiveMessages = useMemo<UIMessage[]>(
@@ -312,9 +314,22 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [runtime.conversationStore],
   )
 
+  const persistApiKey = useCallback(
+    (nextApiKey: string) => {
+      const trimmedKey = nextApiKey.trim()
+      apiKeyDirtyRef.current = true
+      setApiKey(trimmedKey)
+
+      void writeOpenRouterApiKey(trimmedKey).catch((error) => {
+        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+      })
+    },
+    [runtime.conversationStore],
+  )
+
   const modelPicker = useModelPicker({
     apiKey: apiKey.trim().length > 0 ? apiKey.trim() : null,
-    currentModelId: modelId,
+    currentModelId: modelId ?? '',
     currentReasoning: reasoningEffort,
     onSelect: (model, effort) => {
       persistModelSelection(model.id, effort)
@@ -533,6 +548,34 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     }
   }, [runtime.conversationStore])
 
+  // Restore user-level API key on mount when the environment did not provide one.
+  useEffect(() => {
+    if (Bun.env.OPENROUTER_API_KEY?.trim()) {
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const persistedApiKey = await readOpenRouterApiKey()
+        if (!persistedApiKey || cancelled || apiKeyDirtyRef.current) {
+          return
+        }
+
+        setApiKey(persistedApiKey)
+      } catch (error) {
+        if (!cancelled) {
+          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [runtime.conversationStore])
+
   // Live context usage tracking — updates whenever messages or model change
   useEffect(() => {
     let cancelled = false
@@ -540,13 +583,14 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       conversation.messages.map((m) => ({ ...m, timestamp: m.timestamp })),
     )
 
+    const selectedModelId = modelId?.trim()
     const trimmedKey = apiKey.trim()
-    if (!trimmedKey) {
+    if (!selectedModelId || !trimmedKey) {
       setContextUsage({ used, max: 128_000 })
       return
     }
 
-    void getModelContextLength(modelId, trimmedKey).then((contextLength) => {
+    void getModelContextLength(selectedModelId, trimmedKey).then((contextLength) => {
       if (!cancelled) {
         setContextUsage({ used, max: contextLength })
       }
@@ -831,6 +875,25 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     ),
   )
 
+  const getRunConfig = useCallback(
+    (action: string): { modelId: string; apiKey: string } | null => {
+      const selectedModelId = modelId?.trim()
+      if (!selectedModelId) {
+        runtime.conversationStore.setError(`Select a model before ${action} (:model <model-id> or /model).`)
+        return null
+      }
+
+      const trimmedKey = apiKey.trim()
+      if (modelRequiresApiKey(selectedModelId) && !trimmedKey) {
+        runtime.conversationStore.setError(`Set an OpenRouter API key before ${action} (:key <token>).`)
+        return null
+      }
+
+      return { modelId: selectedModelId, apiKey: trimmedKey }
+    },
+    [apiKey, modelId, runtime.conversationStore],
+  )
+
   const performSubmit = useCallback(
     async (value: string, { signal }: { signal: AbortSignal }) => {
       /**
@@ -893,8 +956,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return true
         }
 
-        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
-          runtime.conversationStore.setError('Set an OpenRouter API key before running a goal (:key <token>).')
+        const runConfig = getRunConfig('running a goal')
+        if (!runConfig) {
           return true
         }
 
@@ -910,8 +973,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         try {
           await runtime.conversationRunner.runTurn({
             userInput: prompt,
-            apiKey: apiKey.trim(),
-            modelId,
+            apiKey: runConfig.apiKey,
+            modelId: runConfig.modelId,
             reasoningEffort,
             showReasoning: thinkingEnabled,
             signal: goalSignal,
@@ -929,8 +992,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
-        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
-          runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
+        const runConfig = getRunConfig('chatting')
+        if (!runConfig) {
           return
         }
 
@@ -948,8 +1011,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         try {
           await runtime.conversationRunner.runTurn({
             userInput: routed.value,
-            apiKey: apiKey.trim(),
-            modelId,
+            apiKey: runConfig.apiKey,
+            modelId: runConfig.modelId,
             reasoningEffort,
             showReasoning: thinkingEnabled,
             signal,
@@ -981,11 +1044,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             runtime.conversationStore.setError('Usage: :key <OPENROUTER_API_KEY>')
             return
           }
-          setApiKey(routed.argument)
+          persistApiKey(routed.argument)
           await runtime.conversationStore.pushMessage({
             id: randomUUID(),
             role: 'system',
-            content: `Updated OpenRouter API key (${routed.argument.length} characters provided).`,
+            content: `Saved OpenRouter API key to user config (${routed.argument.trim().length} characters provided).`,
             timestamp: new Date().toISOString(),
           })
           return
@@ -1011,8 +1074,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             runtime.conversationStore.setError('Finish or cancel the current run before compacting.')
             return
           }
+          const selectedModelId = modelId?.trim()
+          if (!selectedModelId) {
+            runtime.conversationStore.setError('Select a model before compacting (:model <model-id> or /model).')
+            return
+          }
           try {
-            const result = await runtime.conversationRunner.compact({ apiKey: apiKey.trim() || undefined, modelId })
+            const result = await runtime.conversationRunner.compact({ apiKey: apiKey.trim() || undefined, modelId: selectedModelId })
             if (result.compacted) {
               await runtime.conversationStore.pushMessage({
                 id: randomUUID(),
@@ -1146,8 +1214,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           return
         }
 
-        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
-          runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
+        const runConfig = getRunConfig('chatting')
+        if (!runConfig) {
           return
         }
 
@@ -1165,8 +1233,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         try {
           await runtime.conversationRunner.runTurn({
             userInput: execution.content,
-            apiKey: apiKey.trim(),
-            modelId,
+            apiKey: runConfig.apiKey,
+            modelId: runConfig.modelId,
             reasoningEffort,
             showReasoning: thinkingEnabled,
             signal,
@@ -1229,16 +1297,16 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           timestamp: new Date().toISOString(),
         })
 
-        if (modelRequiresApiKey(modelId) && !apiKey.trim()) {
-          runtime.conversationStore.setError('Set an OpenRouter API key before chatting (:key <token>).')
+        const runConfig = getRunConfig('chatting')
+        if (!runConfig) {
           return
         }
 
         try {
           await runtime.conversationRunner.runTurn({
             userInput: rendered,
-            apiKey: apiKey.trim(),
-            modelId,
+            apiKey: runConfig.apiKey,
+            modelId: runConfig.modelId,
             reasoningEffort,
             showReasoning: thinkingEnabled,
             signal,
@@ -1252,11 +1320,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       apiKey,
       conversation.initialized,
       clearComposer,
+      getRunConfig,
       handleFilterSubmit,
       modelId,
       modelPickerState.fetchState,
       openModelPicker,
       openSessionPicker,
+      persistApiKey,
       persistModelSelection,
       reasoningEffort,
       runtime,
@@ -1448,8 +1518,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       .catch(() => setGitBranch(''))
   }, [])
 
-  const modelDisplay = reasoningEffort ? `${modelId} (effort: ${reasoningEffort})` : modelId
-  const shortModelId = modelId.includes('/') ? modelId.split('/').pop()! : modelId
+  const selectedModelLabel = modelId ?? 'no model'
+  const shortModelId = selectedModelLabel.includes('/') ? selectedModelLabel.split('/').pop()! : selectedModelLabel
   const shortModelDisplay = reasoningEffort ? `${shortModelId}·${reasoningEffort}` : shortModelId
   const followUpCount = interactive.followUpQueue.length
   const statusDisplay =
@@ -1567,7 +1637,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       {modelPickerState.isOpen ? (
         <ModelPickerOverlay
           state={modelPickerState}
-          currentModelId={modelId}
+          currentModelId={modelId ?? ''}
           hasFocus={isModelPickerFocused}
           onFilterChange={handleModelFilterChange}
           onFilterSubmit={handleFilterSubmit}

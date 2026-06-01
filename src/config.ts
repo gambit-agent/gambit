@@ -11,8 +11,8 @@ const DEFAULT_MAX_AGENT_STEPS = 200;
  */
 export let workspaceRoot = computeWorkspaceRoot(Bun.env.WORKSPACE_ROOT);
 
-/** Default LLM identifier used when no model has been explicitly selected. */
-export const defaultModel = Bun.env.GAMBIT_MODEL ?? Bun.env.OPENROUTER_MODEL ?? "codex/gpt-5.1-codex";
+/** Optional default LLM identifier supplied by environment configuration. */
+export const defaultModel = Bun.env.GAMBIT_MODEL?.trim() || Bun.env.OPENROUTER_MODEL?.trim() || null;
 
 /** HTTP Referer header sent to OpenRouter for attribution. */
 export const refererHeader = Bun.env.OPENROUTER_REFERRER ?? "https://github.com/opentui/gambit";

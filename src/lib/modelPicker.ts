@@ -85,7 +85,10 @@ export function filterModels(models: readonly ModelListItem[], filterValue: stri
 }
 
 function buildFallbackModels(): ModelListItem[] {
-  const candidates = new Set<string>([defaultModel, ...freeModelPresets, ...codexModelPresets])
+  const candidates = new Set<string>(
+    [defaultModel, ...freeModelPresets, ...codexModelPresets]
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  )
   return Array.from(candidates).map((id) => {
     const provider = id.includes("/") ? id.split("/")[0] ?? null : null
     return {

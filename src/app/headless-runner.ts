@@ -6,6 +6,7 @@ import { setMCPConfigPathOverride } from '../lib/mcp-config'
 import { modelRequiresApiKey } from '../lib/model'
 import type { PermissionMode } from '../permissions/permission-rules'
 import { readModelSelection } from '../session/model-selection'
+import { readOpenRouterApiKey } from '../session/user-config'
 import { cleanupAllMCPClients } from '../tools/mcp'
 import { bootstrapAppRuntime } from './bootstrap'
 import type { HeadlessLaunchOptions, HeadlessPermissionMode, LaunchMode, OutputFormat } from './launch-options'
@@ -63,7 +64,9 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const stderr = options.stderr ?? process.stderr
   const { headless } = options
 
-  const apiKey = Bun.env.OPENROUTER_API_KEY?.trim() ?? ''
+  const apiKey = Bun.env.OPENROUTER_API_KEY?.trim()
+    || await readOpenRouterApiKey().catch(() => null)
+    || ''
 
   const trimmedPrompt = headless.prompt.trim()
   if (!trimmedPrompt) {
@@ -114,8 +117,13 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const modelId = selection?.modelId ?? defaultModel
   const reasoningEffort = selection?.reasoningEffort ?? null
 
+  if (!modelId) {
+    stderr.write('Error: no model selected. Set GAMBIT_MODEL/OPENROUTER_MODEL or choose one in the TUI with :model <model-id>.\n')
+    return 1
+  }
+
   if (modelRequiresApiKey(modelId) && !apiKey) {
-    stderr.write('Error: OPENROUTER_API_KEY environment variable is required for -p mode with OpenRouter models.\n')
+    stderr.write('Error: an OpenRouter API key is required for -p mode with OpenRouter models. Set OPENROUTER_API_KEY or save one with :key <token>.\n')
     return 1
   }
 

@@ -7,7 +7,7 @@ const builtInCommands = [
   ['/model [query]', 'Open the model picker.'],
   ['/resume [query]', 'Open saved conversations.'],
   [':model <model-id>', 'Set the model directly.'],
-  [':key <OPENROUTER_API_KEY>', 'Set the OpenRouter API key for this session.'],
+  [':key <OPENROUTER_API_KEY>', 'Save the OpenRouter API key to the user config.'],
   [':reset', 'Start a fresh conversation.'],
   [':resume [query]', 'Open saved conversations.'],
   [':mcp', 'Open MCP server management.'],

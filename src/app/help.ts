@@ -29,8 +29,8 @@ HEADLESS
   --mcp-config <path>                       Path to an MCP server config JSON
 
 ENVIRONMENT
-  OPENROUTER_API_KEY                        API key used when not provided via :key
-  GAMBIT_MODEL                              Default model id (default: codex/gpt-5.1-codex)
+  OPENROUTER_API_KEY                        API key override; otherwise ~/.gambit/config.json is used
+  GAMBIT_MODEL                              Optional default model id
   OPENROUTER_MODEL                          Back-compat default model id override
   OPENAI_CODEX_ACCESS_TOKEN                 Optional Codex subscription access token
   CODEX_AUTH_FILE                           Optional path to Codex auth.json (default ~/.codex/auth.json)
