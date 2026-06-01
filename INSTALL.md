@@ -74,7 +74,6 @@ Supported release targets:
 - `darwin-x64`
 - `darwin-arm64`
 - `windows-x64`
-- `windows-arm64`
 
 ## Install From Source
 

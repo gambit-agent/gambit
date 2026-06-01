@@ -78,7 +78,7 @@ gambit update
 
 To update to a specific version, run `gambit update 0.7.0`. On Windows, `gambit update` uses the PowerShell installer and waits for the running `gambit.exe` to exit before replacing it.
 
-Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
+Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64`.
 
 Environment overrides:
 

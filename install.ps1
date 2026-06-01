@@ -130,7 +130,9 @@ function Get-Platform {
 
   switch ($rawArch.ToLowerInvariant()) {
     { $_ -in @('x64', 'amd64') } { return 'windows-x64' }
-    { $_ -in @('arm64', 'aarch64') } { return 'windows-arm64' }
+    { $_ -in @('arm64', 'aarch64') } {
+      throw 'Windows ARM64 release binaries are not published yet. Use WSL, or run from source with Bun.'
+    }
     default {
       throw "Unsupported Windows architecture: $rawArch."
     }

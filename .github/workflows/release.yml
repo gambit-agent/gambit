@@ -161,7 +161,7 @@ jobs:
             targets: darwin-arm64
           - name: windows-x64
             os: windows-latest
-            targets: windows-x64 windows-arm64
+            targets: windows-x64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -266,6 +266,5 @@ jobs:
             dist/gambit-darwin-x64
             dist/gambit-darwin-arm64
             dist/gambit-windows-x64.exe
-            dist/gambit-windows-arm64.exe
             dist/manifest.json
             dist/SHA256SUMS
