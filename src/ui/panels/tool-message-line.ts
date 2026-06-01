@@ -43,6 +43,7 @@ function getToolActionVerb(toolName: string): string {
       return 'Edited'
     case 'listTasks':
     case 'getTaskStatus':
+    case 'waitForTasks':
     case 'list-mcp-resources':
     case 'list-mcp-tools':
     case 'list-mcp-servers':
@@ -54,6 +55,7 @@ function getToolActionVerb(toolName: string): string {
     case 'activateSkill':
       return 'Activated'
     case 'spawnAgent':
+    case 'runAgents':
       return 'Delegated'
     case 'cancelTask':
       return 'Canceled'

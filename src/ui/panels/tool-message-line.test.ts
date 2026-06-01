@@ -48,4 +48,15 @@ test('uses varied action verbs based on the tool name', () => {
   expect(
     formatToolMessageLine(createToolMessage('completed', { toolName: 'listTasks', toolArgs: {} })).text,
   ).toStartWith('Explored:')
+  expect(
+    formatToolMessageLine(createToolMessage('started', { toolName: 'waitForTasks', toolArgs: { taskIds: ['a'] } })).text,
+  ).toStartWith('Explored:')
+  expect(
+    formatToolMessageLine(
+      createToolMessage('started', {
+        toolName: 'runAgents',
+        toolArgs: { agents: [{ role: 'explorer', prompt: 'inspect' }] },
+      }),
+    ).text,
+  ).toStartWith('Delegated:')
 })

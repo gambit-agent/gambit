@@ -21,6 +21,7 @@ const READ_ONLY_TOOLS = new Set([
   'readTaskOutput',
   'listTasks',
   'getTaskStatus',
+  'waitForTasks',
   'slashCommand',
   'enterPlanMode',
 ])
@@ -31,6 +32,7 @@ const WRITE_TOOLS = new Set([
   'patchFile',
   'executeShell',
   'spawnAgent',
+  'runAgents',
   'cancelTask',
   'writeMemory',
 ])

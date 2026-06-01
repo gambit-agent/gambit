@@ -89,6 +89,40 @@ describe('task runtime', () => {
     })
   })
 
+  test('waitForTasks resolves when watched tasks become terminal', async () => {
+    const runtime = new TaskRuntime()
+    await runtime.initialize()
+    const task = await runtime.createTask({
+      kind: 'shell',
+      title: 'Long running task',
+      background: true,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    })
+
+    const waitPromise = runtime.waitForTasks([task.id])
+    await runtime.updateTask(task.id, {
+      status: 'completed',
+      finishedAt: new Date().toISOString(),
+      progressSummary: 'done',
+    })
+
+    await expect(waitPromise).resolves.toMatchObject([
+      {
+        id: task.id,
+        status: 'completed',
+        progressSummary: 'done',
+      },
+    ])
+  })
+
+  test('waitForTasks rejects missing task ids instead of hanging', async () => {
+    const runtime = new TaskRuntime()
+    await runtime.initialize()
+
+    await expect(runtime.waitForTasks(['missing-task'])).rejects.toThrow('Task not found: missing-task')
+  })
+
   afterEach(async () => {
     await rm(root, { recursive: true, force: true })
   })

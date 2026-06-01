@@ -3,7 +3,8 @@ import { AgentRunner } from '../agents/agent-runner'
 import { DEFAULT_AGENT_DEFINITIONS } from '../agents/agent-definitions'
 import type { ReasoningEffort } from '../lib/model'
 import type { AgentRole } from '../agents/agent-types'
-import { TaskRuntime } from './task-runtime'
+import { readTaskOutput } from './task-output'
+import { isTerminalTaskStatus, TaskRuntime } from './task-runtime'
 import type { TaskRecord } from './task-types'
 import type { ToolExecutionContext } from '../tools/tool-types'
 
@@ -26,6 +27,36 @@ export interface AgentTaskResult {
   summary: string
 }
 
+export interface RunAgentBatchItemInput {
+  role: AgentRole
+  prompt: string
+  title?: string
+}
+
+export interface RunAgentBatchInput {
+  agents: RunAgentBatchItemInput[]
+  apiKey: string
+  modelId: string
+  reasoningEffort?: ReasoningEffort | null
+  baseSystemPrompt: string
+  agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
+  signal?: AbortSignal
+}
+
+export interface AgentBatchTaskResult {
+  task: TaskRecord
+  output: string
+}
+
+export interface AgentBatchResult {
+  tasks: AgentBatchTaskResult[]
+}
+
+export type AgentBatchEvent =
+  | { type: 'started'; tasks: TaskRecord[] }
+  | { type: 'progress'; tasks: TaskRecord[] }
+  | { type: 'completed'; tasks: AgentBatchTaskResult[] }
+
 export class AgentTaskRunner {
   constructor(
     private readonly taskRuntime: TaskRuntime,
@@ -35,6 +66,78 @@ export class AgentTaskRunner {
       agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
     ) => Promise<Record<string, any>>,
   ) {}
+
+  async *streamBatch(input: RunAgentBatchInput): AsyncGenerator<AgentBatchEvent, AgentBatchResult> {
+    if (input.agents.length === 0) {
+      const empty = { tasks: [] }
+      yield { type: 'completed', tasks: [] }
+      return empty
+    }
+
+    const launched: AgentTaskResult[] = []
+
+    const launchResults = await Promise.allSettled(
+      input.agents.map((agent) =>
+        this.run({
+          role: agent.role,
+          prompt: agent.prompt,
+          title: agent.title,
+          background: true,
+          apiKey: input.apiKey,
+          modelId: input.modelId,
+          reasoningEffort: input.reasoningEffort,
+          baseSystemPrompt: input.baseSystemPrompt,
+          agentExecutionOptions: input.agentExecutionOptions,
+          signal: input.signal,
+        }),
+      ),
+    )
+    const failedLaunch = launchResults.find((result) => result.status === 'rejected')
+    launched.push(...launchResults.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : [])))
+    if (failedLaunch?.status === 'rejected') {
+      await Promise.allSettled(launched.map((result) => this.taskRuntime.cancelTask(result.task.id)))
+      throw failedLaunch.reason
+    }
+
+    const startedTasks = launched.map((result) => result.task)
+    const taskIds = startedTasks.map((task) => task.id)
+    yield { type: 'started', tasks: startedTasks }
+
+    let latestTasks = startedTasks
+    for await (const tasks of this.taskRuntime.watchTasks(taskIds, { signal: input.signal })) {
+      latestTasks = tasks
+      yield { type: 'progress', tasks }
+    }
+
+    const missing = taskIds.filter((id) => !latestTasks.some((task) => task.id === id))
+    if (missing.length > 0) {
+      throw new Error(`Agent tasks disappeared before completion: ${missing.join(', ')}`)
+    }
+
+    const nonTerminal = latestTasks.filter((task) => !isTerminalTaskStatus(task.status))
+    if (nonTerminal.length > 0) {
+      throw new Error(`Agent tasks did not finish: ${nonTerminal.map((task) => task.id).join(', ')}`)
+    }
+
+    const tasks = await Promise.all(
+      latestTasks.map(async (task) => ({
+        task,
+        output: await readTaskOutput(task.id),
+      })),
+    )
+    const result = { tasks }
+    yield { type: 'completed', tasks }
+    return result
+  }
+
+  async runBatch(input: RunAgentBatchInput): Promise<AgentBatchResult> {
+    const stream = this.streamBatch(input)
+    let next = await stream.next()
+    while (!next.done) {
+      next = await stream.next()
+    }
+    return next.value
+  }
 
   async run(input: RunAgentTaskInput): Promise<AgentTaskResult> {
     const definition = DEFAULT_AGENT_DEFINITIONS[input.role]

@@ -132,8 +132,10 @@ export type AgentToolId =
   | 'readTaskOutput'
   | 'listTasks'
   | 'getTaskStatus'
+  | 'waitForTasks'
   | 'cancelTask'
   | 'spawnAgent'
+  | 'runAgents'
   | 'writeMemory'
   | 'askUserQuestion'
 export type AgentTools = Record<AgentToolId, any>

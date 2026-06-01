@@ -1,5 +1,5 @@
 import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type ScrollBoxRenderable, type Selection, type TextareaRenderable } from '@opentui/core'
-import { useKeyboard, useRenderer } from '@opentui/react'
+import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
 import { randomUUID } from 'node:crypto'
 import pkg from '../../package.json'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
@@ -49,6 +49,7 @@ import {
 } from '../ui/overlays/AskUserQuestionOverlay'
 import { listMCPServerConfigs } from '../lib/mcp-config'
 import { readPlan } from '../plans/plan-store'
+import type { TaskRecord } from '../tasks/task-types'
 
 // Textarea key bindings: Enter submits, Shift/Ctrl/Meta+Enter inserts newline
 const textareaKeyBindings = [
@@ -157,7 +158,7 @@ function formatSessionTimestamp(value: string | null): string {
   return sessionTimestampFormatter.format(timestamp)
 }
 
-function formatTaskTitle(value: string): string {
+function sanitizeTaskText(value: string): string {
   return value
     .replace(oscPattern, '')
     .replace(ansiPattern, '')
@@ -166,8 +167,127 @@ function formatTaskTitle(value: string): string {
     .trim()
 }
 
-function isActiveBackgroundTaskStatus(status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'): boolean {
+function formatTaskTitle(value: string): string {
+  return sanitizeTaskText(value)
+}
+
+function truncateTaskLine(value: string, maxLength: number): string {
+  const normalized = sanitizeTaskText(value)
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  if (maxLength <= 1) {
+    return normalized.slice(0, maxLength)
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`
+}
+
+function isActiveTaskStatus(status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'): boolean {
   return status === 'pending' || status === 'running'
+}
+
+function getTaskPanelHeight(terminalHeight: number, taskCount: number): number {
+  const desiredHeight = Math.min(14, Math.max(7, taskCount * 2 + 5))
+  const maxHeight = Math.max(5, Math.floor(terminalHeight * 0.35))
+  return Math.min(desiredHeight, maxHeight)
+}
+
+function TaskDrawer({
+  activeTasks,
+  recentTasks,
+  terminalWidth,
+  terminalHeight,
+}: {
+  activeTasks: TaskRecord[]
+  recentTasks: TaskRecord[]
+  terminalWidth: number
+  terminalHeight: number
+}) {
+  const taskCount = activeTasks.length + recentTasks.length
+  const panelHeight = getTaskPanelHeight(terminalHeight, taskCount)
+  const bodyHeight = Math.max(1, panelHeight - 4)
+  const lineWidth = Math.max(24, terminalWidth - layout.screenPadding * 2 - 8)
+  const runningCount = activeTasks.filter((task) => task.status === 'running').length
+  const pendingCount = activeTasks.filter((task) => task.status === 'pending').length
+  const statusText =
+    taskCount === 0
+      ? 'No tasks'
+      : `${runningCount} running${pendingCount > 0 ? `, ${pendingCount} pending` : ''}`
+
+  const renderTask = (task: TaskRecord, tone: 'active' | 'recent') => (
+    <box key={task.id} flexDirection="column" minHeight={task.progressSummary ? 2 : 1}>
+      <text
+        fg={tone === 'active' ? theme.assistantFg : theme.statusFg}
+        attributes={tone === 'active' ? TextAttributes.BOLD : TextAttributes.DIM}
+        content={truncateTaskLine(
+          `${task.id.slice(0, 8)}  ${task.status.padEnd(9)}  ${formatTaskTitle(task.title)}`,
+          lineWidth,
+        )}
+      />
+      {task.progressSummary ? (
+        <text
+          fg={theme.statusFg}
+          attributes={TextAttributes.DIM}
+          content={truncateTaskLine(`  ${task.progressSummary}`, lineWidth)}
+        />
+      ) : null}
+    </box>
+  )
+
+  return (
+    <box
+      flexDirection="column"
+      flexShrink={0}
+      width="100%"
+      height={panelHeight}
+      border={['top', 'bottom', 'left', 'right']}
+      borderStyle="heavy"
+      paddingX={1}
+      marginBottom={1}
+      style={{
+        borderColor: theme.inputBorder,
+        backgroundColor: theme.background,
+      }}
+    >
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="Tasks" />
+        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={statusText} />
+      </box>
+      <scrollbox
+        height={bodyHeight}
+        scrollY
+        style={{
+          rootOptions: {
+            backgroundColor: theme.background,
+          },
+          contentOptions: {
+            flexDirection: 'column',
+            gap: 0,
+            backgroundColor: theme.background,
+          },
+        }}
+      >
+        {taskCount === 0 ? (
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No tasks yet." />
+        ) : null}
+        {activeTasks.length > 0 ? (
+          <>
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Active" />
+            {activeTasks.map((task) => renderTask(task, 'active'))}
+          </>
+        ) : taskCount > 0 ? (
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No active tasks." />
+        ) : null}
+        {recentTasks.length > 0 ? (
+          <>
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Recent" />
+            {recentTasks.map((task) => renderTask(task, 'recent'))}
+          </>
+        ) : null}
+      </scrollbox>
+      <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Ctrl+B to close" />
+    </box>
+  )
 }
 
 function describeSessionOption(summary: ConversationSessionSummary, isCurrent: boolean): string {
@@ -197,10 +317,11 @@ export interface ReplScreenProps {
  * - Keyboard input routing (prompts, colon commands, slash commands, shell, memory)
  * - Overlay management (model picker, session picker, permission dialog, questions)
  * - Live streaming display with reasoning and tool call animations
- * - Background task panel and status bar
+ * - Task panel and status bar
  */
 export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const renderer = useRenderer()
+  const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions()
   const runtime = useAppRuntime()
   const conversation = useConversationSnapshot()
   const taskSnapshot = useTaskSnapshot()
@@ -218,7 +339,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [statusElapsed, setStatusElapsed] = useState<string | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
-  const [backgroundTasksOpen, setBackgroundTasksOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(false)
   const [responseSpinnerFrame, setResponseSpinnerFrame] = useState(0)
   const [sessionInitializing, setSessionInitializing] = useState(launchOptions.mode !== 'new')
   const [sessionPickerState, setSessionPickerState] = useState<SessionPickerState>({
@@ -1378,7 +1499,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onBackgroundRequest: (rawCommand) => {
       const routed = routeInput(rawCommand)
       if (routed.kind !== 'local' || routed.channel !== 'shell' || !routed.argument) {
-        setBackgroundTasksOpen(true)
+        setTasksOpen(true)
         return false
       }
 
@@ -1399,7 +1520,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       return true
     },
     onToggleBackgroundTasks: () => {
-      setBackgroundTasksOpen((current) => !current)
+      setTasksOpen((current) => !current)
     },
   })
 
@@ -1547,10 +1668,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const isSessionPickerFocused =
     sessionPickerState.isOpen && !isPermissionDialogOpen && !isQuestionDialogOpen && !modelPickerState.isOpen
   const isQuestionOverlayFocused = isQuestionDialogOpen && !isPermissionDialogOpen
-  const backgroundTasks = taskSnapshot.tasks.filter((task) => task.background)
-  const activeBackgroundTasks = backgroundTasks.filter((task) => isActiveBackgroundTaskStatus(task.status))
-  const recentBackgroundTasks = backgroundTasks
-    .filter((task) => !isActiveBackgroundTaskStatus(task.status))
+  const activeTasks = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status))
+  const recentTasks = taskSnapshot.tasks
+    .filter((task) => !isActiveTaskStatus(task.status))
     .slice(0, 8)
 
   return (
@@ -1689,65 +1809,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         <AskUserQuestionOverlay controller={questionController} hasFocus={isQuestionOverlayFocused} />
       ) : null}
 
-      {backgroundTasksOpen ? (
-        <box
-          flexDirection="column"
-          border={['top', 'bottom', 'left', 'right']}
-          borderStyle="heavy"
-          paddingX={1}
-          paddingY={1}
-          marginBottom={1}
-          style={{
-            borderColor: theme.inputBorder,
-            backgroundColor: theme.background,
-          }}
-        >
-          <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="Background tasks" />
-          {activeBackgroundTasks.length === 0 && recentBackgroundTasks.length === 0 ? (
-            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No background tasks yet." />
-          ) : null}
-          {activeBackgroundTasks.length > 0 ? (
-            activeBackgroundTasks.map((task) => (
-              <box key={task.id} flexDirection="column">
-                <text
-                  fg={theme.assistantFg}
-                  content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
-                />
-                {task.progressSummary ? (
-                  <text
-                    fg={theme.statusFg}
-                    attributes={TextAttributes.DIM}
-                    content={`  ${task.progressSummary.slice(0, 80)}`}
-                  />
-                ) : null}
-              </box>
-            ))
-          ) : (
-            <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No active background tasks." />
-          )}
-          {recentBackgroundTasks.length > 0 ? (
-            <>
-              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Recent" />
-              {recentBackgroundTasks.map((task) => (
-                <box key={task.id} flexDirection="column">
-                  <text
-                    fg={theme.statusFg}
-                    attributes={TextAttributes.DIM}
-                    content={`- ${task.id.slice(0, 8)} [${task.status}] ${formatTaskTitle(task.title)}`}
-                  />
-                  {task.progressSummary ? (
-                    <text
-                      fg={theme.statusFg}
-                      attributes={TextAttributes.DIM}
-                      content={`  ${task.progressSummary.slice(0, 80)}`}
-                    />
-                  ) : null}
-                </box>
-              ))}
-            </>
-          ) : null}
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Ctrl+B to close" />
-        </box>
+      {tasksOpen ? (
+        <TaskDrawer
+          activeTasks={activeTasks}
+          recentTasks={recentTasks}
+          terminalWidth={terminalWidth}
+          terminalHeight={terminalHeight}
+        />
       ) : null}
 
       <box
@@ -1814,7 +1882,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
               {` ${formatTokenCount(contextUsage.used)}/${formatTokenCount(contextUsage.max)}`}
             </text>
           ) : null}
-          <TaskPanel tasks={activeBackgroundTasks} />
+          <TaskPanel tasks={activeTasks} />
         </box>
       </box>
     </box>

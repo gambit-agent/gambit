@@ -326,6 +326,16 @@ function summarizeStarted(toolName: string, input: unknown): ToolSummaryParts {
         headline: `Spawning ${asString(args?.role) ?? 'agent'} agent`,
         detail: formatInlineText(args?.description) ?? formatInlineText(args?.prompt) ?? undefined,
       }
+    case 'runAgents':
+      return {
+        headline: 'Running delegated agents',
+        detail: Array.isArray(args?.agents) ? `${args.agents.length} agents` : undefined,
+      }
+    case 'waitForTasks':
+      return {
+        headline: 'Waiting for tasks',
+        detail: Array.isArray(args?.taskIds) ? `${args.taskIds.length} tasks` : undefined,
+      }
     case 'readTaskOutput':
       return { headline: 'Reading task output', detail: formatInlineText(args?.taskId, 40) ?? 'task' }
     case 'writeMemory':
@@ -391,6 +401,10 @@ export function summarizeToolCompletion(
   }
 
   if (toolName === 'spawnAgent') {
+    return withArtifactNote(summarizeSpawnAgent(input, output), options.artifactPath)
+  }
+
+  if (toolName === 'runAgents') {
     return withArtifactNote(summarizeSpawnAgent(input, output), options.artifactPath)
   }
 

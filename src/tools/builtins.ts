@@ -26,6 +26,8 @@ import { discoverMCPTools, mcpManagementTools } from './mcp'
 import { enterPlanModeTool, exitPlanModeTool } from './plan-mode'
 import { askUserQuestionTool } from './ask-user-question'
 
+const MAX_AGENT_BATCH_INLINE_OUTPUT_CHARS = 12_000
+
 const readFileSchema = z.object({
   path: z.string().describe('File path relative to the workspace root.'),
 })
@@ -65,7 +67,21 @@ const spawnAgentSchema = z.object({
   role: z.enum(['default', 'explorer', 'worker']).default('default'),
   prompt: z.string().describe('Prompt for the delegated agent.'),
   description: z.string().optional().describe('Short task description.'),
-  background: z.boolean().optional().describe('Run the delegated agent in the background.'),
+  background: z.boolean().optional().describe('Run the delegated agent in the background. Defaults to false.'),
+})
+
+const runAgentsSchema = z.object({
+  agents: z
+    .array(
+      z.object({
+        role: z.enum(['default', 'explorer', 'worker']).default('default'),
+        prompt: z.string().describe('Prompt for the delegated agent.'),
+        description: z.string().optional().describe('Short task description.'),
+      }),
+    )
+    .min(1)
+    .max(20)
+    .describe('Delegated agents to run concurrently. Use this when every result is needed before continuing.'),
 })
 
 const readTaskOutputSchema = z.object({
@@ -76,6 +92,11 @@ const listTasksSchema = z.object({})
 
 const getTaskStatusSchema = z.object({
   taskId: z.string().describe('Task id to inspect.'),
+})
+
+const waitForTasksSchema = z.object({
+  taskIds: z.array(z.string()).min(1).max(50).describe('Task ids to wait for.'),
+  timeoutMs: z.number().int().positive().optional().describe('Optional timeout in milliseconds. Omit for no timeout.'),
 })
 
 const cancelTaskSchema = z.object({
@@ -166,6 +187,35 @@ function summarizeTask(task: TaskRecord): Record<string, unknown> {
     error: task.error,
     metadata: task.metadata,
   }
+}
+
+function formatAgentBatchResult(result: {
+  tasks: Array<{ task: TaskRecord; output: string }>
+}): string {
+  const sections = result.tasks.map(({ task, output }, index) => {
+    const header = [
+      `## Agent ${index + 1}: ${task.title}`,
+      `Task ID: ${task.id}`,
+      `Status: ${task.status}`,
+      task.outputPath ? `Full output: ${task.outputPath}` : null,
+      task.error ? `Error: ${task.error}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n')
+    const body = truncate(
+      output.trim() || task.progressSummary || '(no output)',
+      MAX_AGENT_BATCH_INLINE_OUTPUT_CHARS,
+    )
+    return `${header}\n\n${body}`
+  })
+
+  const failed = result.tasks.filter(({ task }) => task.status === 'failed' || task.status === 'cancelled')
+  const summary =
+    failed.length === 0
+      ? `Ran ${result.tasks.length} delegated agent${result.tasks.length === 1 ? '' : 's'} concurrently.`
+      : `Ran ${result.tasks.length} delegated agent${result.tasks.length === 1 ? '' : 's'} concurrently; ${failed.length} did not complete successfully.`
+
+  return `${summary}\n\n${sections.join('\n\n---\n\n')}`
 }
 
 function formatShellResult(exitCode: number, stdout: string, stderr: string): string {
@@ -498,6 +548,28 @@ export async function createBuiltInToolDefinitions(
     },
   }
 
+  const waitForTasksTool: ToolDefinition<typeof waitForTasksSchema, Record<string, unknown>[]> = {
+    id: 'waitForTasks',
+    displayName: 'Wait For Tasks',
+    description:
+      'Wait until runtime shell or agent tasks finish. Use this instead of sleeping and repeatedly checking task status.',
+    inputSchema: waitForTasksSchema,
+    summarize: (result, context) =>
+      formatToolSummary(
+        summarizeToolCompletion('waitForTasks', context.input, result, { artifactPath: context.artifactPath }),
+      ),
+    execute: async ({ taskIds, timeoutMs }, context) => {
+      if (!context.taskRuntime) {
+        throw new Error('Task runtime is not configured.')
+      }
+      const tasks = await context.taskRuntime.waitForTasks(taskIds, {
+        signal: context.signal,
+        timeoutMs,
+      })
+      return tasks.map(summarizeTask)
+    },
+  }
+
   const cancelTaskTool: ToolDefinition<typeof cancelTaskSchema, Record<string, unknown> | string> = {
     id: 'cancelTask',
     displayName: 'Cancel Task',
@@ -558,6 +630,7 @@ export async function createBuiltInToolDefinitions(
     readTaskOutputTool,
     listTasksTool,
     getTaskStatusTool,
+    waitForTasksTool,
     cancelTaskTool,
     writeMemoryTool,
     enterPlanModeTool,
@@ -597,6 +670,52 @@ export async function createBuiltInToolDefinitions(
   }
 
   if (options.includeSpawnAgent !== false) {
+    const runAgentsTool: ToolDefinition<typeof runAgentsSchema, string> = {
+      id: 'runAgents',
+      displayName: 'Run Agents',
+      description:
+        'Run multiple delegated agents concurrently and wait for all results. Use this for parallel research or implementation when every result is needed before continuing.',
+      inputSchema: runAgentsSchema,
+      summarize: (result, context) =>
+        formatToolSummary(
+          summarizeToolCompletion('runAgents', context.input, result, { artifactPath: context.artifactPath }),
+        ),
+      execute: async ({ agents }, context) => {
+        if (!context.agentTaskRunner || !context.agentExecutionOptions) {
+          throw new Error('Agent task runner is not configured.')
+        }
+        const currentDepth = context.agentExecutionOptions.delegationDepth ?? 0
+        const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? 3
+        if (currentDepth >= maxDepth) {
+          throw new Error(`Maximum delegation depth reached (${maxDepth}).`)
+        }
+
+        const result = await context.agentTaskRunner.runBatch({
+          agents: agents.map((agent) => ({
+            role: agent.role,
+            prompt: agent.prompt,
+            title: agent.description ?? `Delegated ${agent.role} agent`,
+          })),
+          apiKey: context.agentExecutionOptions.apiKey,
+          modelId: context.agentExecutionOptions.modelId,
+          reasoningEffort: context.agentExecutionOptions.reasoningEffort,
+          baseSystemPrompt: context.agentExecutionOptions.baseSystemPrompt,
+          agentExecutionOptions: {
+            ...context.agentExecutionOptions,
+            delegationDepth: currentDepth + 1,
+            maxDelegationDepth: maxDepth,
+          },
+          signal: context.signal,
+        })
+
+        return formatAgentBatchResult(result)
+      },
+      getPermissionRequest: ({ agents }) => ({
+        subject: `Run ${agents.length} delegated agent${agents.length === 1 ? '' : 's'} concurrently`,
+        metadata: { agents: agents.map(({ role, description }) => ({ role, description })) },
+      }),
+    }
+
     const spawnAgentTool: ToolDefinition<typeof spawnAgentSchema, string> = {
       id: 'spawnAgent',
       displayName: 'Spawn Agent',
@@ -620,7 +739,7 @@ export async function createBuiltInToolDefinitions(
           role,
           prompt,
           title: description ?? `Delegated ${role} agent`,
-          background: background ?? true,
+          background: background ?? false,
           apiKey: context.agentExecutionOptions.apiKey,
           modelId: context.agentExecutionOptions.modelId,
           reasoningEffort: context.agentExecutionOptions.reasoningEffort,
@@ -645,6 +764,7 @@ export async function createBuiltInToolDefinitions(
       }),
     }
 
+    tools.push(runAgentsTool)
     tools.push(spawnAgentTool)
   }
 
