@@ -87,6 +87,9 @@ function Invoke-DownloadText {
   }
 
   $response = Invoke-WebRequest @parameters
+  if ($response.Content -is [byte[]]) {
+    return [System.Text.Encoding]::UTF8.GetString($response.Content)
+  }
   return [string]$response.Content
 }
 
