@@ -2,7 +2,7 @@ import { MouseButton, TextAttributes, type MouseEvent, type ParsedKey, type Scro
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
 import { randomUUID } from 'node:crypto'
 import pkg from '../../package.json'
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 
 import type { LaunchOptions } from '../app/launch-options'
 import { defaultModel } from '../config'
@@ -180,6 +180,20 @@ function truncateTaskLine(value: string, maxLength: number): string {
     return normalized.slice(0, maxLength)
   }
   return `${normalized.slice(0, maxLength - 1)}…`
+}
+
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value
+  }
+  if (maxLength <= 1) {
+    return value.slice(0, maxLength)
+  }
+
+  const keep = maxLength - 1
+  const start = Math.ceil(keep / 2)
+  const end = Math.floor(keep / 2)
+  return `${value.slice(0, start)}…${value.slice(value.length - end)}`
 }
 
 function isActiveTaskStatus(status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'): boolean {
@@ -1639,11 +1653,14 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const selectedModelLabel = modelId ?? 'no model'
   const shortModelId = selectedModelLabel.includes('/') ? selectedModelLabel.split('/').pop()! : selectedModelLabel
-  const shortModelDisplay = reasoningEffort ? `${shortModelId}·${reasoningEffort}` : shortModelId
+  const shortModelDisplay = truncateMiddle(
+    reasoningEffort ? `${shortModelId}·${reasoningEffort}` : shortModelId,
+    terminalWidth < 100 ? 18 : 34,
+  )
   const followUpCount = interactive.followUpQueue.length
   const statusDisplay =
     conversation.status === 'running' && statusElapsed
-      ? `running - ${statusElapsed}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
+      ? `running ${statusElapsed}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
       : conversation.status
   const responseSpinner = responseSpinnerFrames[responseSpinnerFrame] ?? responseSpinnerFrames[0]
   const permissionModeColor =
@@ -1670,6 +1687,56 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const recentTasks = taskSnapshot.tasks
     .filter((task) => !isActiveTaskStatus(task.status))
     .slice(0, 8)
+  const compactFooter = terminalWidth < 120
+  const tinyFooter = terminalWidth < 88
+  const activityLabel = conversation.status === 'running'
+    ? `${responseSpinner} ${statusElapsed ?? 'running'}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
+    : statusDisplay
+  const footerSegments = [
+    ...(tinyFooter
+      ? []
+      : [
+          {
+            key: 'thinking',
+            content: compactFooter ? (thinkingEnabled ? '◉' : '○') : `${thinkingEnabled ? '◉' : '○'} think`,
+            fg: thinkingEnabled ? theme.successFg : theme.statusFg,
+            attributes: thinkingEnabled ? TextAttributes.BOLD : TextAttributes.DIM,
+          },
+          {
+            key: 'theme',
+            content: compactFooter ? (isLight ? '☀' : '☾') : `${isLight ? '☀' : '☾'} ${isLight ? 'light' : 'dark'}`,
+            fg: theme.statusFg,
+            attributes: TextAttributes.DIM,
+          },
+        ]),
+    {
+      key: 'mode',
+      content: `${compactFooter ? '◇' : '◇ mode'} ${permissionSnapshot.mode}`,
+      fg: permissionModeColor,
+    },
+    {
+      key: 'branch',
+      content: compactFooter ? (gitBranch || '?') : `git ${gitBranch || '?'}`,
+      fg: theme.statusFg,
+      attributes: TextAttributes.DIM,
+    },
+    ...(tinyFooter
+      ? []
+      : [
+          {
+            key: 'session',
+            content: compactFooter ? conversation.conversationId.slice(0, 6) : `session ${conversation.conversationId.slice(0, 6)}`,
+            fg: theme.statusFg,
+            attributes: TextAttributes.DIM,
+          },
+        ]),
+    {
+      key: 'activity',
+      content: activityLabel,
+      fg: conversation.status === 'running' ? theme.headerAccent : theme.statusFg,
+      attributes: conversation.status === 'running' ? TextAttributes.BOLD : TextAttributes.DIM,
+    },
+  ]
 
   return (
     <box
@@ -1776,6 +1843,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             }
             selectModelByIndex(index)
           }}
+          onClose={closeModelPicker}
         />
       ) : null}
 
@@ -1861,17 +1929,18 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           </box>
         </box>
       </box>
-      
       <box flexDirection="row" flexShrink={0} justifyContent="space-between" paddingX={1}>
-        <box flexDirection="row" gap={1}>
-          <text fg={thinkingEnabled ? theme.successFg : theme.infoFg} attributes={TextAttributes.BOLD} content={thinkingEnabled ? '◉' : '○'} />
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={isLight ? '☀' : '☾'} />
-          <text fg={permissionModeColor} content={`◇ ${permissionSnapshot.mode}`} />
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`⑂${gitBranch || '?'}`} />
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`◦${conversation.conversationId.slice(0, 6)}`} />
-          <text fg={conversation.status === 'running' ? theme.headerAccent : theme.statusFg} attributes={conversation.status === 'running' ? TextAttributes.BOLD : TextAttributes.DIM} content={conversation.status === 'running' ? `${responseSpinner} ${statusElapsed ?? ''}` : `• ${statusDisplay}`} />
+        <box flexDirection="row" flexShrink={1}>
+          {footerSegments.map((segment, index) => (
+            <Fragment key={segment.key}>
+              {index > 0 ? (
+                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content=" · " />
+              ) : null}
+              <text fg={segment.fg} attributes={segment.attributes} content={segment.content} />
+            </Fragment>
+          ))}
         </box>
-        <box flexDirection="row" gap={1}>
+        <box flexDirection="row" flexShrink={0} gap={1}>
           {contextUsage ? (
             <text
               fg={

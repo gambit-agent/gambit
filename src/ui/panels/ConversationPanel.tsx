@@ -71,6 +71,28 @@ function formatToolDetail(label: string, value: unknown, maxLength = 500): strin
   return `${label}: ${truncated}`
 }
 
+export interface ParsedAssistantReasoning {
+  reasoning: string
+  response: string
+}
+
+export function parseAssistantReasoning(content: string): ParsedAssistantReasoning | null {
+  if (!content.startsWith('Reasoning:\n')) {
+    return null
+  }
+
+  const body = content.slice('Reasoning:\n'.length)
+  const separator = body.search(/\n{2,}/)
+  const reasoning = (separator >= 0 ? body.slice(0, separator) : body).trim()
+  const response = separator >= 0 ? body.slice(separator).replace(/^\n+/, '') : ''
+
+  if (!reasoning) {
+    return null
+  }
+
+  return { reasoning, response }
+}
+
 function getToolDiff(message: ConversationMessage): { diff: string; filetype?: string } | null {
   const toolName = message.metadata?.toolName
   const args = asRecord(message.metadata?.toolArgs)
@@ -108,6 +130,27 @@ function ToolDiffView({ diff, filetype }: { diff: string; filetype?: string }) {
         width="100%"
         height="100%"
       />
+    </box>
+  )
+}
+
+function ReasoningBlock({ content }: { content: string }) {
+  return (
+    <box
+      flexDirection="column"
+      gap={0}
+      marginBottom={1}
+      style={{
+        border: ['left'],
+        borderStyle: 'heavy',
+        borderColor: theme.reasoningBorder,
+        paddingLeft: 1,
+        paddingRight: 1,
+        backgroundColor: theme.reasoningBg,
+      }}
+    >
+      <text selectable fg={theme.reasoningBorder} attributes={TextAttributes.BOLD} content="Reasoning" />
+      <Markdown content={content} textColor={theme.reasoningFg} strongColor={theme.reasoningBorder} />
     </box>
   )
 }
@@ -166,6 +209,8 @@ export function ConversationPanel({
           const isToolMessage = message.role === 'tool'
           const presentation = getRolePresentation(message.role, theme)
           const isUser = message.role === 'user'
+          const assistantReasoning =
+            message.role === 'assistant' ? parseAssistantReasoning(message.content) : null
 
           if (isToolMessage) {
             const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
@@ -254,7 +299,24 @@ export function ConversationPanel({
             >
               <box flexDirection="column" gap={0}>
                 {/* For user, we might want right-aligned markdown. We rely on the parent alignItems='flex-end' */}
-                <Markdown content={message.content} textColor={presentation.textColor} />
+                {assistantReasoning ? (
+                  <>
+                    <ReasoningBlock content={assistantReasoning.reasoning} />
+                    {assistantReasoning.response.trim() ? (
+                      <Markdown
+                        content={assistantReasoning.response}
+                        textColor={presentation.textColor}
+                        strongColor={theme.responseStrongFg}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <Markdown
+                    content={message.content}
+                    textColor={presentation.textColor}
+                    strongColor={message.role === 'assistant' ? theme.responseStrongFg : presentation.textColor}
+                  />
+                )}
               </box>
               <box marginTop={1}>
                 <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>

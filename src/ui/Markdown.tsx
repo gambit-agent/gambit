@@ -13,10 +13,12 @@ marked.use({
 interface MarkdownProps {
   content: string
   textColor?: string
+  strongColor?: string
 }
 
 interface RenderOptions {
   textColor: string
+  strongColor: string
 }
 
 const HORIZONTAL_RULE = '─'.repeat(40)
@@ -50,7 +52,7 @@ function renderPlainText(text: string): InlineNode[] {
   return nodes
 }
 
-function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNode[] {
+function renderInline(tokens: Token[] | undefined, keyPrefix: string, options: RenderOptions): InlineNode[] {
   if (!tokens?.length) {
     return []
   }
@@ -67,17 +69,21 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         break
       }
       case 'strong': {
-        nodes.push(<b key={key}>{renderInline(token.tokens, key)}</b>)
+        nodes.push(
+          <span key={key} fg={options.strongColor}>
+            <b>{renderInline(token.tokens, key, options)}</b>
+          </span>,
+        )
         break
       }
       case 'em': {
-        nodes.push(<i key={key}>{renderInline(token.tokens, key)}</i>)
+        nodes.push(<i key={key}>{renderInline(token.tokens, key, options)}</i>)
         break
       }
       case 'del': {
         nodes.push(
           <span key={key} attributes={TextAttributes.STRIKETHROUGH}>
-            {renderInline(token.tokens, key)}
+            {renderInline(token.tokens, key, options)}
           </span>,
         )
         break
@@ -88,7 +94,6 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
             key={key}
             bg={theme.codeInlineBg}
             fg={theme.codeInlineFg}
-            attributes={TextAttributes.DIM}
           >
             {token.text}
           </span>,
@@ -100,7 +105,7 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
         break
       }
       case 'link': {
-        const children = token.tokens?.length ? renderInline(token.tokens, key) : renderPlainText(token.text)
+        const children = token.tokens?.length ? renderInline(token.tokens, key, options) : renderPlainText(token.text)
         nodes.push(
           <span key={key} fg={theme.linkFg} attributes={TextAttributes.UNDERLINE}>
             {children}
@@ -126,7 +131,7 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string): InlineNod
       }
       default:
         if ('tokens' in token && token.tokens) {
-          nodes.push(...renderInline(token.tokens, key))
+          nodes.push(...renderInline(token.tokens, key, options))
         } else if (token.raw) {
           nodes.push(token.raw)
         }
@@ -197,7 +202,7 @@ function renderListItem(
     nestedTokens.push(child)
   }
 
-  const inlineContent = inlineTokens?.length ? renderInline(inlineTokens, `${key}-inline`) : []
+  const inlineContent = inlineTokens?.length ? renderInline(inlineTokens, `${key}-inline`, options) : []
   const nestedContent = nestedTokens.length ? (
     <box flexDirection="column" gap={layout.markdownBlockGap}>
       {renderBlocks(nestedTokens, `${key}-nested`, depth + 1, options)}
@@ -206,7 +211,7 @@ function renderListItem(
 
   return (
     <box key={key} flexDirection="row" gap={1} alignItems="flex-start">
-      <text selectable content={symbol} fg={theme.listBulletFg} />
+      <text selectable content={symbol} fg={theme.listBulletFg} attributes={TextAttributes.BOLD} />
       <box flexDirection="column" gap={nestedContent ? layout.markdownBlockGap : 0} flexGrow={1}>
         {inlineContent.length ? <text selectable fg={options.textColor}>{inlineContent}</text> : null}
         {nestedContent}
@@ -237,7 +242,7 @@ function renderBlocks(
       case 'paragraph': {
         elements.push(
           <text selectable key={key} fg={options.textColor}>
-            {renderInline(token.tokens, key)}
+            {renderInline(token.tokens, key, options)}
           </text>,
         )
         break
@@ -246,7 +251,7 @@ function renderBlocks(
         const attributes = headingSizeToAttributes[token.depth] ?? TextAttributes.BOLD
         elements.push(
           <text selectable key={key} attributes={attributes} fg={theme.headingFg}>
-            {renderInline(token.tokens, key)}
+            {renderInline(token.tokens, key, options)}
           </text>,
         )
         break
@@ -267,7 +272,7 @@ function renderBlocks(
             }}
           >
             {token.lang ? (
-              <text selectable fg={theme.codeBlockAccent} attributes={TextAttributes.DIM} content={`// ${token.lang}`} />
+              <text selectable fg={theme.codeBlockAccent} attributes={TextAttributes.BOLD} content={`// ${token.lang}`} />
             ) : null}
             {lines.map((line: string, lineIndex: number) => (
               <text selectable key={`${key}-line-${lineIndex}`} content={line.length > 0 ? line : ' '} fg={theme.codeBlockFg} />
@@ -334,7 +339,7 @@ function renderBlocks(
         const inlineTokens = token.tokens?.length ? token.tokens : [token]
         elements.push(
           <text selectable key={key} fg={options.textColor}>
-            {renderInline(inlineTokens, key)}
+            {renderInline(inlineTokens, key, options)}
           </text>,
         )
         break
@@ -352,18 +357,21 @@ function renderBlocks(
   return elements
 }
 
-export function Markdown({ content, textColor }: MarkdownProps) {
+export function Markdown({ content, textColor, strongColor }: MarkdownProps) {
   const sanitizedContent = content.trimEnd()
   const tokens = useMemo(() => marked.lexer(sanitizedContent), [sanitizedContent])
   const resolvedColor = textColor ?? theme.assistantFg
 
   if (!tokens.length) {
-    return <text selectable content={content.length ? content : ' '} />
+    return <text selectable fg={resolvedColor} content={content.length ? content : ' '} />
   }
 
   return (
     <box flexDirection="column" gap={layout.markdownBlockGap}>
-      {renderBlocks(tokens, 'md', 0, { textColor: resolvedColor })}
+      {renderBlocks(tokens, 'md', 0, {
+        textColor: resolvedColor,
+        strongColor: strongColor ?? theme.responseStrongFg,
+      })}
     </box>
   )
 }
