@@ -65,7 +65,8 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
+    "@ai-sdk/provider": "^3.0.10",
+    "@ai-sdk/provider-utils": "^4.0.27",
     "@modelcontextprotocol/client": "^2.0.0-alpha.2",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "@opentui/core": "0.3.3",

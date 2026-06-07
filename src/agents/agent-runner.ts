@@ -111,100 +111,100 @@ export class AgentRunner {
     }
 
     const result = await new ModelStreamRunner().run({
-        streamId: turnId,
-        model: selectModel(options.modelId, modelSettings),
-        messages: toCoreMessages(
-          history.map((message) => ({
-            ...message,
-            timestamp: new Date(message.timestamp),
-          })),
-        ),
-        tools,
-        maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
-        signal: options.signal,
-        logMetadata: {
-          agentId: options.definition.id,
-          modelId: options.modelId,
-          reasoningEffort: options.reasoningEffort ?? null,
-          messageCount: history.length,
-          toolCount: Object.keys(tools).length,
+      streamId: turnId,
+      model: selectModel(options.modelId, modelSettings),
+      messages: toCoreMessages(
+        history.map((message) => ({
+          ...message,
+          timestamp: new Date(message.timestamp),
+        })),
+      ),
+      tools,
+      maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
+      signal: options.signal,
+      logMetadata: {
+        agentId: options.definition.id,
+        modelId: options.modelId,
+        reasoningEffort: options.reasoningEffort ?? null,
+        messageCount: history.length,
+        toolCount: Object.keys(tools).length,
+      },
+      handlers: {
+        onTextDelta: async (chunk) => {
+          assistantContent += chunk
+          await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
         },
-        handlers: {
-          onTextDelta: async (chunk) => {
-            assistantContent += chunk
-            await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
-          },
-          onReasoningDelta: async (text) => {
-            reasoningContent += text
-            const preview = reasoningContent.trim().slice(0, 120)
-            await options.updateProgress(`Agent reasoning: ${preview}`)
-            await flushReasoning()
-          },
-          onToolCall: async (part) => {
-            const summary = formatToolEvent({
-              toolName: part.toolName ?? 'unknown',
-              status: 'started',
-              args: part.input ?? {},
-              toolCallId: part.toolCallId,
-            })
-            await flushReasoning()
-            await options.appendTranscript({
-              type: 'tool-call',
-              toolCallId: part.toolCallId,
-              toolName: part.toolName ?? 'unknown',
-              input: part.input ?? {},
-              timestamp: new Date().toISOString(),
-            })
-            await options.updateProgress(summary)
-          },
-          onToolResult: async (part) => {
-            if (part.preliminary) {
-              return
-            }
-            const summary = formatToolEvent({
-              toolName: part.toolName ?? 'unknown',
-              status: 'completed',
-              args: part.input ?? {},
-              toolCallId: part.toolCallId,
-              result: part.output,
-            })
-            await flushReasoning()
-            await options.appendTranscript({
-              type: 'tool-result',
-              toolCallId: part.toolCallId,
-              toolName: part.toolName ?? 'unknown',
-              input: part.input ?? {},
-              output: part.output,
-              timestamp: new Date().toISOString(),
-            })
-            await options.updateProgress(summary)
-          },
-          onToolError: async (part, errorMessage) => {
-            await flushReasoning()
-            await options.appendTranscript({
-              type: 'tool-error',
-              toolCallId: part.toolCallId,
-              toolName: part.toolName ?? 'unknown',
-              input: part.input ?? {},
-              error: errorMessage,
-              timestamp: new Date().toISOString(),
-            })
-            await options.updateProgress(`Tool failed: ${part.toolName ?? 'unknown'}`)
-          },
+        onReasoningDelta: async (text) => {
+          reasoningContent += text
+          const preview = reasoningContent.trim().slice(0, 120)
+          await options.updateProgress(`Agent reasoning: ${preview}`)
+          await flushReasoning()
         },
-      })
+        onToolCall: async (part) => {
+          const summary = formatToolEvent({
+            toolName: part.toolName ?? 'unknown',
+            status: 'started',
+            args: part.input ?? {},
+            toolCallId: part.toolCallId,
+          })
+          await flushReasoning()
+          await options.appendTranscript({
+            type: 'tool-call',
+            toolCallId: part.toolCallId,
+            toolName: part.toolName ?? 'unknown',
+            input: part.input ?? {},
+            timestamp: new Date().toISOString(),
+          })
+          await options.updateProgress(summary)
+        },
+        onToolResult: async (part) => {
+          if (part.preliminary) {
+            return
+          }
+          const summary = formatToolEvent({
+            toolName: part.toolName ?? 'unknown',
+            status: 'completed',
+            args: part.input ?? {},
+            toolCallId: part.toolCallId,
+            result: part.output,
+          })
+          await flushReasoning()
+          await options.appendTranscript({
+            type: 'tool-result',
+            toolCallId: part.toolCallId,
+            toolName: part.toolName ?? 'unknown',
+            input: part.input ?? {},
+            output: part.output,
+            timestamp: new Date().toISOString(),
+          })
+          await options.updateProgress(summary)
+        },
+        onToolError: async (part, errorMessage) => {
+          await flushReasoning()
+          await options.appendTranscript({
+            type: 'tool-error',
+            toolCallId: part.toolCallId,
+            toolName: part.toolName ?? 'unknown',
+            input: part.input ?? {},
+            error: errorMessage,
+            timestamp: new Date().toISOString(),
+          })
+          await options.updateProgress(`Tool failed: ${part.toolName ?? 'unknown'}`)
+        },
+      },
+    })
 
-      const finalText = result.text || assistantContent.trim()
-      const finalOutput = reasoningContent.trim()
-        ? `Reasoning:\n${reasoningContent.trim()}\n\n${finalText}`
-        : finalText
+    const finalText = result.text || assistantContent.trim()
+    const finalOutput = reasoningContent.trim()
+      ? `Reasoning:\n${reasoningContent.trim()}\n\n${finalText}`
+      : finalText
 
-      await flushReasoning()
-      await options.appendTranscript({
-        type: 'assistant',
-        content: finalOutput,
-        timestamp: new Date().toISOString(),
-      })
+    await flushReasoning()
+    await options.appendTranscript({
+      type: 'assistant',
+      content: finalOutput,
+      timestamp: new Date().toISOString(),
+    })
 
     return {
       output: finalOutput,

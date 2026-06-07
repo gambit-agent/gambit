@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from 'ai'
 
 import { workspaceRoot } from '../config'
+import { agentToolIds, type AgentToolId } from '../agents/agent-tool-policy'
 import { generateId } from '../lib/id'
 import { createBuiltInToolDefinitions } from './builtins'
 import { ToolExecutor, createToolExecutor } from './tool-executor'
@@ -13,6 +14,20 @@ export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   includeMCPTools?: boolean
   discoverMCPServerTools?: boolean
   allowedToolIds?: readonly string[]
+  onEvent?: (event: ToolEventRecord) => void
+}
+
+export interface RuntimeToolSuite {
+  registry: ToolRegistry
+  executor: ToolExecutor
+}
+
+export interface RuntimeToolSuiteOptions {
+  includeSpawnAgent?: boolean
+  includeMCPTools?: boolean
+  discoverMCPServerTools?: boolean
+  workspaceRoot?: string
+  outputDirectory?: string
   onEvent?: (event: ToolEventRecord) => void
 }
 
@@ -50,8 +65,7 @@ export async function createDefaultToolRegistry(
 
 /** Convenience factory for the default executor backed by the default registry. */
 export async function createDefaultToolExecutor(): Promise<ToolExecutor> {
-  const registry = await createDefaultToolRegistry()
-  return createToolExecutor(registry, { workspaceRoot })
+  return (await createRuntimeToolSuite()).executor
 }
 
 /** Re-export for consumers that want to create a fresh registry each turn. */
@@ -59,6 +73,23 @@ export async function createRuntimeToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
   return createDefaultToolRegistry(options)
+}
+
+/** Build a scoped registry/executor pair using the same construction path everywhere. */
+export async function createRuntimeToolSuite(
+  options: RuntimeToolSuiteOptions = {},
+): Promise<RuntimeToolSuite> {
+  const registry = await createRuntimeToolRegistry({
+    includeSpawnAgent: options.includeSpawnAgent,
+    includeMCPTools: options.includeMCPTools,
+    discoverMCPServerTools: options.discoverMCPServerTools,
+  })
+  const executor = createToolExecutor(registry, {
+    workspaceRoot: options.workspaceRoot ?? workspaceRoot,
+    outputDirectory: options.outputDirectory,
+    onEvent: options.onEvent,
+  })
+  return { registry, executor }
 }
 
 /**
@@ -101,26 +132,6 @@ export function createAiToolMap(
   )
 }
 
-/** Subset of tool IDs available to child agents spawned via `spawnAgent`. */
-export const agentToolIds = [
-  'readFile',
-  'searchFiles',
-  'writeFile',
-  'patchFile',
-  'executeShell',
-  'slashCommand',
-  'readTaskOutput',
-  'listTasks',
-  'getTaskStatus',
-  'waitForTasks',
-  'cancelTask',
-  'spawnAgent',
-  'runAgents',
-  'writeMemory',
-  'askUserQuestion',
-] as const
-
-export type AgentToolId = (typeof agentToolIds)[number]
 export interface AgentTool<Output = unknown> {
   execute(input: unknown): Promise<Output>
 }
@@ -131,12 +142,14 @@ export type AgentTools = { [K in AgentToolId]: AgentTool }
  * capabilities explicitly; this module owns no mutable singleton state.
  */
 export async function createAgentToolMap(options: RuntimeToolOptions = {}): Promise<AgentTools> {
-  const registry = await createRuntimeToolRegistry({
+  const { registry, executor } = await createRuntimeToolSuite({
     includeSpawnAgent: true,
     includeMCPTools: options.includeMCPTools,
     discoverMCPServerTools: options.discoverMCPServerTools,
+    workspaceRoot: options.workspaceRoot,
+    outputDirectory: options.outputDirectory,
+    onEvent: options.onEvent,
   })
-  const executor = createToolExecutor(registry, { workspaceRoot: options.workspaceRoot ?? workspaceRoot })
   const entries = agentToolIds.map((id) => {
     if (!registry.get(id)) {
       throw new Error(`Agent tool not registered: ${id}`)
@@ -158,4 +171,5 @@ export async function createAgentToolMap(options: RuntimeToolOptions = {}): Prom
   return Object.fromEntries(entries) as AgentTools
 }
 
-export { createToolRegistry, ToolRegistry, ToolExecutor, createToolExecutor }
+export { agentToolIds, createToolRegistry, ToolRegistry, ToolExecutor, createToolExecutor }
+export type { AgentToolId }

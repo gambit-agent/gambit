@@ -6,6 +6,7 @@ import { createConversationStore, type ConversationStore } from '../conversation
 import type { ConversationMessage } from '../conversation/conversation-types'
 import { workspaceRoot } from '../config'
 import { AgentRunner } from '../agents/agent-runner'
+import { agentToolIds } from '../agents/agent-tool-policy'
 import { MemoryStore } from '../memory/memory-store'
 import { PermissionEngine } from '../permissions/permission-engine'
 import { QuestionEngine } from '../questions/question-engine'
@@ -14,8 +15,7 @@ import { loadSystemPrompt } from '../lib/prompt'
 import { AgentTaskRunner } from '../tasks/agent-task-runner'
 import { ShellTaskRunner } from '../tasks/shell-task-runner'
 import { TaskRuntime } from '../tasks/task-runtime'
-import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
-import { createToolExecutor } from '../tools/tool-executor'
+import { createAiToolMap, createRuntimeToolSuite } from '../tools/index'
 import type { ToolExecutionContext } from '../tools/tool-types'
 import {
   getConversationSessionSummary,
@@ -129,12 +129,11 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
       discoverMCPServerTools?: boolean
     } = {},
   ) => {
-    const registry = await createRuntimeToolRegistry({
+    return createRuntimeToolSuite({
       includeSpawnAgent: options.includeSpawnAgent,
       discoverMCPServerTools: options.discoverMCPServerTools,
+      workspaceRoot,
     })
-    const executor = createToolExecutor(registry, { workspaceRoot })
-    return { registry, executor }
   }
 
   const createChildTools = async (
@@ -145,7 +144,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     return createAiToolMap(registry, executor, {
       ...createToolContext({ agentExecutionOptions }),
       agentTaskRunner,
-      allowedToolIds,
+      allowedToolIds: allowedToolIds ?? agentToolIds,
     })
   }
 

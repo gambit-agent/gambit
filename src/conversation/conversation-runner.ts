@@ -7,21 +7,15 @@ import { maxAgentSteps } from '../config'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import { formatRelevantMemories } from '../memory/memory-retrieval'
 import { MemoryStore } from '../memory/memory-store'
-import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
+import { createAiToolMap, createRuntimeToolSuite, type RuntimeToolSuite } from '../tools/index'
 import type { ToolExecutionContext } from '../tools/tool-types'
-import { createToolExecutor, ToolExecutor, type ToolExecutionResult } from '../tools/tool-executor'
-import { ToolRegistry } from '../tools/tool-registry'
+import type { ToolExecutionResult } from '../tools/tool-executor'
 import { compactMessages } from './compaction'
 import { buildGoalSystemPrompt, isGoalMessage } from './goal'
 import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { AssistantMessageBuilder } from './assistant-message-builder'
 import { ConversationStore } from './conversation-store'
 import type { ConversationMessage, ConversationToolCall, ConversationTurnRecord } from './conversation-types'
-
-interface RuntimeToolSuite {
-  registry: ToolRegistry
-  executor: ToolExecutor
-}
 
 /**
  * Dependencies required by ConversationRunner to execute a full turn.
@@ -353,11 +347,10 @@ export class ConversationRunner {
       return this.dependencies.createToolSuite(options)
     }
 
-    const registry = await createRuntimeToolRegistry({
+    return createRuntimeToolSuite({
       includeSpawnAgent: options.includeSpawnAgent,
       discoverMCPServerTools: options.discoverMCPServerTools,
+      workspaceRoot: options.workspaceRoot,
     })
-    const executor = createToolExecutor(registry, { workspaceRoot: options.workspaceRoot })
-    return { registry, executor }
   }
 }
