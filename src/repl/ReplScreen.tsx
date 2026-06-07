@@ -17,6 +17,12 @@ import { useAskUserQuestionController } from '../ui/overlays/AskUserQuestionOver
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { generateId } from '../lib/id'
 import { useInteractiveController } from '../lib/interactive/controller'
+import {
+  findActiveFileMention,
+  getFileMentionMatches,
+  replaceActiveFileMention,
+  type ActiveFileMention,
+} from './file-mentions'
 import { ReplComposer, type TextareaKeyBinding } from './components/ReplComposer'
 import { ReplFooter } from './components/ReplFooter'
 import { ReplHeader } from './components/ReplHeader'
@@ -47,6 +53,22 @@ const textareaKeyBindings: TextareaKeyBinding[] = [
   { name: 'enter', meta: true, action: 'newline' as const },
 ]
 
+interface FileMentionState {
+  isOpen: boolean
+  mention: ActiveFileMention | null
+  query: string
+  selectedIndex: number
+  results: string[]
+}
+
+const closedFileMentionState: FileMentionState = {
+  isOpen: false,
+  mention: null,
+  query: '',
+  selectedIndex: 0,
+  results: [],
+}
+
 export interface ReplScreenProps {
   launchOptions: LaunchOptions
 }
@@ -74,6 +96,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
   const textareaRef = useRef<TextareaRenderable | null>(null)
+  const fileMentionRequestIdRef = useRef(0)
+  const [fileMentionState, setFileMentionState] = useState<FileMentionState>(closedFileMentionState)
   const { isLight, toggleTheme } = useTheme()
 
   const {
@@ -144,6 +168,69 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     textareaRef.current?.setText('')
   }, [])
 
+  useEffect(() => {
+    const cursorOffset = textareaRef.current?.cursorOffset ?? inputValue.length
+    const mention = findActiveFileMention(inputValue, cursorOffset)
+    const requestId = fileMentionRequestIdRef.current + 1
+    fileMentionRequestIdRef.current = requestId
+
+    if (!mention) {
+      setFileMentionState(closedFileMentionState)
+      return
+    }
+
+    void getFileMentionMatches(mention.query).then((matches) => {
+      if (fileMentionRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setFileMentionState({
+        isOpen: matches.length > 0,
+        mention,
+        query: mention.query,
+        selectedIndex: 0,
+        results: matches.map((match) => match.path),
+      })
+    }).catch(() => {
+      if (fileMentionRequestIdRef.current === requestId) {
+        setFileMentionState(closedFileMentionState)
+      }
+    })
+  }, [inputValue])
+
+  const closeFileMention = useCallback(() => {
+    fileMentionRequestIdRef.current += 1
+    setFileMentionState(closedFileMentionState)
+  }, [])
+
+  const moveFileMentionSelection = useCallback((delta: number) => {
+    setFileMentionState((current) => {
+      if (!current.isOpen || current.results.length === 0) {
+        return current
+      }
+      const nextIndex = (current.selectedIndex + delta + current.results.length) % current.results.length
+      return { ...current, selectedIndex: nextIndex }
+    })
+  }, [])
+
+  const selectFileMention = useCallback(() => {
+    const mention = fileMentionState.mention
+    const filePath = fileMentionState.results[fileMentionState.selectedIndex]
+    if (!mention || !filePath) {
+      closeFileMention()
+      return
+    }
+
+    const next = replaceActiveFileMention(inputValue, mention, filePath)
+    setInputValue(next.value)
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.setText(next.value)
+      textarea.cursorOffset = next.cursorOffset
+    }
+    closeFileMention()
+  }, [closeFileMention, fileMentionState, inputValue])
+
   useReplKeyboard({
     runtime,
     scrollboxRef,
@@ -164,6 +251,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setTranscriptMode,
     toggleTheme,
     setPermissionExplainOpen,
+    fileMentionCompletion: {
+      isOpen: fileMentionState.isOpen,
+      moveSelection: moveFileMentionSelection,
+      selectCurrent: selectFileMention,
+      close: closeFileMention,
+    },
   })
 
   const performSubmit = useReplSubmit({
@@ -277,6 +370,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     isLight,
     onInput: interactive.handleInput,
     onSubmit: (value) => {
+      if (fileMentionState.isOpen) {
+        selectFileMention()
+        return
+      }
       void interactive.handleSubmit(value)
     },
   })
@@ -385,6 +482,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         keyBindings={textareaKeyBindings}
         onContentChange={handleTextareaContentChange}
         onSubmit={handleTextareaSubmit}
+        fileMention={{
+          isOpen: fileMentionState.isOpen,
+          query: fileMentionState.query,
+          selectedIndex: fileMentionState.selectedIndex,
+          results: fileMentionState.results,
+        }}
       />
       <ReplFooter
         segments={footerSegments}

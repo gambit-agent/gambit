@@ -35,7 +35,7 @@ export function formatDuration(milliseconds: number): string {
   return parts.join(' ')
 }
 
-export function formatSessionTimestamp(value: string | null): string {
+function formatSessionTimestamp(value: string | null): string {
   if (!value) {
     return 'unknown'
   }
@@ -66,7 +66,7 @@ export function describeSessionOption(summary: ConversationSessionSummary, isCur
   return parts.join(' · ')
 }
 
-export function sanitizeTaskText(value: string): string {
+function sanitizeTaskText(value: string): string {
   return value
     .replace(oscPattern, '')
     .replace(ansiPattern, '')

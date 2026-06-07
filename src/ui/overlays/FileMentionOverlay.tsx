@@ -6,7 +6,6 @@ export interface FileMentionOverlayProps {
   query: string
   selectedIndex: number
   results: string[]
-  onOptionSelect: (index: number) => void
 }
 
 export function FileMentionOverlay({
@@ -14,7 +13,6 @@ export function FileMentionOverlay({
   query,
   selectedIndex,
   results,
-  onOptionSelect,
 }: FileMentionOverlayProps) {
   if (!isOpen || results.length === 0) return null
 
@@ -54,5 +52,4 @@ export function FileMentionOverlay({
     </box>
   )
 }
-
 

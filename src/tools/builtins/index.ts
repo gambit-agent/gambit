@@ -10,8 +10,6 @@ import { createFileTools } from './file-tools'
 import { createMemoryTool } from './memory-tool'
 import { createActivateSkillTool } from './skill-tool'
 import { createTaskTools } from './task-tools'
-export { formatShellResult, runShell } from './utils'
-export { formatSlashCommandMessage } from '../../lib/slash-command-format'
 
 export interface CreateBuiltInToolDefinitionOptions {
   includeSpawnAgent?: boolean

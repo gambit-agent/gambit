@@ -10,12 +10,17 @@ import {
 } from '../../conversation/goal'
 import { generateId } from '../../lib/id'
 import { modelRequiresApiKey, type ReasoningEffort } from '../../lib/model'
-import { executePromptTemplate } from '../../lib/promptTemplates'
+import {
+  buildPromptTemplateListDescription,
+  executePromptTemplate,
+  loadPromptTemplates,
+} from '../../lib/promptTemplates'
 import { executeSlashCommand, loadSlashCommands, type SlashCommandExecution } from '../../lib/slashCommands'
 import { formatSlashCommandMessage } from '../../lib/slash-command-format'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from '../help'
 import type { RoutedInput } from '../command-router'
 import { routeInput } from '../input-router'
+import { expandFileMentions } from '../file-mentions'
 
 interface SubmitConversationSnapshot {
   conversationId: string
@@ -311,6 +316,14 @@ export function useReplSubmit({
   return useCallback(
     async (value: string, { signal }: { signal: AbortSignal }) => {
       const routed = routeInput(value)
+      if (routed.kind === 'prompt' || ('channel' in routed && routed.channel === 'template')) {
+        const expansion = await expandFileMentions(value)
+        if (expansion.files.length > 0) {
+          await runUserPrompt(expansion.content, signal)
+          return
+        }
+      }
+
       if (routed.kind === 'prompt') {
         if (!routed.value) {
           return
@@ -392,8 +405,14 @@ export function useReplSubmit({
 
       if (routed.channel === 'slash') {
         if (routed.name === 'help') {
-          const commands = await loadSlashCommands()
-          await pushSystemMessage(runtime, formatInteractiveHelp(commands))
+          const [commands, templates] = await Promise.all([
+            loadSlashCommands(),
+            loadPromptTemplates(),
+          ])
+          await pushSystemMessage(runtime, formatInteractiveHelp(
+            commands,
+            buildPromptTemplateListDescription(templates),
+          ))
           return
         }
 

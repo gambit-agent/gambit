@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { getPlanFilePath, readPlan, isSessionPlanFile } from '../plans/plan-store'
+import { getPlanFilePath, readPlan } from '../plans/plan-store'
 import type { ToolDefinition } from './tool-types'
 
 const enterPlanModeSchema = z.object({})
@@ -107,5 +107,3 @@ export const exitPlanModeTool: ToolDefinition<typeof exitPlanModeSchema, string>
   },
   summarize: (result) => 'Exited Plan mode — Plan approved',
 }
-
-export { isSessionPlanFile }

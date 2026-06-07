@@ -4,8 +4,7 @@ import path from 'node:path'
 
 import { workspaceRoot } from '../config'
 import { createObservableStore, type ObservableStore } from '../lib/observable-store'
-import { appendJsonlEntry, readJsonlEntries } from './transcript'
-import { writeJsonlEntries } from '../session/jsonl'
+import { appendJsonlEntry, readRawJsonlEntries, writeJsonlEntries } from '../session/jsonl'
 import type { ConversationMessage, ConversationTurnRecord } from './conversation-types'
 
 export interface ConversationStoreOptions {
@@ -160,12 +159,12 @@ export class ConversationStore {
   }
 
   async loadMessages(): Promise<ConversationMessage[]> {
-    const entries = await readJsonlEntries<ConversationMessage & { kind?: string }>(this.currentTranscriptPath)
+    const entries = await readRawJsonlEntries<ConversationMessage & { kind?: string }>(this.currentTranscriptPath)
     return entries.filter((entry) => entry.kind !== 'turn') as ConversationMessage[]
   }
 
   async loadTurnRecords(): Promise<ConversationTurnRecord[]> {
-    const entries = await readJsonlEntries<ConversationTurnRecord & { kind?: string }>(this.currentTranscriptPath)
+    const entries = await readRawJsonlEntries<ConversationTurnRecord & { kind?: string }>(this.currentTranscriptPath)
     return entries.filter((entry) => entry.kind === 'turn') as ConversationTurnRecord[]
   }
 

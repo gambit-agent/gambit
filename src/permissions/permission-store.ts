@@ -75,11 +75,6 @@ export async function listPermissionRequests(): Promise<PermissionRequestRecord[
   return readPermissionRecords()
 }
 
-export async function getPermissionRequest(id: string): Promise<PermissionRequestRecord | null> {
-  const requests = await readPermissionRecords()
-  return requests.find((request) => request.id === id) ?? null
-}
-
 export async function enqueuePermissionRequest(
   input: EnqueuePermissionRequestInput,
 ): Promise<PermissionRequestRecord> {

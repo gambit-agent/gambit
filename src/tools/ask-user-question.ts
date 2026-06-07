@@ -3,10 +3,10 @@ import { z } from 'zod'
 import type { ToolDefinition } from './tool-types'
 import type { Question, QuestionAnswerBundle } from '../questions/question-types'
 
-export const ASK_USER_QUESTION_TOOL_ID = 'askUserQuestion'
-export const ASK_USER_QUESTION_CHIP_WIDTH = 12
+const ASK_USER_QUESTION_TOOL_ID = 'askUserQuestion'
+const ASK_USER_QUESTION_CHIP_WIDTH = 12
 
-export const ASK_USER_QUESTION_TOOL_PROMPT = `Use this tool when you need to ask the user questions during execution. This allows you to:
+const ASK_USER_QUESTION_TOOL_PROMPT = `Use this tool when you need to ask the user questions during execution. This allows you to:
 1. Gather user preferences or requirements
 2. Clarify ambiguous instructions
 3. Get decisions on implementation choices as you work
@@ -58,7 +58,7 @@ const questionSchema = z
   })
   .strict()
 
-export const askUserQuestionSchema = z
+const askUserQuestionSchema = z
   .object({
     questions: z.array(questionSchema).min(1).max(4).describe('Questions to ask the user (1-4 questions).'),
   })
@@ -79,7 +79,7 @@ export const askUserQuestionSchema = z
     }
   })
 
-export type AskUserQuestionInput = z.infer<typeof askUserQuestionSchema>
+type AskUserQuestionInput = z.infer<typeof askUserQuestionSchema>
 export type AskUserQuestionOutput = QuestionAnswerBundle & {
   questions: Question[]
 }

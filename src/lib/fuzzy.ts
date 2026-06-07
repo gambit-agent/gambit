@@ -2,7 +2,7 @@
  * Simple fuzzy string matcher.
  * Returns a score (higher = better match) or 0 if no match.
  */
-export function fuzzyMatch(query: string, target: string): number {
+function fuzzyMatch(query: string, target: string): number {
   const q = query.toLowerCase()
   const t = target.toLowerCase()
 

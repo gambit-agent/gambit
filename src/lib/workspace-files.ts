@@ -55,7 +55,3 @@ export async function getWorkspaceFiles(forceRefresh = false): Promise<string[]>
 
   return scanPromise
 }
-
-export function clearFileCache(): void {
-  cachedFiles = null
-}

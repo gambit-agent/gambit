@@ -7,13 +7,13 @@ import { createCodexLanguageModel } from './codex-model'
 
 export type ReasoningEffort = 'low' | 'medium' | 'high'
 
-export { isCodexModel, modelRequiresApiKey }
+export { modelRequiresApiKey }
 
 export interface ModelProvider {
   getModel(modelId: string, settings?: OpenRouterProviderOptions): LanguageModel
 }
 
-export class RuntimeModelProvider implements ModelProvider {
+class RuntimeModelProvider implements ModelProvider {
   private readonly openrouter: ReturnType<typeof createOpenRouter>
 
   constructor(apiKey: string) {

@@ -70,7 +70,7 @@ export async function consumeModelStream(options: {
   }
 }
 
-export function extractErrorMessage(value: unknown): string {
+function extractErrorMessage(value: unknown): string {
   if (value instanceof Error) {
     return value.message
   }

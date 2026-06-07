@@ -41,7 +41,7 @@ export async function executeSlashCommand(
   }
 }
 
-export function applyArguments(template: string, argumentText: string): string {
+function applyArguments(template: string, argumentText: string): string {
   if (!template.includes('$')) {
     return template
   }

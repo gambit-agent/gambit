@@ -38,6 +38,12 @@ interface ReplKeyboardOptions {
   setTranscriptMode: Dispatch<SetStateAction<boolean>>
   toggleTheme: () => void
   setPermissionExplainOpen: Dispatch<SetStateAction<boolean>>
+  fileMentionCompletion?: {
+    isOpen: boolean
+    moveSelection: (delta: number) => void
+    selectCurrent: () => void
+    close: () => void
+  }
 }
 
 export function useReplKeyboard(options: ReplKeyboardOptions): void {
@@ -147,6 +153,25 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         if (options.conversation.error && key.name === 'escape') {
           options.runtime.conversationStore.setError(null)
           return
+        }
+
+        if (options.fileMentionCompletion?.isOpen) {
+          if (key.name === 'escape') {
+            options.fileMentionCompletion.close()
+            return
+          }
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+            options.fileMentionCompletion.moveSelection(-1)
+            return
+          }
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+            options.fileMentionCompletion.moveSelection(1)
+            return
+          }
+          if (key.name === 'tab') {
+            options.fileMentionCompletion.selectCurrent()
+            return
+          }
         }
 
         if (!options.modelPickerState.isOpen) {

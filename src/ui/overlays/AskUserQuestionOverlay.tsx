@@ -8,7 +8,6 @@ export {
 } from './useAskUserQuestionController'
 export type {
   AskUserQuestionController,
-  UseAskUserQuestionControllerOptions,
 } from './useAskUserQuestionController'
 
 export interface AskUserQuestionOverlayProps {

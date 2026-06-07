@@ -59,6 +59,15 @@ export async function readJsonlEntries<T>(filePath: string, transform: JsonlTran
   return entries
 }
 
+export async function readRawJsonlEntries<T>(filePath: string): Promise<T[]> {
+  return readJsonlEntries<T>(filePath, (value) => {
+    if (!isRecord(value)) {
+      return null
+    }
+    return value as T
+  })
+}
+
 export async function writeJsonlEntries(filePath: string, entries: readonly unknown[]): Promise<void> {
   await ensureParentDirectory(filePath)
 

@@ -1,6 +1,6 @@
 import type { AgentToolId } from './agent-tool-policy'
 
-export const AGENT_ROLES = ['default', 'explorer', 'worker'] as const
+const AGENT_ROLES = ['default', 'explorer', 'worker'] as const
 
 export type AgentRole = (typeof AGENT_ROLES)[number]
 

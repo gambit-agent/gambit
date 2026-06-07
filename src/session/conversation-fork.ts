@@ -3,12 +3,11 @@ import { mkdir } from 'node:fs/promises'
 import { workspaceRoot } from '../config'
 import type { ConversationMessage } from '../conversation/conversation-types'
 import { generateId } from '../lib/id'
-import { readJsonlEntries } from '../conversation/transcript'
 import { type ConversationMeta, readConversationMeta, writeConversationMeta } from './conversation-meta'
 import { getConversationDirectory, getConversationTranscriptPath } from './conversation-paths'
-import { writeJsonlEntries } from './jsonl'
+import { readRawJsonlEntries, writeJsonlEntries } from './jsonl'
 
-export { readConversationMeta, writeConversationMeta }
+export { readConversationMeta }
 
 export interface ForkResult {
   conversationId: string
@@ -26,7 +25,7 @@ export async function forkConversation(
   const root = options.root ?? workspaceRoot
   const transcriptPath = getConversationTranscriptPath(sourceConversationId, root)
 
-  const allEntries = await readJsonlEntries<ConversationMessage & { kind?: string }>(transcriptPath)
+  const allEntries = await readRawJsonlEntries<ConversationMessage & { kind?: string }>(transcriptPath)
   const messages = allEntries.filter((e) => e.kind !== 'turn') as ConversationMessage[]
 
   let forkedMessages: ConversationMessage[]

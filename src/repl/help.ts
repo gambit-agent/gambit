@@ -27,12 +27,22 @@ function formatCustomCommand(command: SlashCommandDefinition): string {
   return `- /${command.id}${argumentHint}${description} [${scopeLabel}]${localOnly}`
 }
 
-export function formatInteractiveHelp(commands: SlashCommandDefinition[]): string {
+export function formatInteractiveHelp(
+  commands: SlashCommandDefinition[],
+  promptTemplateDescription = '',
+): string {
   const customCommands = commands.map(formatCustomCommand)
   const customSection =
     customCommands.length > 0
       ? customCommands.join('\n')
       : '- No project or user slash commands found.'
+  const promptTemplateSection = promptTemplateDescription.trim()
+    ? [
+        '',
+        'Prompt templates:',
+        promptTemplateDescription,
+      ]
+    : []
 
   return [
     'Available commands',
@@ -42,6 +52,7 @@ export function formatInteractiveHelp(commands: SlashCommandDefinition[]): strin
     '',
     'Custom slash commands:',
     customSection,
+    ...promptTemplateSection,
   ].join('\n')
 }
 

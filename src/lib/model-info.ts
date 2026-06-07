@@ -5,7 +5,7 @@
 import { DEFAULT_MODEL_CONTEXT_LENGTH, MODEL_METADATA_TIMEOUT_MS } from '../config'
 import { isCodexModel } from './codex-auth'
 
-export interface ModelInfo {
+interface ModelInfo {
   id: string
   contextLength: number
 }
@@ -73,13 +73,4 @@ export async function getModelContextLength(modelId: string, apiKey: string): Pr
  */
 export function getCompactionThreshold(contextLength: number): number {
   return Math.floor(contextLength * 0.85)
-}
-
-/**
- * Reset the cache (for testing).
- */
-export function resetModelInfoCache(): void {
-  cache.clear()
-  allModelsFetched = false
-  allModelsFetchPromise = null
 }

@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
-import { appendJsonlEntry, readJsonlEntries } from '../conversation/transcript'
+import { appendJsonlEntry, readRawJsonlEntries } from '../session/jsonl'
 import { getAgentOutputPath, getAgentRecordPath, getAgentTranscriptPath } from './agent-paths'
 import type { AgentDefinition, AgentRunRecord, AgentRunStatus } from './agent-types'
 
@@ -103,7 +103,7 @@ export async function createAgentRun(
 
 export async function loadAgentTranscript(runId: string, rootPath?: string): Promise<unknown[]> {
   const transcriptPath = getAgentTranscriptPath(runId, rootPath)
-  return await readJsonlEntries(transcriptPath)
+  return await readRawJsonlEntries(transcriptPath)
 }
 
 export async function readAgentRecord(runId: string, rootPath?: string): Promise<AgentRunRecord | null> {

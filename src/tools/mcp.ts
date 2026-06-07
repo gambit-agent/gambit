@@ -32,7 +32,7 @@ const DISCOVERY_FAILURE_TTL_MS = 60_000
 const MCP_TOOL_ID_SEPARATOR = '__'
 const MCP_TOOL_ID_PREFIX = `mcp${MCP_TOOL_ID_SEPARATOR}`
 
-export function formatMCPToolId(serverName: string, toolName: string): string {
+function formatMCPToolId(serverName: string, toolName: string): string {
   return `${MCP_TOOL_ID_PREFIX}${sanitizeIdentifier(serverName)}${MCP_TOOL_ID_SEPARATOR}${sanitizeIdentifier(toolName)}`
 }
 
@@ -90,7 +90,7 @@ function buildTransport(config: MCPServerConfig): AnyTransport {
   }
 }
 
-export async function getOrCreateMCPClient(serverName: string): Promise<Client> {
+async function getOrCreateMCPClient(serverName: string): Promise<Client> {
   const cached = clientCache.get(serverName)
   if (cached) return cached.client
 
@@ -119,7 +119,7 @@ export async function getOrCreateMCPClient(serverName: string): Promise<Client> 
   return connectPromise
 }
 
-export async function cleanupMCPClient(serverName: string): Promise<void> {
+async function cleanupMCPClient(serverName: string): Promise<void> {
   discoveryCache.delete(serverName)
   const cached = clientCache.get(serverName)
   if (!cached) return

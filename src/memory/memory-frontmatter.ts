@@ -1,5 +1,6 @@
 import type { MemoryFrontmatter, MemoryType } from './memory-types'
 import { MEMORY_TYPES } from './memory-types'
+import { parseFrontmatter } from '../lib/frontmatter'
 
 function escapeFrontmatterValue(value: string): string {
   return value.replace(/\r?\n/g, ' ').trim()
@@ -21,31 +22,10 @@ export function parseMemoryFrontmatter(content: string): {
   frontmatter: Partial<MemoryFrontmatter>
   body: string
 } {
-  if (!content.startsWith('---')) {
-    return { frontmatter: {}, body: content.trimStart() }
-  }
-
-  const lines = content.split(/\r?\n/)
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
-  if (closingIndex === -1) {
-    return { frontmatter: {}, body: content }
-  }
-
+  const parsed = parseFrontmatter(content, { trimBodyStart: true })
   const frontmatter: Partial<MemoryFrontmatter> = {}
-  for (const rawLine of lines.slice(1, closingIndex)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) {
-      continue
-    }
 
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) {
-      continue
-    }
-
-    const key = line.slice(0, colonIndex).trim()
-    const value = line.slice(colonIndex + 1).trim()
-
+  for (const [key, value] of Object.entries(parsed.values)) {
     switch (key) {
       case 'name':
         frontmatter.name = value
@@ -68,6 +48,6 @@ export function parseMemoryFrontmatter(content: string): {
 
   return {
     frontmatter,
-    body: lines.slice(closingIndex + 1).join('\n').trimStart(),
+    body: parsed.body,
   }
 }

@@ -56,7 +56,7 @@ function toAiTool(
 }
 
 /** Build a ToolRegistry containing all built-in tools (plus optionally MCP tools). */
-export async function createDefaultToolRegistry(
+async function createDefaultToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
   const definitions = await createBuiltInToolDefinitions(options)
@@ -64,10 +64,6 @@ export async function createDefaultToolRegistry(
 }
 
 /** Convenience factory for the default executor backed by the default registry. */
-export async function createDefaultToolExecutor(): Promise<ToolExecutor> {
-  return (await createRuntimeToolSuite()).executor
-}
-
 /** Re-export for consumers that want to create a fresh registry each turn. */
 export async function createRuntimeToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
@@ -171,5 +167,4 @@ export async function createAgentToolMap(options: RuntimeToolOptions = {}): Prom
   return Object.fromEntries(entries) as AgentTools
 }
 
-export { agentToolIds, createToolRegistry, ToolRegistry, ToolExecutor, createToolExecutor }
 export type { AgentToolId }

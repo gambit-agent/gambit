@@ -2,11 +2,11 @@ import path from 'node:path'
 
 import { workspaceRoot } from '../config'
 
-export function getAgentRootPath(rootPath: string = workspaceRoot): string {
+function getAgentRootPath(rootPath: string = workspaceRoot): string {
   return path.join(rootPath, '.gambit', 'agents')
 }
 
-export function getAgentRunDirectory(runId: string, rootPath: string = workspaceRoot): string {
+function getAgentRunDirectory(runId: string, rootPath: string = workspaceRoot): string {
   return path.join(getAgentRootPath(rootPath), runId)
 }
 

@@ -2,7 +2,8 @@ import type { TextareaRenderable } from '@opentui/core'
 import { TextAttributes } from '@opentui/core'
 import type { RefObject } from 'react'
 
-import { layout, theme } from '../../ui/theme'
+import { theme } from '../../ui/theme'
+import { FileMentionOverlay } from '../../ui/overlays/FileMentionOverlay'
 
 export interface TextareaKeyBinding {
   name: string
@@ -20,6 +21,7 @@ export function ReplComposer({
   keyBindings,
   onContentChange,
   onSubmit,
+  fileMention,
 }: {
   inputValue: string
   inputPreview: string | null
@@ -28,6 +30,12 @@ export function ReplComposer({
   keyBindings: TextareaKeyBinding[]
   onContentChange: () => void
   onSubmit: () => void
+  fileMention?: {
+    isOpen: boolean
+    query: string
+    selectedIndex: number
+    results: string[]
+  }
 }) {
   return (
     <box
@@ -43,6 +51,14 @@ export function ReplComposer({
     >
       <box flexDirection="column" gap={inputPreview ? 1 : 0}>
         {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
+        {fileMention ? (
+          <FileMentionOverlay
+            isOpen={fileMention.isOpen}
+            query={fileMention.query}
+            selectedIndex={fileMention.selectedIndex}
+            results={fileMention.results}
+          />
+        ) : null}
         <box
           flexDirection="row"
           paddingLeft={1}

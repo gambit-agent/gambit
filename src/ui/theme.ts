@@ -175,7 +175,7 @@ let isLight = false
 
 const listeners = new Set<() => void>()
 
-export function toggleTheme(): void {
+function toggleTheme(): void {
   isLight = !isLight
   const source = isLight ? lightTheme : darkTheme
   for (const key of Object.keys(source) as (keyof Theme)[]) {

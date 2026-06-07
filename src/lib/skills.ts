@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { skillCatalogCharBudget, workspaceRoot } from "../config";
+import { parseFrontmatter, parseFrontmatterList } from "./frontmatter";
 import { truncate } from "./text";
 
 export type SkillScope = "project" | "user";
@@ -267,47 +268,25 @@ async function parseSkillFile(
 }
 
 function extractFrontmatter(content: string): { frontmatter: Frontmatter; body: string } {
-  if (!content.startsWith("---")) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const lines = content.split(/\r?\n/);
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-  if (closingIndex === -1) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const fmLines = lines.slice(1, closingIndex);
-  const body = lines.slice(closingIndex + 1).join("\n");
+  const { values, body } = parseFrontmatter(content);
   const frontmatter: Frontmatter = {};
 
-  for (const rawLine of fmLines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-    const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      continue;
-    }
-    const key = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
-
+  for (const [key, value] of Object.entries(values)) {
     switch (key) {
       case "name":
-        frontmatter.name = stripQuotes(value);
+        frontmatter.name = value;
         break;
       case "description":
-        frontmatter.description = stripQuotes(value);
+        frontmatter.description = value;
         break;
       case "license":
-        frontmatter.license = stripQuotes(value);
+        frontmatter.license = value;
         break;
       case "compatibility":
-        frontmatter.compatibility = stripQuotes(value);
+        frontmatter.compatibility = value;
         break;
       case "allowed-tools":
-        frontmatter.allowedTools = parseAllowedTools(value);
+        frontmatter.allowedTools = parseFrontmatterList(value);
         break;
       default:
         break;
@@ -315,26 +294,6 @@ function extractFrontmatter(content: string): { frontmatter: Frontmatter; body: 
   }
 
   return { frontmatter, body };
-}
-
-function parseAllowedTools(value: string): string[] {
-  if (!value) {
-    return [];
-  }
-  return value
-    .split(/[,\s]+/)
-    .map((entry) => stripQuotes(entry.trim()))
-    .filter(Boolean);
-}
-
-function stripQuotes(value: string): string {
-  if (
-    (value.startsWith("\"") && value.endsWith("\"")) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
 }
 
 function dedupeByName(skills: SkillDefinition[]): SkillDefinition[] {

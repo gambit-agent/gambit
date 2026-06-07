@@ -24,7 +24,7 @@ export interface AskUserQuestionController {
   cancel: () => void
 }
 
-export interface UseAskUserQuestionControllerOptions {
+interface UseAskUserQuestionControllerOptions {
   record: QuestionRequestRecord | null
   onResolve: (id: string, bundle: QuestionAnswerBundle) => void
   onReject: (id: string, reason: string) => void

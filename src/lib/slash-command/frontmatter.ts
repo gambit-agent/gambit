@@ -1,50 +1,23 @@
 import type { SlashCommandFrontmatter } from './types'
+import { parseFrontmatter, parseFrontmatterList } from '../frontmatter'
 
 export function extractFrontmatter(content: string): { frontmatter: SlashCommandFrontmatter; body: string } {
-  if (!content.startsWith('---')) {
-    return { frontmatter: {}, body: content }
-  }
-
-  const lines = content.split(/\r?\n/)
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
-  if (closingIndex === -1) {
-    return { frontmatter: {}, body: content }
-  }
-
-  const fmLines = lines.slice(1, closingIndex)
-  const body = lines.slice(closingIndex + 1).join('\n')
+  const { values, body } = parseFrontmatter(content)
   const frontmatter: SlashCommandFrontmatter = {}
 
-  for (const rawLine of fmLines) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) {
-      continue
-    }
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) {
-      continue
-    }
-    const key = line.slice(0, colonIndex).trim()
-    const value = line.slice(colonIndex + 1).trim()
-
+  for (const [key, value] of Object.entries(values)) {
     switch (key) {
       case 'description':
-        frontmatter.description = stripQuotes(value)
+        frontmatter.description = value
         break
       case 'argument-hint':
-        frontmatter.argumentHint = stripQuotes(value)
+        frontmatter.argumentHint = value
         break
       case 'allowed-tools':
-        frontmatter.allowedTools =
-          value.length === 0
-            ? []
-            : value
-                .split(/[,\n]/)
-                .map((entry) => stripQuotes(entry.trim()))
-                .filter(Boolean)
+        frontmatter.allowedTools = parseFrontmatterList(value, /[,\n]/)
         break
       case 'model':
-        frontmatter.model = stripQuotes(value)
+        frontmatter.model = value
         break
       case 'disable-model-invocation':
         frontmatter.disableModelInvocation = /^true$/i.test(value)
@@ -66,11 +39,4 @@ export function deriveDescription(body: string): string | null {
     }
   }
   return null
-}
-
-function stripQuotes(value: string): string {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1)
-  }
-  return value
 }
