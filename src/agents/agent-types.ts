@@ -1,4 +1,6 @@
-export const AGENT_ROLES = ['default', 'explorer', 'worker'] as const
+import type { AgentToolId } from './agent-tool-policy'
+
+const AGENT_ROLES = ['default', 'explorer', 'worker'] as const
 
 export type AgentRole = (typeof AGENT_ROLES)[number]
 
@@ -7,7 +9,7 @@ export interface AgentDefinition {
   role: AgentRole
   description: string
   systemPromptAddendum?: string
-  allowedToolIds?: string[]
+  allowedToolIds?: readonly AgentToolId[]
 }
 
 export type AgentRunStatus = 'pending' | 'running' | 'completed' | 'failed'

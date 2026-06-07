@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
+import { createObservableStore } from '../lib/observable-store'
 
 import { createTask, getTask, listTasks, reconcileInterruptedTasks, removeTask, updateTask } from './task-store'
 import type { CreateTaskInput, TaskRecord, TaskStatus, UpdateTaskInput } from './task-types'
@@ -7,15 +8,12 @@ export interface TaskRuntimeSnapshot {
   tasks: TaskRecord[]
 }
 
-type Listener = () => void
-
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
 export class TaskRuntime {
-  private snapshot: TaskRuntimeSnapshot = { tasks: [] }
-  private readonly listeners = new Set<Listener>()
+  private readonly store = createObservableStore<TaskRuntimeSnapshot>({ tasks: [] })
   private readonly controllers = new Map<string, AbortController>()
 
   async initialize(): Promise<void> {
@@ -23,22 +21,18 @@ export class TaskRuntime {
     await this.refresh()
   }
 
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener)
   }
 
   getSnapshot(): TaskRuntimeSnapshot {
-    return this.snapshot
+    return this.store.getSnapshot()
   }
 
   async refresh(): Promise<void> {
     const tasks = await listTasks()
     tasks.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    this.snapshot = { tasks }
-    this.emit()
+    this.store.setState({ tasks })
   }
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
@@ -86,7 +80,7 @@ export class TaskRuntime {
 
     const enqueueIfChanged = (): void => {
       const found = uniqueIds
-        .map((id) => this.snapshot.tasks.find((task) => task.id === id))
+        .map((id) => this.getSnapshot().tasks.find((task) => task.id === id))
         .filter((task): task is TaskRecord => Boolean(task))
       const foundIds = new Set(found.map((task) => task.id))
       const missing = uniqueIds.filter((id) => !foundIds.has(id))
@@ -213,12 +207,7 @@ export class TaskRuntime {
   }
 
   createEventId(): string {
-    return randomUUID()
+    return generateId()
   }
 
-  private emit(): void {
-    for (const listener of this.listeners) {
-      listener()
-    }
-  }
 }

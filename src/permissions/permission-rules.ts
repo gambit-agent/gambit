@@ -33,6 +33,7 @@ const WRITE_TOOLS = new Set([
   'executeShell',
   'spawnAgent',
   'runAgents',
+  'workflow',
   'cancelTask',
   'writeMemory',
 ])

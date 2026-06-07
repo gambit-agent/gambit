@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 
 import { workspaceRoot } from '../config'
 import { isRecord, readJsonlEntries, writeJsonlEntries } from '../session/jsonl'
@@ -75,11 +75,6 @@ export async function listPermissionRequests(): Promise<PermissionRequestRecord[
   return readPermissionRecords()
 }
 
-export async function getPermissionRequest(id: string): Promise<PermissionRequestRecord | null> {
-  const requests = await readPermissionRecords()
-  return requests.find((request) => request.id === id) ?? null
-}
-
 export async function enqueuePermissionRequest(
   input: EnqueuePermissionRequestInput,
 ): Promise<PermissionRequestRecord> {
@@ -89,7 +84,7 @@ export async function enqueuePermissionRequest(
   }
 
   const record: PermissionRequestRecord = {
-    id: randomUUID(),
+    id: generateId(),
     subject,
     decision: input.decision ?? 'ask',
     state: 'queued',

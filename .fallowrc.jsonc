@@ -1,0 +1,19 @@
+{
+  "ignoreExports": [
+    {
+      "file": "src/hooks/plugin-hooks.ts",
+      "exports": ["GambitPlugin"]
+    },
+    {
+      "file": "src/lib/slashCommands.ts",
+      "exports": ["SlashCommandScope"]
+    },
+    {
+      "file": "src/tools/tool-executor.ts",
+      "exports": ["ToolExecutorOptions"]
+    }
+  ],
+  "rules": {
+    "unused-class-members": "off"
+  }
+}

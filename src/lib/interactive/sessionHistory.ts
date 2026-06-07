@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto"
+﻿import { generateId } from "../id"
 import { mkdir, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
@@ -46,7 +46,7 @@ async function ensureSessionsDirectory(): Promise<string> {
 
 async function createSession(): Promise<SessionInfo> {
   const directory = await ensureSessionsDirectory()
-  const id = randomUUID()
+  const id = generateId()
   const filePath = path.join(directory, `${HISTORY_FILE_PREFIX}${id}${HISTORY_FILE_SUFFIX}`)
   return { id, filePath }
 }
@@ -80,14 +80,12 @@ export async function loadUserHistoryEntries(limit: number = MAX_HISTORY_ENTRIES
   try {
     const directory = await ensureSessionsDirectory()
     const files = await readdir(directory)
-    for (const filename of files) {
-      if (!filename.startsWith(HISTORY_FILE_PREFIX) || !filename.endsWith(HISTORY_FILE_SUFFIX)) {
-        continue
-      }
-      const filePath = path.join(directory, filename)
-      const parsed = await readUserEntriesFromFile(filePath)
-      entries.push(...parsed)
-    }
+    const parsedFiles = await Promise.all(
+      files
+        .filter((filename) => filename.startsWith(HISTORY_FILE_PREFIX) && filename.endsWith(HISTORY_FILE_SUFFIX))
+        .map((filename) => readUserEntriesFromFile(path.join(directory, filename))),
+    )
+    entries.push(...parsedFiles.flat())
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error

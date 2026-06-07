@@ -32,7 +32,7 @@ const DISCOVERY_FAILURE_TTL_MS = 60_000
 const MCP_TOOL_ID_SEPARATOR = '__'
 const MCP_TOOL_ID_PREFIX = `mcp${MCP_TOOL_ID_SEPARATOR}`
 
-export function formatMCPToolId(serverName: string, toolName: string): string {
+function formatMCPToolId(serverName: string, toolName: string): string {
   return `${MCP_TOOL_ID_PREFIX}${sanitizeIdentifier(serverName)}${MCP_TOOL_ID_SEPARATOR}${sanitizeIdentifier(toolName)}`
 }
 
@@ -90,7 +90,7 @@ function buildTransport(config: MCPServerConfig): AnyTransport {
   }
 }
 
-export async function getOrCreateMCPClient(serverName: string): Promise<Client> {
+async function getOrCreateMCPClient(serverName: string): Promise<Client> {
   const cached = clientCache.get(serverName)
   if (cached) return cached.client
 
@@ -119,7 +119,7 @@ export async function getOrCreateMCPClient(serverName: string): Promise<Client> 
   return connectPromise
 }
 
-export async function cleanupMCPClient(serverName: string): Promise<void> {
+async function cleanupMCPClient(serverName: string): Promise<void> {
   discoveryCache.delete(serverName)
   const cached = clientCache.get(serverName)
   if (!cached) return
@@ -169,13 +169,14 @@ function flattenCallToolResult(result: Awaited<ReturnType<Client['callTool']>>):
 // --- Built-in meta tools for managing MCP servers ---
 
 const listMCPResourcesSchema = z.object({
-  serverName: z.string().describe('Name of the MCP server to list resources from'),
+  serverName: z.string().describe('Configured enabled MCP server name from list-mcp-servers.'),
 })
 
 const listMCPResourcesTool: ToolDefinition<typeof listMCPResourcesSchema, string> = {
   id: 'list-mcp-resources',
   displayName: 'List MCP Resources',
-  description: 'List available resources from a configured MCP server.',
+  description:
+    'List resource handles exposed by a configured MCP server. Returns mcp:// URIs to pass to read-mcp-resource.',
   inputSchema: listMCPResourcesSchema,
   execute: async ({ serverName }) => {
     const client = await getOrCreateMCPClient(serverName)
@@ -191,13 +192,13 @@ const listMCPResourcesTool: ToolDefinition<typeof listMCPResourcesSchema, string
 }
 
 const readMCPResourceSchema = z.object({
-  uri: z.string().describe('MCP resource URI (format: mcp://server-name/resource-path)'),
+  uri: z.string().describe('MCP resource URI returned by list-mcp-resources (format: mcp://server-name/resource-path).'),
 })
 
 const readMCPResourceTool: ToolDefinition<typeof readMCPResourceSchema, string> = {
   id: 'read-mcp-resource',
   displayName: 'Read MCP Resource',
-  description: 'Read the contents of a specific MCP resource.',
+  description: 'Read the contents of a specific MCP resource URI returned by list-mcp-resources.',
   inputSchema: readMCPResourceSchema,
   execute: async ({ uri }) => {
     const parsed = parseResourceUri(uri)
@@ -215,13 +216,14 @@ const readMCPResourceTool: ToolDefinition<typeof readMCPResourceSchema, string> 
 }
 
 const listMCPToolsSchema = z.object({
-  serverName: z.string().describe('Name of the MCP server to list tools from'),
+  serverName: z.string().describe('Configured enabled MCP server name from list-mcp-servers.'),
 })
 
 const listMCPToolsTool: ToolDefinition<typeof listMCPToolsSchema, string> = {
   id: 'list-mcp-tools',
   displayName: 'List MCP Tools',
-  description: 'List tools exposed by a configured MCP server.',
+  description:
+    'List raw tool names, namespaced IDs, descriptions, and input schemas exposed by a configured MCP server.',
   inputSchema: listMCPToolsSchema,
   execute: async ({ serverName }) => {
     const client = await getOrCreateMCPClient(serverName)
@@ -237,15 +239,16 @@ const listMCPToolsTool: ToolDefinition<typeof listMCPToolsSchema, string> = {
 }
 
 const callMCPToolSchema = z.object({
-  serverName: z.string().describe('Name of the MCP server'),
-  toolName: z.string().describe('Name of the tool to call'),
-  arguments: z.record(z.string(), z.unknown()).default({}).describe('Arguments to pass to the tool'),
+  serverName: z.string().describe('Configured enabled MCP server name from list-mcp-servers.'),
+  toolName: z.string().describe('Raw MCP tool name from list-mcp-tools, not the namespaced ID.'),
+  arguments: z.record(z.string(), z.unknown()).default({}).describe('Arguments matching the MCP tool input schema.'),
 })
 
 const callMCPToolTool: ToolDefinition<typeof callMCPToolSchema, string> = {
   id: 'call-mcp-tool',
   displayName: 'Call MCP Tool',
-  description: 'Execute a tool on a configured MCP server.',
+  description:
+    'Fallback generic caller for a tool on a configured MCP server. Use after list-mcp-tools; when an auto-discovered mcp__server__tool is available, call that direct tool instead for better schema guidance.',
   inputSchema: callMCPToolSchema,
   execute: async ({ serverName, toolName, arguments: args }) => {
     const client = await getOrCreateMCPClient(serverName)
@@ -255,13 +258,13 @@ const callMCPToolTool: ToolDefinition<typeof callMCPToolSchema, string> = {
 }
 
 const listMCPServersSchema = z.object({
-  includeDisabled: z.boolean().optional().default(false).describe('Include disabled servers in the list'),
+  includeDisabled: z.boolean().optional().default(false).describe('Include disabled servers in the returned configuration list.'),
 })
 
 const listMCPServersTool: ToolDefinition<typeof listMCPServersSchema, string> = {
   id: 'list-mcp-servers',
   displayName: 'List MCP Servers',
-  description: 'List configured MCP servers.',
+  description: 'List configured MCP servers, optionally including disabled entries. Use when the server name is unknown.',
   inputSchema: listMCPServersSchema,
   execute: async ({ includeDisabled }) => {
     const servers = listMCPServerConfigs({ enabledOnly: !includeDisabled })
@@ -278,22 +281,23 @@ const listMCPServersTool: ToolDefinition<typeof listMCPServersSchema, string> = 
 }
 
 const addMCPServerSchema = z.object({
-  name: z.string().describe('Unique name for the MCP server'),
-  type: z.enum(['stdio', 'streamable-http']).describe('Transport type'),
-  command: z.string().optional().describe('Command for stdio transport'),
-  args: z.array(z.string()).optional().describe('Arguments for stdio transport'),
-  url: z.string().optional().describe('URL for streamable-http transport'),
-  env: z.record(z.string(), z.string()).optional().describe('Environment variables (stdio only)'),
-  bearerToken: z.string().optional().describe('Bearer token for streamable-http transport'),
-  apiKey: z.string().optional().describe('API key value for streamable-http transport'),
-  apiKeyHeader: z.string().optional().describe('Header name for the API key (default: X-API-Key)'),
-  enabled: z.boolean().optional().default(true).describe('Whether the server is enabled'),
+  name: z.string().describe('Unique config name used by MCP resource and tool calls.'),
+  type: z.enum(['stdio', 'streamable-http']).describe('Transport type.'),
+  command: z.string().optional().describe('Executable command for stdio transport; required when type is stdio.'),
+  args: z.array(z.string()).optional().describe('Command arguments for stdio transport.'),
+  url: z.string().optional().describe('Server URL for streamable-http transport; required when type is streamable-http.'),
+  env: z.record(z.string(), z.string()).optional().describe('Additional environment variables for stdio transport.'),
+  bearerToken: z.string().optional().describe('Bearer token for streamable-http Authorization header.'),
+  apiKey: z.string().optional().describe('API key value for streamable-http requests.'),
+  apiKeyHeader: z.string().optional().describe('Header name for the API key. Defaults to X-API-Key.'),
+  enabled: z.boolean().optional().default(true).describe('Whether the server is enabled after saving.'),
 })
 
 const addMCPServerTool: ToolDefinition<typeof addMCPServerSchema, string> = {
   id: 'add-mcp-server',
   displayName: 'Add MCP Server',
-  description: 'Add or replace an MCP server configuration.',
+  description:
+    'Add or replace an MCP server configuration. stdio requires command; streamable-http requires url. Use list-mcp-tools or list-mcp-resources after saving to verify.',
   inputSchema: addMCPServerSchema,
   execute: async (input) => {
     if (input.type === 'stdio' && !input.command) {
@@ -332,13 +336,13 @@ const addMCPServerTool: ToolDefinition<typeof addMCPServerSchema, string> = {
 }
 
 const removeMCPServerSchema = z.object({
-  name: z.string().describe('Name of the MCP server to remove'),
+  name: z.string().describe('Configured MCP server name to remove.'),
 })
 
 const removeMCPServerTool: ToolDefinition<typeof removeMCPServerSchema, string> = {
   id: 'remove-mcp-server',
   displayName: 'Remove MCP Server',
-  description: 'Remove an MCP server configuration.',
+  description: 'Remove an MCP server configuration and close any cached client connection.',
   inputSchema: removeMCPServerSchema,
   execute: async ({ name }) => {
     const server = getMCPServer(name)
@@ -354,14 +358,14 @@ const removeMCPServerTool: ToolDefinition<typeof removeMCPServerSchema, string> 
 }
 
 const toggleMCPServerSchema = z.object({
-  name: z.string().describe('Name of the MCP server'),
-  enabled: z.boolean().describe('Whether to enable (true) or disable (false) the server'),
+  name: z.string().describe('Configured MCP server name to enable or disable.'),
+  enabled: z.boolean().describe('true to enable the server, false to disable it.'),
 })
 
 const toggleMCPServerTool: ToolDefinition<typeof toggleMCPServerSchema, string> = {
   id: 'toggle-mcp-server',
   displayName: 'Toggle MCP Server',
-  description: 'Enable or disable a configured MCP server.',
+  description: 'Enable or disable a configured MCP server and refresh its cached client connection.',
   inputSchema: toggleMCPServerSchema,
   execute: async ({ name, enabled }) => {
     const server = getMCPServer(name)
@@ -396,7 +400,7 @@ function buildZodSchemaForTool(tool: MCPListToolsEntry): ZodTypeAny {
   const jsonSchema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] } | undefined
   const properties = jsonSchema?.properties
   if (!properties || Object.keys(properties).length === 0) {
-    return z.record(z.string(), z.unknown()).describe('Arguments for the MCP tool.').default({})
+    return z.record(z.string(), z.unknown()).describe('Arguments for this MCP tool.').default({})
   }
 
   const required = new Set(jsonSchema?.required ?? [])
@@ -414,9 +418,10 @@ function buildZodSchemaForTool(tool: MCPListToolsEntry): ZodTypeAny {
 function buildDiscoveredToolDefinition({ serverName, tool }: DiscoveredTool): ToolDefinition<any, any> {
   const id = formatMCPToolId(serverName, tool.name)
   const inputSchema = buildZodSchemaForTool(tool)
-  const description = tool.description
+  const baseDescription = tool.description
     ? `[MCP ${serverName}] ${tool.description}`
     : `Call the '${tool.name}' tool on MCP server '${serverName}'.`
+  const description = `${baseDescription} Auto-discovered MCP tool; pass only arguments defined by its input schema.`
 
   return {
     id,

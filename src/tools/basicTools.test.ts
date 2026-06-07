@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { setWorkspaceRootForTesting, workspaceRoot } from "../config";
-import { agentTools } from "./index";
+import { createAgentToolMap, type AgentTools } from "./index";
 
 let workspaceDir: string;
 let originalWorkspaceRootEnv: string | undefined;
 let originalWorkspaceRootValue: string;
+let agentTools: AgentTools;
 
 beforeEach(async () => {
   workspaceDir = await mkdtemp(path.join(tmpdir(), "gambit-tools-"));
@@ -16,6 +17,7 @@ beforeEach(async () => {
   originalWorkspaceRootValue = workspaceRoot;
   process.env.WORKSPACE_ROOT = workspaceDir;
   setWorkspaceRootForTesting(workspaceDir);
+  agentTools = await createAgentToolMap({ workspaceRoot: workspaceDir, includeMCPTools: false });
 });
 
 afterEach(async () => {

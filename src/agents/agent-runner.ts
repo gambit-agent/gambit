@@ -1,15 +1,18 @@
-import { stepCountIs, streamText } from 'ai'
-import { randomUUID } from 'node:crypto'
+import { type ToolSet } from 'ai'
 
+import { generateId } from '../lib/id'
 import { toCoreMessages } from '../lib/messages'
 import { createModelSelector, type ReasoningEffort } from '../lib/model'
-import { createStreamLogger } from '../lib/stream-logger'
+import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import { maxAgentSteps } from '../config'
 import type { AgentDefinition } from './agent-types'
 import type { ConversationMessage } from '../conversation/conversation-types'
 import type { ToolExecutionContext } from '../tools/tool-types'
+
+const AGENT_PROGRESS_INTERVAL_MS = 250
+const AGENT_TEXT_PROGRESS_CHAR_DELTA = 500
 
 /**
  * External dependencies injected into AgentRunner so it can operate
@@ -26,7 +29,8 @@ export interface AgentRunnerOptions {
   createTools: (
     allowedToolIds?: readonly string[],
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
-  ) => Promise<Record<string, any>>
+  ) => Promise<ToolSet>
+  extraTools?: ToolSet
   appendTranscript: (entry: unknown) => Promise<void>
   updateProgress: (summary: string) => Promise<void>
   signal?: AbortSignal
@@ -52,6 +56,10 @@ export class AgentRunner {
       maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
       maxSteps: options.agentExecutionOptions?.maxSteps,
     })
+    const mergedTools = {
+      ...tools,
+      ...(options.extraTools ?? {}),
+    }
     const selectModel = createModelSelector(options.apiKey)
     const modelSettings = options.reasoningEffort
       ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
@@ -93,19 +101,13 @@ export class AgentRunner {
       timestamp: new Date().toISOString(),
     })
 
-    const turnId = `agent-${options.definition.id}-${randomUUID()}`
-    const streamLog = createStreamLogger(turnId, {
-      agentId: options.definition.id,
-      modelId: options.modelId,
-      reasoningEffort: options.reasoningEffort ?? null,
-      messageCount: history.length,
-      toolCount: Object.keys(tools).length,
-    })
-
+    const turnId = `agent-${options.definition.id}-${generateId()}`
     let assistantContent = ''
     let reasoningContent = ''
-    let streamError: unknown = null
     let reasoningFlushed = false
+    let lastTextProgressAt = 0
+    let lastTextProgressChars = 0
+    let lastReasoningProgressAt = 0
 
     // Flush reasoning transcript so the user sees agent thinking in real time.
     const flushReasoning = async () => {
@@ -119,54 +121,49 @@ export class AgentRunner {
       }
     }
 
-    try {
-      const result = await streamText({
-        model: selectModel(options.modelId, modelSettings),
-        messages: toCoreMessages(
-          history.map((message) => ({
-            ...message,
-            timestamp: new Date(message.timestamp),
-          })),
-        ),
-        tools,
-        stopWhen: stepCountIs(options.agentExecutionOptions?.maxSteps ?? maxAgentSteps),
-        abortSignal: options.signal,
-      })
-
-      const stream = result.fullStream as AsyncIterable<any>
-
-      for await (const part of stream) {
-        streamLog.event(part.type, {
-          toolName: part.toolName,
-          toolCallId: part.toolCallId,
-          textLen: typeof part.text === 'string' ? part.text.length : typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
-        })
-
-        if (part.type === 'error') {
-          streamError = part.error
-          continue
-        }
-
-        if (part.type === 'text-delta') {
-          const chunk =
-            typeof part.text === 'string' ? part.text : typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
-          if (!chunk) {
-            continue
-          }
+    const result = await new ModelStreamRunner().run({
+      streamId: turnId,
+      model: selectModel(options.modelId, modelSettings),
+      messages: toCoreMessages(
+        history.map((message) => ({
+          ...message,
+          timestamp: new Date(message.timestamp),
+        })),
+      ),
+      tools: mergedTools,
+      maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
+      signal: options.signal,
+      logMetadata: {
+        agentId: options.definition.id,
+        modelId: options.modelId,
+        reasoningEffort: options.reasoningEffort ?? null,
+        messageCount: history.length,
+        toolCount: Object.keys(mergedTools).length,
+      },
+      handlers: {
+        onTextDelta: async (chunk) => {
           assistantContent += chunk
-          await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
-          continue
-        }
-
-        if (part.type === 'reasoning-delta' && typeof part.text === 'string' && part.text) {
-          reasoningContent += part.text
+          const now = Date.now()
+          if (
+            now - lastTextProgressAt >= AGENT_PROGRESS_INTERVAL_MS ||
+            assistantContent.length - lastTextProgressChars >= AGENT_TEXT_PROGRESS_CHAR_DELTA
+          ) {
+            lastTextProgressAt = now
+            lastTextProgressChars = assistantContent.length
+            await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
+          }
+        },
+        onReasoningDelta: async (text) => {
+          reasoningContent += text
           const preview = reasoningContent.trim().slice(0, 120)
-          await options.updateProgress(`Agent reasoning: ${preview}`)
+          const now = Date.now()
+          if (now - lastReasoningProgressAt >= AGENT_PROGRESS_INTERVAL_MS) {
+            lastReasoningProgressAt = now
+            await options.updateProgress(`Agent reasoning: ${preview}`)
+          }
           await flushReasoning()
-          continue
-        }
-
-        if (part.type === 'tool-call') {
+        },
+        onToolCall: async (part) => {
           const summary = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
             status: 'started',
@@ -182,12 +179,10 @@ export class AgentRunner {
             timestamp: new Date().toISOString(),
           })
           await options.updateProgress(summary)
-          continue
-        }
-
-        if (part.type === 'tool-result') {
+        },
+        onToolResult: async (part) => {
           if (part.preliminary) {
-            continue
+            return
           }
           const summary = formatToolEvent({
             toolName: part.toolName ?? 'unknown',
@@ -206,16 +201,8 @@ export class AgentRunner {
             timestamp: new Date().toISOString(),
           })
           await options.updateProgress(summary)
-          continue
-        }
-
-        if (part.type === 'tool-error') {
-          const errorMessage =
-            part.error instanceof Error
-              ? part.error.message
-              : typeof part.error === 'string'
-                ? part.error
-                : JSON.stringify(part.error, null, 2)
+        },
+        onToolError: async (part, errorMessage) => {
           await flushReasoning()
           await options.appendTranscript({
             type: 'tool-error',
@@ -226,68 +213,25 @@ export class AgentRunner {
             timestamp: new Date().toISOString(),
           })
           await options.updateProgress(`Tool failed: ${part.toolName ?? 'unknown'}`)
-          continue
-        }
-      }
+        },
+      },
+    })
 
-      if (streamError) {
-        throw streamError instanceof Error ? streamError : new Error(extractAgentErrorMessage(streamError))
-      }
+    const finalText = result.text || assistantContent.trim()
+    const finalOutput = reasoningContent.trim()
+      ? `Reasoning:\n${reasoningContent.trim()}\n\n${finalText}`
+      : finalText
 
-      streamLog.finish({ textChars: assistantContent.length, reasoningChars: reasoningContent.length })
+    await flushReasoning()
+    await options.appendTranscript({
+      type: 'assistant',
+      content: finalOutput,
+      timestamp: new Date().toISOString(),
+    })
 
-      const finalText = (await result.text).trim() || assistantContent.trim()
-      const finalOutput = reasoningContent.trim()
-        ? `Reasoning:\n${reasoningContent.trim()}\n\n${finalText}`
-        : finalText
-
-      await flushReasoning()
-      await options.appendTranscript({
-        type: 'assistant',
-        content: finalOutput,
-        timestamp: new Date().toISOString(),
-      })
-
-      return {
-        output: finalOutput,
-        summary: finalText.slice(0, 200) || `Completed ${options.definition.id} agent run`,
-      }
-    } catch (error) {
-      const isAbort = options.signal?.aborted === true
-      if (isAbort) {
-        streamLog.aborted({ textChars: assistantContent.length })
-      } else {
-        streamLog.error(error, { textChars: assistantContent.length })
-      }
-      throw error
+    return {
+      output: finalOutput,
+      summary: finalText.slice(0, 200) || `Completed ${options.definition.id} agent run`,
     }
   }
-}
-
-function extractAgentErrorMessage(value: unknown): string {
-  if (value instanceof Error) {
-    return value.message
-  }
-  if (typeof value === 'string') {
-    return value
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    if (typeof record.message === 'string') {
-      return record.message
-    }
-    const error = record.error
-    if (error instanceof Error) {
-      return error.message
-    }
-    if (typeof error === 'string') {
-      return error
-    }
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return String(value)
-    }
-  }
-  return String(value)
 }

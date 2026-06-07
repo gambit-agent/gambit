@@ -1,15 +1,12 @@
-import { tool } from 'ai'
-import { randomUUID } from 'node:crypto'
+import { tool, type ToolSet } from 'ai'
 
 import { workspaceRoot } from '../config'
-import { MemoryStore } from '../memory/memory-store'
-import { PermissionEngine } from '../permissions/permission-engine'
-import { ShellTaskRunner } from '../tasks/shell-task-runner'
-import { TaskRuntime } from '../tasks/task-runtime'
+import { agentToolIds, type AgentToolId } from '../agents/agent-tool-policy'
+import { generateId } from '../lib/id'
 import { createBuiltInToolDefinitions } from './builtins'
 import { ToolExecutor, createToolExecutor } from './tool-executor'
 import { createToolRegistry, ToolRegistry } from './tool-registry'
-import type { AnyToolDefinition, ToolExecutionContext } from './tool-types'
+import type { AnyToolDefinition, ToolEventRecord, ToolExecutionContext } from './tool-types'
 
 /** Options used when constructing the runtime tool registry and executor. */
 export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
@@ -17,7 +14,21 @@ export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   includeMCPTools?: boolean
   discoverMCPServerTools?: boolean
   allowedToolIds?: readonly string[]
-  onEvent?: (event: any) => void
+  onEvent?: (event: ToolEventRecord) => void
+}
+
+export interface RuntimeToolSuite {
+  registry: ToolRegistry
+  executor: ToolExecutor
+}
+
+export interface RuntimeToolSuiteOptions {
+  includeSpawnAgent?: boolean
+  includeMCPTools?: boolean
+  discoverMCPServerTools?: boolean
+  workspaceRoot?: string
+  outputDirectory?: string
+  onEvent?: (event: ToolEventRecord) => void
 }
 
 /**
@@ -37,15 +48,15 @@ function toAiTool(
       const result = await executor.execute(definition.id, input, {
         ...context,
         workspaceRoot: context.workspaceRoot ?? workspaceRoot,
-        toolCallId: randomUUID(),
+        toolCallId: generateId(),
       })
       return result.output
     },
-  })
+  }) as ToolSet[string]
 }
 
 /** Build a ToolRegistry containing all built-in tools (plus optionally MCP tools). */
-export async function createDefaultToolRegistry(
+async function createDefaultToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
   const definitions = await createBuiltInToolDefinitions(options)
@@ -53,32 +64,28 @@ export async function createDefaultToolRegistry(
 }
 
 /** Convenience factory for the default executor backed by the default registry. */
-export async function createDefaultToolExecutor(): Promise<ToolExecutor> {
-  const registry = await createDefaultToolRegistry()
-  return createToolExecutor(registry, { workspaceRoot })
-}
-
-/* ------------------------------------------------------------------ */
-/*  Default singletons used by headless/bootstrap paths that need     */
-/*  tools before the full AppRuntime is available.                    */
-/* ------------------------------------------------------------------ */
-
-const defaultPermissionEngine = new PermissionEngine()
-defaultPermissionEngine.setMode('Auto-accept')
-const defaultTaskRuntime = new TaskRuntime()
-const defaultShellTaskRunner = new ShellTaskRunner(defaultTaskRuntime)
-const defaultMemoryStore = new MemoryStore()
-
-const defaultRegistry = await createDefaultToolRegistry({ includeSpawnAgent: false })
-
-export const toolRegistry = defaultRegistry
-export const toolExecutor = createToolExecutor(defaultRegistry, { workspaceRoot })
-
 /** Re-export for consumers that want to create a fresh registry each turn. */
 export async function createRuntimeToolRegistry(
   options: { includeSpawnAgent?: boolean; includeMCPTools?: boolean; discoverMCPServerTools?: boolean } = {},
 ): Promise<ToolRegistry> {
   return createDefaultToolRegistry(options)
+}
+
+/** Build a scoped registry/executor pair using the same construction path everywhere. */
+export async function createRuntimeToolSuite(
+  options: RuntimeToolSuiteOptions = {},
+): Promise<RuntimeToolSuite> {
+  const registry = await createRuntimeToolRegistry({
+    includeSpawnAgent: options.includeSpawnAgent,
+    includeMCPTools: options.includeMCPTools,
+    discoverMCPServerTools: options.discoverMCPServerTools,
+  })
+  const executor = createToolExecutor(registry, {
+    workspaceRoot: options.workspaceRoot ?? workspaceRoot,
+    outputDirectory: options.outputDirectory,
+    onEvent: options.onEvent,
+  })
+  return { registry, executor }
 }
 
 /**
@@ -89,7 +96,7 @@ export function createAiToolMap(
   registry: ToolRegistry,
   executor: ToolExecutor,
   options: RuntimeToolOptions = {},
-): Record<string, any> {
+): ToolSet {
   const definitions = registry
     .list()
     .filter((definition) => {
@@ -121,32 +128,43 @@ export function createAiToolMap(
   )
 }
 
-/** Subset of tool IDs available to child agents spawned via `spawnAgent`. */
-export type AgentToolId =
-  | 'readFile'
-  | 'searchFiles'
-  | 'writeFile'
-  | 'patchFile'
-  | 'executeShell'
-  | 'slashCommand'
-  | 'readTaskOutput'
-  | 'listTasks'
-  | 'getTaskStatus'
-  | 'waitForTasks'
-  | 'cancelTask'
-  | 'spawnAgent'
-  | 'runAgents'
-  | 'writeMemory'
-  | 'askUserQuestion'
-export type AgentTools = Record<AgentToolId, any>
+export interface AgentTool<Output = unknown> {
+  execute(input: unknown): Promise<Output>
+}
+export type AgentTools = { [K in AgentToolId]: AgentTool }
 
-/** Default tool map exposed to the agent runner with auto-accept permissions. */
-export const agentTools = createAiToolMap(defaultRegistry, toolExecutor, {
-  workspaceRoot,
-  permissionEngine: defaultPermissionEngine,
-  taskRuntime: defaultTaskRuntime,
-  shellTaskRunner: defaultShellTaskRunner,
-  memoryStore: defaultMemoryStore,
-}) as AgentTools
+/**
+ * Create a scoped tool map for agents/tests. Callers provide runtime
+ * capabilities explicitly; this module owns no mutable singleton state.
+ */
+export async function createAgentToolMap(options: RuntimeToolOptions = {}): Promise<AgentTools> {
+  const { registry, executor } = await createRuntimeToolSuite({
+    includeSpawnAgent: true,
+    includeMCPTools: options.includeMCPTools,
+    discoverMCPServerTools: options.discoverMCPServerTools,
+    workspaceRoot: options.workspaceRoot,
+    outputDirectory: options.outputDirectory,
+    onEvent: options.onEvent,
+  })
+  const entries = agentToolIds.map((id) => {
+    if (!registry.get(id)) {
+      throw new Error(`Agent tool not registered: ${id}`)
+    }
+    return [
+      id,
+      {
+        execute: async (input: unknown) => {
+          const result = await executor.execute(id, input, {
+            ...options,
+            workspaceRoot: options.workspaceRoot ?? workspaceRoot,
+            toolCallId: generateId(),
+          })
+          return result.output
+        },
+      },
+    ] as const
+  })
+  return Object.fromEntries(entries) as AgentTools
+}
 
-export { createToolRegistry, ToolRegistry, ToolExecutor, createToolExecutor }
+export type { AgentToolId }

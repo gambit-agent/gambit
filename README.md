@@ -137,7 +137,9 @@ Inside the REPL, colon commands drive the shell itself:
 - `:goal <goal>` — set and run a Codex-style autonomous conversation goal
 - `:reset` — clear the current session state
 
-Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`. Built-ins include `/model`, `/resume`, `/clear`, and `/goal <goal>`; `/goal <goal>` starts a Codex-style autonomous run immediately, `/goal set <goal>` stores without running, `/goal run` resumes the stored goal, and `/goal clear` removes it.
+Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`. Built-ins include `/model`, `/resume`, `/clear`, `/goal <goal>`, and `/workflow <task>`; `/goal <goal>` starts a Codex-style autonomous run immediately, `/goal set <goal>` stores without running, `/goal run` resumes the stored goal, and `/goal clear` removes it. `/workflow <task>` asks Gambit to create and run a dynamic multi-agent workflow for the task. `/workflow edit <change>` revises and reruns the most recent workflow script, `/workflow clear` removes completed workflow result messages from the conversation, and `/workflow stop` shows the abort shortcut. Active workflows run inside the current generation; press `Ctrl+C` to stop the active workflow/model run.
+
+Dynamic workflows are useful for decomposable work such as fan-out research, adversarial review, tournament-style comparisons, large migrations, and loop-until-done investigations. The model can also trigger a workflow from a plain prompt such as “use a workflow to verify every claim in this draft.”
 
 Agent Skills are loaded from `SKILL.md` files under `~/.gambit/skills/` and `./.gambit/skills/` (and the cross-client `.agents/skills/` convention at both scopes). See [Agent Skills](#agent-skills) below.
 
@@ -207,6 +209,7 @@ Default registered tools (see `src/tools/builtins.ts`):
 - `listTasks`, `getTaskStatus`, `readTaskOutput`, `cancelTask` — inspect and control background shell/agent tasks.
 - `writeMemory` — persist typed memory records (`user`, `feedback`, `project`, `reference`).
 - `spawnAgent` — delegate to a local subagent (`default`, `explorer`, or `worker`).
+- `workflow` — execute a deterministic JavaScript workflow that orchestrates Gambit subagents with `agent()`, `parallel()`, `pipeline()`, `phase()`, `log()`, `args`, and a rough `budget`.
 - `EnterPlanMode` / `ExitPlanMode` — structured plan-then-execute workflow. The agent explores the codebase, writes a plan, gets user approval, then implements.
 - MCP management: `list-mcp-resources`, `read-mcp-resource`, `list-mcp-tools`, `call-mcp-tool`, `list-mcp-servers`, `add-mcp-server`, `remove-mcp-server`, `toggle-mcp-server`.
 

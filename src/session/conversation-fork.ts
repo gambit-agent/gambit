@@ -1,44 +1,13 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { mkdir } from 'node:fs/promises'
 
 import { workspaceRoot } from '../config'
 import type { ConversationMessage } from '../conversation/conversation-types'
-import { readJsonlEntries } from '../conversation/transcript'
-import { writeJsonlEntries } from './jsonl'
-import { getConversationDirectory, getConversationTranscriptPath } from './conversation-sessions'
+import { generateId } from '../lib/id'
+import { type ConversationMeta, readConversationMeta, writeConversationMeta } from './conversation-meta'
+import { getConversationDirectory, getConversationTranscriptPath } from './conversation-paths'
+import { readRawJsonlEntries, writeJsonlEntries } from './jsonl'
 
-export interface ConversationMeta {
-  forkedFrom?: string
-  forkPointMessageId?: string
-  createdAt: string
-}
-
-function getMetaPath(conversationId: string, root: string = workspaceRoot): string {
-  return path.join(getConversationDirectory(conversationId, root), 'meta.json')
-}
-
-export async function readConversationMeta(
-  conversationId: string,
-  root: string = workspaceRoot,
-): Promise<ConversationMeta | null> {
-  try {
-    const raw = await readFile(getMetaPath(conversationId, root), 'utf8')
-    return JSON.parse(raw) as ConversationMeta
-  } catch {
-    return null
-  }
-}
-
-export async function writeConversationMeta(
-  conversationId: string,
-  meta: ConversationMeta,
-  root: string = workspaceRoot,
-): Promise<void> {
-  const dir = getConversationDirectory(conversationId, root)
-  await mkdir(dir, { recursive: true })
-  await writeFile(getMetaPath(conversationId, root), JSON.stringify(meta, null, 2), 'utf8')
-}
+export { readConversationMeta }
 
 export interface ForkResult {
   conversationId: string
@@ -56,7 +25,7 @@ export async function forkConversation(
   const root = options.root ?? workspaceRoot
   const transcriptPath = getConversationTranscriptPath(sourceConversationId, root)
 
-  const allEntries = await readJsonlEntries<ConversationMessage & { kind?: string }>(transcriptPath)
+  const allEntries = await readRawJsonlEntries<ConversationMessage & { kind?: string }>(transcriptPath)
   const messages = allEntries.filter((e) => e.kind !== 'turn') as ConversationMessage[]
 
   let forkedMessages: ConversationMessage[]
@@ -74,7 +43,7 @@ export async function forkConversation(
     forkPointId = messages[messages.length - 1]?.id
   }
 
-  const newConversationId = randomUUID()
+  const newConversationId = generateId()
   const newDir = getConversationDirectory(newConversationId, root)
   await mkdir(newDir, { recursive: true })
 

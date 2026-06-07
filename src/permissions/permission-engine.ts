@@ -12,6 +12,7 @@ import {
   type PermissionEvaluationInput,
   type PermissionMode,
 } from './permission-rules'
+import { createObservableStore } from '../lib/observable-store'
 
 export interface PermissionEngineSnapshot {
   mode: PermissionMode
@@ -20,54 +21,45 @@ export interface PermissionEngineSnapshot {
   activeRequest: PermissionRequestRecord | null
 }
 
-type Listener = () => void
-
 export class PermissionEngine {
   private mode: PermissionMode = 'Normal'
   private prePlanMode: PermissionMode | null = null
   private requests: PermissionRequestRecord[] = []
   private activeRequest: PermissionRequestRecord | null = null
-  private snapshot: PermissionEngineSnapshot = {
+  private readonly store = createObservableStore<PermissionEngineSnapshot>({
     mode: this.mode,
     prePlanMode: this.prePlanMode,
     requests: this.requests,
     activeRequest: this.activeRequest,
-  }
-  private readonly listeners = new Set<Listener>()
+  })
   private readonly pendingResolvers = new Map<string, (decision: Exclude<PermissionDecision, 'ask'>) => void>()
 
   async initialize(): Promise<void> {
     await this.refresh()
   }
 
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener)
   }
 
   getSnapshot(): PermissionEngineSnapshot {
-    return this.snapshot
+    return this.store.getSnapshot()
   }
 
   setMode(mode: PermissionMode): void {
     this.mode = mode
     this.refreshSnapshot()
-    this.emit()
   }
 
   cycleMode(): PermissionMode {
     this.mode = cyclePermissionMode(this.mode)
     this.refreshSnapshot()
-    this.emit()
     return this.mode
   }
 
   setPrePlanMode(mode: PermissionMode | null): void {
     this.prePlanMode = mode
     this.refreshSnapshot()
-    this.emit()
   }
 
   getPrePlanMode(): PermissionMode {
@@ -80,7 +72,6 @@ export class PermissionEngine {
     this.requests = requests
     this.activeRequest = requests.find((request) => request.state === 'dequeued') ?? null
     this.refreshSnapshot()
-    this.emit()
   }
 
   async request(input: PermissionEvaluationInput): Promise<PermissionDecision> {
@@ -128,17 +119,11 @@ export class PermissionEngine {
   }
 
   private refreshSnapshot(): void {
-    this.snapshot = {
+    this.store.setState({
       mode: this.mode,
       prePlanMode: this.prePlanMode,
       requests: this.requests,
       activeRequest: this.activeRequest,
-    }
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) {
-      listener()
-    }
+    })
   }
 }

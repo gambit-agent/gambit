@@ -32,11 +32,11 @@ const MAX_SLUG_RETRIES = 10
 /** Cached slugs keyed by session id */
 const slugCache = new Map<string, string>()
 
-export function getPlansDirectory(): string {
+function getPlansDirectory(): string {
   return path.join(workspaceRoot, '.gambit', 'plans')
 }
 
-export function getPlanSlug(sessionId: string): string {
+function getPlanSlug(sessionId: string): string {
   let slug = slugCache.get(sessionId)
   if (!slug) {
     const plansDir = getPlansDirectory()
@@ -52,11 +52,11 @@ export function getPlanSlug(sessionId: string): string {
   return slug!
 }
 
-export function setPlanSlug(sessionId: string, slug: string): void {
+function setPlanSlug(sessionId: string, slug: string): void {
   slugCache.set(sessionId, slug)
 }
 
-export function clearPlanSlug(sessionId: string): void {
+function clearPlanSlug(sessionId: string): void {
   slugCache.delete(sessionId)
 }
 
@@ -65,7 +65,7 @@ export function getPlanFilePath(sessionId: string): string {
   return path.join(getPlansDirectory(), `${slug}.md`)
 }
 
-export async function ensurePlansDirectory(): Promise<void> {
+async function ensurePlansDirectory(): Promise<void> {
   await mkdir(getPlansDirectory(), { recursive: true })
 }
 
@@ -78,7 +78,7 @@ export async function readPlan(sessionId: string): Promise<string | null> {
   }
 }
 
-export async function writePlan(sessionId: string, content: string): Promise<string> {
+async function writePlan(sessionId: string, content: string): Promise<string> {
   await ensurePlansDirectory()
   const filePath = getPlanFilePath(sessionId)
   await writeFile(filePath, content, 'utf-8')

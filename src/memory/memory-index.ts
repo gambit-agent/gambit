@@ -3,18 +3,8 @@ import path from 'node:path'
 
 import { workspaceRoot } from '../config'
 import { getMemoryDirectory, getMemoryFilePath, getMemoryIndexPath } from './memory-paths'
-import type { CreateMemoryInput, MemoryFrontmatter, MemoryRecord } from './memory-types'
-import { isMemoryType } from './memory-types'
-
-function stripQuotes(value: string): string {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1)
-  }
-  return value
-}
+import type { CreateMemoryInput, MemoryRecord } from './memory-types'
+import { parseMemoryFrontmatter, stringifyMemoryFrontmatter } from './memory-frontmatter'
 
 export function slugifyMemoryName(name: string): string {
   return name
@@ -24,62 +14,22 @@ export function slugifyMemoryName(name: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-export function buildMemoryFileContents(input: CreateMemoryInput, updated: string): string {
+function buildMemoryFileContents(input: CreateMemoryInput, updated: string): string {
   const effectiveUpdated = input.updated?.trim() || updated
   return [
-    '---',
-    `name: ${input.name}`,
-    `description: ${input.description}`,
-    `type: ${input.type}`,
-    `updated: ${effectiveUpdated}`,
-    '---',
-    '',
+    stringifyMemoryFrontmatter({
+      name: input.name,
+      description: input.description,
+      type: input.type,
+      updated: effectiveUpdated,
+    }).trimEnd(),
     input.content.trim(),
     '',
   ].join('\n')
 }
 
 export function parseMemoryFile(filePath: string, raw: string): MemoryRecord | null {
-  const normalized = raw.replace(/\r\n/g, '\n')
-  if (!normalized.startsWith('---\n')) {
-    return null
-  }
-
-  const closingIndex = normalized.indexOf('\n---\n', 4)
-  if (closingIndex === -1) {
-    return null
-  }
-
-  const frontmatterBlock = normalized.slice(4, closingIndex)
-  const body = normalized.slice(closingIndex + 5).trim()
-  const frontmatterLines = frontmatterBlock.split('\n')
-  const frontmatter: Partial<MemoryFrontmatter> = {}
-
-  for (const rawLine of frontmatterLines) {
-    const separatorIndex = rawLine.indexOf(':')
-    if (separatorIndex === -1) {
-      continue
-    }
-
-    const key = rawLine.slice(0, separatorIndex).trim()
-    const value = stripQuotes(rawLine.slice(separatorIndex + 1).trim())
-
-    if (key === 'name') {
-      frontmatter.name = value
-      continue
-    }
-    if (key === 'description') {
-      frontmatter.description = value
-      continue
-    }
-    if (key === 'type' && isMemoryType(value)) {
-      frontmatter.type = value
-      continue
-    }
-    if (key === 'updated') {
-      frontmatter.updated = value
-    }
-  }
+  const { frontmatter, body } = parseMemoryFrontmatter(raw)
 
   if (!frontmatter.name || !frontmatter.description || !frontmatter.type || !frontmatter.updated) {
     return null
@@ -99,26 +49,22 @@ export async function scanMemoryRecords(rootPath: string = workspaceRoot): Promi
   const memoryDirectory = getMemoryDirectory(rootPath)
   await mkdir(memoryDirectory, { recursive: true })
   const entries = await readdir(memoryDirectory, { withFileTypes: true })
-  const records: MemoryRecord[] = []
-
-  for (const entry of entries) {
+  const records = await Promise.all(entries.map(async (entry) => {
     if (!entry.isFile()) {
-      continue
+      return null
     }
     if (!entry.name.endsWith('.md') || entry.name === 'MEMORY.md') {
-      continue
+      return null
     }
 
     const filePath = path.join(memoryDirectory, entry.name)
     const raw = await readFile(filePath, 'utf8')
-    const parsed = parseMemoryFile(filePath, raw)
-    if (parsed) {
-      records.push(parsed)
-    }
-  }
+    return parseMemoryFile(filePath, raw)
+  }))
 
-  records.sort((left, right) => right.updated.localeCompare(left.updated))
   return records
+    .filter((record): record is MemoryRecord => record !== null)
+    .sort((left, right) => right.updated.localeCompare(left.updated))
 }
 
 export async function rebuildMemoryIndex(rootPath: string = workspaceRoot): Promise<void> {

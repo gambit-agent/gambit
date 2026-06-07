@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { workspaceRoot } from '../config'
 
-export function getGambitDirectory(root: string = workspaceRoot): string {
+function getGambitDirectory(root: string = workspaceRoot): string {
   return path.join(root, '.gambit')
 }
 
@@ -46,7 +46,7 @@ export function getTaskTranscriptPath(taskId: string, root: string = workspaceRo
   return path.join(getTaskDirectory(taskId, root), 'transcript.jsonl')
 }
 
-export function getPermissionsDirectory(root: string = workspaceRoot): string {
+function getPermissionsDirectory(root: string = workspaceRoot): string {
   return path.join(getGambitDirectory(root), 'permissions')
 }
 
@@ -62,7 +62,7 @@ export function getWorkItemStorePath(root: string = workspaceRoot): string {
   return path.join(getWorkboardDirectory(root), 'work-items.jsonl')
 }
 
-export function getLogsDirectory(root: string = workspaceRoot): string {
+function getLogsDirectory(root: string = workspaceRoot): string {
   return path.join(getGambitDirectory(root), 'logs')
 }
 

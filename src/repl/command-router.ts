@@ -1,21 +1,10 @@
 export type RoutedInput =
   | { kind: 'prompt'; value: string }
-  | { kind: 'local'; channel: 'colon' | 'shell' | 'memory' | 'slash' | 'template'; name: string; argument: string; raw: string }
+  | { kind: 'local'; channel: 'shell' | 'memory' | 'slash' | 'template'; name: string; argument: string; raw: string }
   | { kind: 'local-ui'; channel: 'slash'; name: string; argument: string; raw: string }
 
 export function routeCommandInput(value: string): RoutedInput {
   const trimmed = value.trim()
-
-  if (trimmed.startsWith(':')) {
-    const [name = '', ...rest] = trimmed.slice(1).split(' ')
-    return {
-      kind: 'local',
-      channel: 'colon',
-      name,
-      argument: rest.join(' ').trim(),
-      raw: trimmed,
-    }
-  }
 
   if (trimmed.startsWith('!')) {
     return {

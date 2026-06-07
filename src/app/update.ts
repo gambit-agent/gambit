@@ -30,7 +30,7 @@ Environment:
   GAMBIT_BIN_DIR         Install directory. Defaults to the user-local bin directory.
 `
 
-export function printUpdateHelp(): void {
+function printUpdateHelp(): void {
   process.stdout.write(UPDATE_HELP)
 }
 

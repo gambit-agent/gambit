@@ -33,7 +33,7 @@ const OUTPUT_FORMATS: OutputFormat[] = ['text', 'json', 'stream-json']
 const PERMISSION_MODES: HeadlessPermissionMode[] = ['Normal', 'Plan', 'Auto-accept', 'acceptEdits']
 
 /** Heuristic to decide whether a raw string looks like a saved conversation UUID. */
-export function isConversationId(value: string): boolean {
+function isConversationId(value: string): boolean {
   return UUID_PATTERN.test(value.trim())
 }
 

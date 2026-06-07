@@ -17,7 +17,8 @@ beforeAll(async () => {
   process.env.WORKSPACE_ROOT = workspaceDir;
   setWorkspaceRootForTesting(workspaceDir);
   const toolsModule = await import("./index");
-  patchTool = async (params) => toolsModule.agentTools.patchFile.execute(params as any);
+  const agentTools = await toolsModule.createAgentToolMap({ workspaceRoot: workspaceDir, includeMCPTools: false });
+  patchTool = async (params) => String(await agentTools.patchFile.execute(params as any));
 });
 
 afterAll(async () => {

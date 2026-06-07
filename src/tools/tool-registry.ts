@@ -1,4 +1,4 @@
-import type { ToolDefinition } from './tool-types'
+import type { AnyToolDefinition } from './tool-types'
 
 /**
  * In-memory registry for built-in tools. Tools are keyed by their `id` and
@@ -6,30 +6,30 @@ import type { ToolDefinition } from './tool-types'
  * adapter layer that exposes tools to the Vercel AI SDK.
  */
 export class ToolRegistry {
-  private readonly tools = new Map<string, ToolDefinition<any, any>>()
+  private readonly tools = new Map<string, AnyToolDefinition>()
 
-  constructor(definitions: ToolDefinition<any, any>[] = []) {
+  constructor(definitions: AnyToolDefinition[] = []) {
     for (const definition of definitions) {
       this.register(definition)
     }
   }
 
-  register(definition: ToolDefinition<any, any>): void {
+  register(definition: AnyToolDefinition): void {
     if (this.tools.has(definition.id)) {
       throw new Error(`Tool already registered: ${definition.id}`)
     }
     this.tools.set(definition.id, definition)
   }
 
-  get(id: string): ToolDefinition<any, any> | undefined {
+  get(id: string): AnyToolDefinition | undefined {
     return this.tools.get(id)
   }
 
-  list(): ToolDefinition<any, any>[] {
+  list(): AnyToolDefinition[] {
     return Array.from(this.tools.values())
   }
 }
 
-export function createToolRegistry(definitions: ToolDefinition<any, any>[] = []): ToolRegistry {
+export function createToolRegistry(definitions: AnyToolDefinition[] = []): ToolRegistry {
   return new ToolRegistry(definitions)
 }

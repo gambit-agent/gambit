@@ -144,7 +144,7 @@ export function useModelPicker({
       if (fallback.length > 0) {
         setAvailableModels(fallback)
       }
-      setHint("Set an OpenRouter API key with :key <token> to load the full OpenRouter catalog.")
+      setHint("Set an OpenRouter API key with /key <token> to load the full OpenRouter catalog.")
       return
     }
 

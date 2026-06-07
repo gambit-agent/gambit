@@ -42,7 +42,7 @@ async function runClipboardCommand(command: string[], text: string): Promise<voi
   throw new Error(stderr || `Clipboard command exited with code ${exitCode}.`)
 }
 
-export async function copyTextToClipboard(text: string): Promise<void> {
+async function copyTextToClipboard(text: string): Promise<void> {
   if (!text) {
     return
   }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { readFile } from 'node:fs/promises'
 
 import { defaultModel } from '../config'
@@ -10,6 +10,7 @@ import { readOpenRouterApiKey } from '../session/user-config'
 import { cleanupAllMCPClients } from '../tools/mcp'
 import { bootstrapAppRuntime } from './bootstrap'
 import type { HeadlessLaunchOptions, HeadlessPermissionMode, LaunchMode, OutputFormat } from './launch-options'
+import type { StreamEvent } from './stream-events'
 
 const TOOL_NAME_ALIASES: Record<string, string> = {
   read: 'readFile',
@@ -57,7 +58,7 @@ export interface RunHeadlessOptions {
   stderr?: NodeJS.WriteStream
 }
 
-type StreamJsonEvent = Record<string, unknown>
+type StreamJsonEvent = StreamEvent
 
 export async function runHeadless(options: RunHeadlessOptions): Promise<number> {
   const stdout = options.stdout ?? process.stdout
@@ -233,7 +234,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
 
   try {
     await runtime.conversationStore.pushMessage({
-      id: randomUUID(),
+      id: generateId(),
       role: 'user',
       content: trimmedPrompt,
       timestamp: new Date().toISOString(),

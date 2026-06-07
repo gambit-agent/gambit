@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { skillCatalogCharBudget, workspaceRoot } from "../config";
+import { parseFrontmatter, parseFrontmatterList } from "./frontmatter";
 import { truncate } from "./text";
 
 export type SkillScope = "project" | "user";
@@ -88,15 +89,12 @@ function normalizeDirOverride(value: string | string[] | null | undefined): stri
 }
 
 export async function loadSkills(): Promise<SkillDefinition[]> {
-  const projectSkills: SkillDefinition[] = [];
-  for (const dir of getProjectSkillDirs()) {
-    projectSkills.push(...(await collectSkills(dir, "project")));
-  }
-
-  const userSkills: SkillDefinition[] = [];
-  for (const dir of getUserSkillDirs()) {
-    userSkills.push(...(await collectSkills(dir, "user")));
-  }
+  const [projectSkillGroups, userSkillGroups] = await Promise.all([
+    Promise.all(getProjectSkillDirs().map((dir) => collectSkills(dir, "project"))),
+    Promise.all(getUserSkillDirs().map((dir) => collectSkills(dir, "user"))),
+  ]);
+  const projectSkills = projectSkillGroups.flat();
+  const userSkills = userSkillGroups.flat();
 
   const deduplicatedProject = dedupeByName(projectSkills);
   const projectNames = new Set(deduplicatedProject.map((skill) => skill.name));
@@ -136,10 +134,10 @@ export async function activateSkill(name: string): Promise<SkillActivation> {
 
 export function buildActivateSkillToolDescription(skills: SkillDefinition[]): string {
   const header = [
-    "Activate an Agent Skill to load its full instructions for a specialized task.",
+    "Activate an installed Agent Skill when a task matches its catalog description.",
     "Skills are discovered from `.gambit/skills/` and `.agents/skills/` at the project and user scope.",
-    "Call this tool with the exact `name` of a skill listed below when a task matches its description.",
-    "The tool returns the skill's SKILL.md body along with a list of bundled resources you can read on demand.",
+    "Call this with the exact `name` listed below.",
+    "The tool returns the skill's SKILL.md instructions and bundled resource paths to read only as needed.",
   ].join(" ");
 
   if (skills.length === 0) {
@@ -206,19 +204,15 @@ async function collectSkills(root: string, scope: SkillScope): Promise<SkillDefi
     return [];
   }
 
-  const skills: SkillDefinition[] = [];
-  for (const entry of entries) {
+  const skills = await Promise.all(entries.map(async (entry) => {
     if (!entry.isDirectory()) {
-      continue;
+      return null;
     }
     const skillDir = path.join(root, entry.name);
     const skillFile = path.join(skillDir, "SKILL.md");
-    const definition = await parseSkillFile(skillFile, entry.name, skillDir, scope);
-    if (definition) {
-      skills.push(definition);
-    }
-  }
-  return skills;
+    return parseSkillFile(skillFile, entry.name, skillDir, scope);
+  }));
+  return skills.filter((definition): definition is SkillDefinition => definition !== null);
 }
 
 async function parseSkillFile(
@@ -267,47 +261,25 @@ async function parseSkillFile(
 }
 
 function extractFrontmatter(content: string): { frontmatter: Frontmatter; body: string } {
-  if (!content.startsWith("---")) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const lines = content.split(/\r?\n/);
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-  if (closingIndex === -1) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const fmLines = lines.slice(1, closingIndex);
-  const body = lines.slice(closingIndex + 1).join("\n");
+  const { values, body } = parseFrontmatter(content);
   const frontmatter: Frontmatter = {};
 
-  for (const rawLine of fmLines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-    const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      continue;
-    }
-    const key = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
-
+  for (const [key, value] of Object.entries(values)) {
     switch (key) {
       case "name":
-        frontmatter.name = stripQuotes(value);
+        frontmatter.name = value;
         break;
       case "description":
-        frontmatter.description = stripQuotes(value);
+        frontmatter.description = value;
         break;
       case "license":
-        frontmatter.license = stripQuotes(value);
+        frontmatter.license = value;
         break;
       case "compatibility":
-        frontmatter.compatibility = stripQuotes(value);
+        frontmatter.compatibility = value;
         break;
       case "allowed-tools":
-        frontmatter.allowedTools = parseAllowedTools(value);
+        frontmatter.allowedTools = parseFrontmatterList(value);
         break;
       default:
         break;
@@ -315,26 +287,6 @@ function extractFrontmatter(content: string): { frontmatter: Frontmatter; body: 
   }
 
   return { frontmatter, body };
-}
-
-function parseAllowedTools(value: string): string[] {
-  if (!value) {
-    return [];
-  }
-  return value
-    .split(/[,\s]+/)
-    .map((entry) => stripQuotes(entry.trim()))
-    .filter(Boolean);
-}
-
-function stripQuotes(value: string): string {
-  if (
-    (value.startsWith("\"") && value.endsWith("\"")) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
 }
 
 function dedupeByName(skills: SkillDefinition[]): SkillDefinition[] {

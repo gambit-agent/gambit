@@ -4,23 +4,18 @@ import path from 'node:path'
 import { getStreamLogPath } from '../session/session-paths'
 
 const IDLE_WARN_INTERVAL_MS = 30_000
+const LOG_FLUSH_INTERVAL_MS = 50
+const MAX_BUFFERED_LOG_LINES = 100
 
 type Fields = Record<string, unknown>
 
-async function writeEntry(turnId: string, event: string, fields: Fields): Promise<void> {
-  const filePath = getStreamLogPath()
-  const entry = JSON.stringify({
+function serializeEntry(turnId: string, event: string, fields: Fields): string {
+  return `${JSON.stringify({
     ts: new Date().toISOString(),
     turnId,
     event,
     ...fields,
-  })
-  try {
-    await mkdir(path.dirname(filePath), { recursive: true })
-    await appendFile(filePath, `${entry}\n`, 'utf8')
-  } catch {
-    // best-effort — never throw from the logger
-  }
+  })}\n`
 }
 
 export interface StreamLogger {
@@ -32,17 +27,76 @@ export interface StreamLogger {
 
 export function createStreamLogger(turnId: string, context: Fields = {}): StreamLogger {
   const startedAt = Date.now()
+  const filePath = getStreamLogPath()
+  let directoryReady: Promise<void> | null = null
+  let writeChain = Promise.resolve()
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let bufferedLines: string[] = []
   let lastEventAt = startedAt
   let partCount = 0
   let warningCount = 0
 
-  void writeEntry(turnId, 'start', context)
+  const ensureDirectory = (): Promise<void> => {
+    directoryReady ??= mkdir(path.dirname(filePath), { recursive: true }).then(
+      () => undefined,
+      () => undefined,
+    )
+    return directoryReady
+  }
+
+  const flush = (): Promise<void> => {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    if (bufferedLines.length === 0) {
+      return writeChain
+    }
+
+    const content = bufferedLines.join('')
+    bufferedLines = []
+    writeChain = writeChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await ensureDirectory()
+          await appendFile(filePath, content, 'utf8')
+        } catch {
+          // best-effort — never throw from the logger
+        }
+      })
+    return writeChain
+  }
+
+  const scheduleFlush = (): void => {
+    if (flushTimer) {
+      return
+    }
+    flushTimer = setTimeout(() => {
+      flushTimer = null
+      void flush()
+    }, LOG_FLUSH_INTERVAL_MS)
+    if (typeof flushTimer.unref === 'function') {
+      flushTimer.unref()
+    }
+  }
+
+  const writeEntry = (event: string, fields: Fields, options: { flush?: boolean } = {}): void => {
+    bufferedLines.push(serializeEntry(turnId, event, fields))
+    if (options.flush || bufferedLines.length >= MAX_BUFFERED_LOG_LINES) {
+      void flush()
+      return
+    }
+    scheduleFlush()
+  }
+
+  writeEntry('start', context)
 
   const idleInterval = setInterval(() => {
     const idleMs = Date.now() - lastEventAt
     if (idleMs >= IDLE_WARN_INTERVAL_MS) {
       warningCount += 1
-      void writeEntry(turnId, 'idle', {
+      writeEntry('idle', {
         idleMs,
         lastEventAt: new Date(lastEventAt).toISOString(),
         partCount,
@@ -65,7 +119,7 @@ export function createStreamLogger(turnId: string, context: Fields = {}): Stream
     event(type: string, fields: Fields = {}): void {
       const now = Date.now()
       partCount += 1
-      void writeEntry(turnId, 'part', {
+      writeEntry('part', {
         type,
         partIndex: partCount,
         deltaMs: now - lastEventAt,
@@ -76,29 +130,29 @@ export function createStreamLogger(turnId: string, context: Fields = {}): Stream
     },
     finish(fields: Fields = {}): void {
       stop()
-      void writeEntry(turnId, 'finish', {
+      writeEntry('finish', {
         elapsedMs: Date.now() - startedAt,
         partCount,
         ...fields,
-      })
+      }, { flush: true })
     },
     error(err: unknown, fields: Fields = {}): void {
       stop()
-      void writeEntry(turnId, 'error', {
+      writeEntry('error', {
         elapsedMs: Date.now() - startedAt,
         partCount,
         message: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
         ...fields,
-      })
+      }, { flush: true })
     },
     aborted(fields: Fields = {}): void {
       stop()
-      void writeEntry(turnId, 'aborted', {
+      writeEntry('aborted', {
         elapsedMs: Date.now() - startedAt,
         partCount,
         ...fields,
-      })
+      }, { flush: true })
     },
   }
 }

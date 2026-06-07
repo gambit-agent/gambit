@@ -2,7 +2,7 @@ import { access, appendFile, chmod, copyFile, mkdir, readFile } from 'node:fs/pr
 import { homedir } from 'node:os'
 import path from 'node:path'
 
-export interface InstallOptions {
+interface InstallOptions {
   target?: string
   installDir?: string
   noModifyPath: boolean

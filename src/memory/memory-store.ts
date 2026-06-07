@@ -22,8 +22,11 @@ export class MemoryStore {
   }
 
   async getRelevantContext(query: string): Promise<string> {
-    const memories = await findRelevantMemories(query)
-    return formatRelevantMemories(memories)
+    return formatRelevantMemories(await this.getRelevantMemories(query))
+  }
+
+  async getRelevantMemories(query: string, options: { limit?: number } = {}): Promise<MemoryRecord[]> {
+    return findRelevantMemories(query, options.limit)
   }
 
   async getIndex(): Promise<string> {

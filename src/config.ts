@@ -32,6 +32,15 @@ export const MAX_FILE_CHARS = 60_000;
 /** Maximum characters of shell output to inline before truncation or artifact storage. */
 export const MAX_SHELL_OUTPUT = 20_000;
 
+/** Fallback context window when provider metadata is unavailable. */
+export const DEFAULT_MODEL_CONTEXT_LENGTH = 128_000;
+
+/** Maximum characters of tool output to inline before writing an artifact. */
+export const MAX_INLINE_TOOL_RESULT_CHARS = 8_000;
+
+/** Timeout for fetching model metadata from OpenRouter. */
+export const MODEL_METADATA_TIMEOUT_MS = 10_000;
+
 /** Parsed byte limit for the project-doc prompt fragment. */
 export const projectDocMaxBytes = parseProjectDocMaxBytes(Bun.env.PROJECT_DOC_MAX_BYTES);
 
@@ -52,6 +61,18 @@ export const skillCatalogCharBudget = parseSkillCatalogCharBudget(
 
 /** Maximum model/tool loop steps per agent turn. */
 export const maxAgentSteps = parseMaxAgentSteps(Bun.env.GAMBIT_MAX_AGENT_STEPS);
+
+/** Maximum inline characters for aggregated delegated-agent output. */
+export const MAX_AGENT_BATCH_INLINE_OUTPUT_CHARS = 12_000;
+
+/** Response spinner cadence used by the interactive REPL footer. */
+export const RESPONSE_SPINNER_INTERVAL_MS = 80;
+
+/** Maximum time between Esc presses before the interactive rewind is cancelled. */
+export const DOUBLE_ESC_INTERVAL_MS = 400;
+
+/** Frames used by the interactive REPL response spinner. */
+export const responseSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 /** Override the workspace root at test time so tests run in a temp directory. */
 export function setWorkspaceRootForTesting(newRoot: string) {

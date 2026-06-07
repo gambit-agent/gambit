@@ -21,7 +21,3 @@ export interface CreateMemoryInput {
   content: string
   updated?: string
 }
-
-export function isMemoryType(value: unknown): value is MemoryType {
-  return MEMORY_TYPES.some((type) => type === value)
-}

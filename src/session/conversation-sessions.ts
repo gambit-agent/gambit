@@ -2,9 +2,10 @@ import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import type { ConversationMessage } from '../conversation/conversation-types'
-import { readJsonlEntries } from '../conversation/transcript'
 import { workspaceRoot } from '../config'
-import { readConversationMeta } from './conversation-fork'
+import { readConversationMeta } from './conversation-meta'
+import { getConversationsDirectory, getConversationTranscriptPath } from './conversation-paths'
+import { readRawJsonlEntries } from './jsonl'
 
 interface TranscriptMessageRecord extends ConversationMessage {
   kind?: string
@@ -20,18 +21,6 @@ export interface ConversationSessionSummary {
   updatedAt: string | null
   messageCount: number
   forkedFrom?: string
-}
-
-function getConversationsDirectory(root: string = workspaceRoot): string {
-  return path.join(root, '.gambit', 'conversations')
-}
-
-export function getConversationDirectory(conversationId: string, root: string = workspaceRoot): string {
-  return path.join(getConversationsDirectory(root), conversationId)
-}
-
-export function getConversationTranscriptPath(conversationId: string, root: string = workspaceRoot): string {
-  return path.join(getConversationDirectory(conversationId, root), 'transcript.jsonl')
 }
 
 function normalizeSnippet(value: string, maxLength: number): string {
@@ -92,7 +81,7 @@ async function readSessionSummary(
   root: string = workspaceRoot,
 ): Promise<ConversationSessionSummary | null> {
   const transcriptPath = getConversationTranscriptPath(conversationId, root)
-  const records = await readJsonlEntries<TranscriptMessageRecord>(transcriptPath)
+  const records = await readRawJsonlEntries<TranscriptMessageRecord>(transcriptPath)
   const summary = buildSummary(conversationId, transcriptPath, records)
   if (!summary) return null
 

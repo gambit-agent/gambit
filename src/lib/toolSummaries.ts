@@ -266,6 +266,18 @@ function summarizeSpawnAgent(input: unknown, output: unknown): ToolSummaryParts 
   }
 }
 
+function summarizeWorkflow(input: unknown, output: unknown): ToolSummaryParts {
+  const args = asRecord(input)
+  const script = typeof args?.script === 'string' ? args.script : ''
+  const name = script.match(/\bname\s*:\s*['"`]([^'"`]+)['"`]/)?.[1]
+  const firstLine = firstUsefulLine(extractTextOutput(output))
+
+  return {
+    headline: firstLine ?? 'Workflow completed',
+    detail: name ? `workflow: ${name}` : undefined,
+  }
+}
+
 function summarizeSlashCommandExecution(result: SlashCommandExecution, input: unknown): ToolSummaryParts {
   const args = asRecord(input)
   const name = formatSlashCommandName(args?.name ?? result.command) ?? '/command'
@@ -330,6 +342,16 @@ function summarizeStarted(toolName: string, input: unknown): ToolSummaryParts {
       return {
         headline: 'Running delegated agents',
         detail: Array.isArray(args?.agents) ? `${args.agents.length} agents` : undefined,
+      }
+    case 'workflow':
+      return {
+        headline: 'Running workflow',
+        detail: formatInlineText(
+          typeof args?.script === 'string'
+            ? args.script.match(/\bname\s*:\s*['"`]([^'"`]+)['"`]/)?.[1]
+            : undefined,
+          64,
+        ) ?? undefined,
       }
     case 'waitForTasks':
       return {
@@ -406,6 +428,10 @@ export function summarizeToolCompletion(
 
   if (toolName === 'runAgents') {
     return withArtifactNote(summarizeSpawnAgent(input, output), options.artifactPath)
+  }
+
+  if (toolName === 'workflow') {
+    return withArtifactNote(summarizeWorkflow(input, output), options.artifactPath)
   }
 
   if (toolName === 'readTaskOutput') {

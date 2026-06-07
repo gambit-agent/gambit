@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 
 import type { ConversationMessage } from './conversation-types'
 
@@ -18,7 +18,7 @@ export function createGoalMessage(goal: string): ConversationMessage {
   }
 
   return {
-    id: `goal-${randomUUID()}`,
+    id: `goal-${generateId()}`,
     role: 'system',
     content: `${GOAL_HEADER}\n${normalizedGoal}\n\n${GOAL_INSTRUCTION}`,
     timestamp: new Date().toISOString(),

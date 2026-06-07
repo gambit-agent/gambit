@@ -1,19 +1,19 @@
-import { stepCountIs, streamText } from 'ai'
-import { randomUUID } from 'node:crypto'
-
+import { generateId } from '../lib/id'
 import { toCoreMessages } from '../lib/messages'
 import { createModelSelector, type ReasoningEffort } from '../lib/model'
+import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { maxAgentSteps } from '../config'
 import { getMemoryPrompt } from '../memory/memory-prompt'
+import { formatRelevantMemories } from '../memory/memory-retrieval'
 import { MemoryStore } from '../memory/memory-store'
-import { createAiToolMap, createRuntimeToolRegistry } from '../tools/index'
+import { createAiToolMap, createRuntimeToolSuite, type RuntimeToolSuite } from '../tools/index'
 import type { ToolExecutionContext } from '../tools/tool-types'
-import { createToolExecutor, type ToolExecutionResult } from '../tools/tool-executor'
-import { compactMessages, shouldAutoCompact } from './compaction'
+import type { ToolExecutionResult } from '../tools/tool-executor'
+import { compactMessages } from './compaction'
 import { buildGoalSystemPrompt, isGoalMessage } from './goal'
 import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
-import { createStreamLogger } from '../lib/stream-logger'
+import { AssistantMessageBuilder } from './assistant-message-builder'
 import { ConversationStore } from './conversation-store'
 import type { ConversationMessage, ConversationToolCall, ConversationTurnRecord } from './conversation-types'
 
@@ -30,6 +30,11 @@ export interface ConversationRunnerDependencies {
     signal?: AbortSignal
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   }) => Partial<ToolExecutionContext>
+  createToolSuite?: (options?: {
+    includeSpawnAgent?: boolean
+    discoverMCPServerTools?: boolean
+    workspaceRoot?: string
+  }) => Promise<RuntimeToolSuite>
 }
 
 export interface RunConversationTurnOptions {
@@ -42,6 +47,10 @@ export interface RunConversationTurnOptions {
   allowedToolIds?: readonly string[]
   systemPromptOverride?: string
   appendSystemPrompt?: string
+}
+
+export function buildDelegatedAgentBaseSystemPrompt(basePrompt: string, goalSystemPrompt: string | null): string {
+  return [basePrompt, goalSystemPrompt].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -64,14 +73,18 @@ export class ConversationRunner {
     toolCall: ConversationToolCall,
     context: Partial<ToolExecutionContext> = {},
   ): Promise<ToolExecutionResult> {
-    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
-    const toolExecutor = createToolExecutor(registry, {
-      workspaceRoot: context.workspaceRoot ?? this.dependencies.createToolContext().workspaceRoot,
-    })
-    const result = await toolExecutor.execute(toolCall.toolId, toolCall.input, {
+    const baseContext = this.dependencies.createToolContext()
+    const executionContext = {
+      ...baseContext,
       ...context,
       toolCallId: toolCall.toolCallId,
+    }
+    const { executor } = await this.createToolSuite({
+      includeSpawnAgent: true,
+      discoverMCPServerTools: true,
+      workspaceRoot: executionContext.workspaceRoot,
     })
+    const result = await executor.execute(toolCall.toolId, toolCall.input, executionContext)
 
     await this.dependencies.store.appendMessage({
       id: result.event.toolCallId,
@@ -114,23 +127,26 @@ export class ConversationRunner {
    * execute any requested tools, and commit everything to the store.
    */
   async runTurn(options: RunConversationTurnOptions): Promise<ConversationTurnRecord> {
-    // Auto-compact based on model's actual context window before starting.
-    const preSnapshot = this.dependencies.store.getSnapshot()
-    const contextLength = await getModelContextLength(options.modelId, options.apiKey)
-    const maxTokens = getCompactionThreshold(contextLength)
-    if (shouldAutoCompact(preSnapshot.messages, { maxTokens })) {
-      const result = compactMessages(preSnapshot.messages, { maxTokens })
-      if (result.compacted) {
-        await this.dependencies.store.replaceMessages(result.messages)
-      }
-    }
+    const relevantMemoriesPromise = this.dependencies.memoryStore.getRelevantMemories(options.userInput)
+    void relevantMemoriesPromise.catch(() => undefined)
+    const preflightToolContext = this.dependencies.createToolContext({ signal: options.signal })
+    const toolSuitePromise = this.createToolSuite({
+      includeSpawnAgent: true,
+      discoverMCPServerTools: true,
+      workspaceRoot: preflightToolContext.workspaceRoot,
+    })
+    void toolSuitePromise.catch(() => undefined)
+
+    await this.compact({ apiKey: options.apiKey, modelId: options.modelId })
 
     const snapshot = this.dependencies.store.getSnapshot()
-    const relevantMemoryContext = await this.dependencies.memoryStore.getRelevantContext(options.userInput)
+    const initialMessageCount = snapshot.messages.length
+    const relevantMemoryContext = formatRelevantMemories(await relevantMemoriesPromise)
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
+    const goalSystemPrompt = buildGoalSystemPrompt(snapshot.messages)
     const systemPrompt = [
       basePrompt,
-      buildGoalSystemPrompt(snapshot.messages),
+      goalSystemPrompt,
       options.appendSystemPrompt,
       getMemoryPrompt(),
       relevantMemoryContext,
@@ -144,17 +160,14 @@ export class ConversationRunner {
         apiKey: options.apiKey,
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort,
-        baseSystemPrompt: basePrompt,
+        baseSystemPrompt: buildDelegatedAgentBaseSystemPrompt(basePrompt, goalSystemPrompt),
         delegationDepth: 0,
         maxDelegationDepth: 3,
         maxSteps: maxAgentSteps,
       },
     })
-    const registry = await createRuntimeToolRegistry({ includeSpawnAgent: true, discoverMCPServerTools: true })
-    const toolExecutor = createToolExecutor(registry, {
-      workspaceRoot: toolContext.workspaceRoot,
-    })
-    const tools = createAiToolMap(registry, toolExecutor, {
+    const { registry, executor } = await toolSuitePromise
+    const tools = createAiToolMap(registry, executor, {
       ...toolContext,
       allowedToolIds: options.allowedToolIds,
     })
@@ -165,7 +178,7 @@ export class ConversationRunner {
       : undefined
 
     const turn: ConversationTurnRecord = {
-      id: randomUUID(),
+      id: generateId(),
       startedAt: new Date().toISOString(),
       userInput: options.userInput,
     }
@@ -173,64 +186,12 @@ export class ConversationRunner {
     this.dependencies.store.setStatus('running')
     this.dependencies.store.setError(null)
 
-    let assistantContent = ''
-    let reasoningContent = ''
-    let currentAssistantId: string | null = null
-    let currentAssistantText = ''
-    let currentAssistantReasoning = ''
-    let assistantSegmentAdded = false
-    const currentTurnAssistantIds = new Set<string>()
-
-    const composeAssistantContent = (reasoning: string, text: string): string => {
-      if (!options.showReasoning || !reasoning.trim()) {
-        return text
-      }
-      return `Reasoning:\n${reasoning.trim()}\n\n${text}`
-    }
-
-    const composeCurrentAssistantContent = (): string => {
-      return composeAssistantContent(currentAssistantReasoning, currentAssistantText)
-    }
-
-    const updateCurrentAssistantMessage = async (): Promise<void> => {
-      const content = composeCurrentAssistantContent()
-      if (!content.trim()) {
-        return
-      }
-
-      if (!currentAssistantId) {
-        currentAssistantId = randomUUID()
-      }
-
-      if (!assistantSegmentAdded) {
-        assistantSegmentAdded = true
-        currentTurnAssistantIds.add(currentAssistantId)
-        await this.dependencies.store.pushMessage(
-          { id: currentAssistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
-          { persist: false },
-        )
-        return
-      }
-
-      this.dependencies.store.updateMessage(currentAssistantId, { content })
-    }
-
-    const startNextAssistantSegment = (): void => {
-      currentAssistantId = null
-      currentAssistantText = ''
-      currentAssistantReasoning = ''
-      assistantSegmentAdded = false
-    }
-
-    const streamLog = createStreamLogger(turn.id, {
-      modelId: options.modelId,
-      reasoningEffort: options.reasoningEffort ?? null,
-      messageCount: snapshot.messages.length,
-      toolCount: Object.keys(tools).length,
-    })
+    const assistantBuilder = new AssistantMessageBuilder(this.dependencies.store, Boolean(options.showReasoning))
+    const streamRunner = new ModelStreamRunner()
 
     try {
-      const result = await streamText({
+      const result = await streamRunner.run({
+        streamId: turn.id,
         model: selectModel(options.modelId, modelSettings),
         messages: toCoreMessages(
           [
@@ -250,154 +211,88 @@ export class ConversationRunner {
           ],
         ),
         tools,
-        stopWhen: stepCountIs(maxAgentSteps),
-        abortSignal: options.signal,
+        maxSteps: maxAgentSteps,
+        signal: options.signal,
+        logMetadata: {
+          modelId: options.modelId,
+          reasoningEffort: options.reasoningEffort ?? null,
+          messageCount: snapshot.messages.length,
+          toolCount: Object.keys(tools).length,
+        },
+        handlers: {
+          onReasoningDelta: async (text) => {
+            await assistantBuilder.appendReasoning(text)
+          },
+          onTextDelta: async (chunk) => {
+            await assistantBuilder.appendText(chunk)
+          },
+          onToolCall: async (part) => {
+            await assistantBuilder.startNextSegment()
+            const toolCallId = part.toolCallId ?? generateId()
+            const content = formatToolEvent({
+              toolName: part.toolName ?? 'unknown',
+              status: 'started',
+              args: part.input ?? {},
+              toolCallId,
+            })
+            await this.upsertToolMessage(toolCallId, {
+              toolName: part.toolName ?? 'unknown',
+              content,
+              args: part.input ?? {},
+              status: 'started',
+            })
+          },
+          onToolResult: async (part) => {
+            if (part.preliminary) {
+              return
+            }
+            const toolCallId = part.toolCallId ?? generateId()
+            const content = formatToolEvent({
+              toolName: part.toolName ?? 'unknown',
+              status: 'completed',
+              args: part.input ?? {},
+              toolCallId,
+              result: part.output,
+            })
+            await this.upsertToolMessage(toolCallId, {
+              toolName: part.toolName ?? 'unknown',
+              content,
+              args: part.input ?? {},
+              result: part.output,
+              status: 'completed',
+            })
+          },
+          onToolError: async (part, errorMessage) => {
+            const toolCallId = part.toolCallId ?? generateId()
+            const content = formatToolEvent({
+              toolName: part.toolName ?? 'unknown',
+              status: 'failed',
+              args: part.input ?? {},
+              toolCallId,
+              result: `Error: ${errorMessage}`,
+            })
+            await this.upsertToolMessage(toolCallId, {
+              toolName: part.toolName ?? 'unknown',
+              content,
+              args: part.input ?? {},
+              result: `Error: ${errorMessage}`,
+              status: 'failed',
+            })
+          },
+        },
       })
 
-      const stream = result.fullStream as AsyncIterable<any>
-      let streamError: unknown = null
-      for await (const part of stream) {
-        streamLog.event(part.type, {
-          toolName: part.toolName,
-          toolCallId: part.toolCallId,
-          textLen: typeof part.text === 'string' ? part.text.length : typeof part.textDelta === 'string' ? part.textDelta.length : undefined,
-        })
-
-        if (part.type === 'error') {
-          streamError = part.error
-          continue
-        }
-
-        // Accumulate reasoning text and, if enabled, stream it into the assistant message live.
-        if (part.type === 'reasoning-delta') {
-          if (typeof part.text === 'string' && part.text) {
-            reasoningContent += part.text
-            currentAssistantReasoning += part.text
-            if (options.showReasoning && currentAssistantReasoning.trim()) {
-              await updateCurrentAssistantMessage()
-            }
-          }
-          continue
-        }
-
-        // Accumulate assistant text and mirror it into the store for live UI updates.
-        if (part.type === 'text-delta') {
-          const chunk =
-            typeof part.text === 'string' ? part.text : typeof part.textDelta === 'string' ? part.textDelta : typeof part.delta === 'string' ? part.delta : ''
-
-          if (!chunk) {
-            continue
-          }
-
-          assistantContent += chunk
-          currentAssistantText += chunk
-          await updateCurrentAssistantMessage()
-          continue
-        }
-
-        if (part.type === 'tool-call') {
-          startNextAssistantSegment()
-          const content = formatToolEvent({
-            toolName: part.toolName ?? 'unknown',
-            status: 'started',
-            args: part.input ?? {},
-            toolCallId: part.toolCallId,
-          })
-          await this.upsertToolMessage(part.toolCallId, {
-            toolName: part.toolName ?? 'unknown',
-            content,
-            args: part.input ?? {},
-            status: 'started',
-          })
-          continue
-        }
-
-        if (part.type === 'tool-result') {
-          if (part.preliminary) {
-            continue
-          }
-          const content = formatToolEvent({
-            toolName: part.toolName ?? 'unknown',
-            status: 'completed',
-            args: part.input ?? {},
-            toolCallId: part.toolCallId,
-            result: part.output,
-          })
-          await this.upsertToolMessage(part.toolCallId, {
-            toolName: part.toolName ?? 'unknown',
-            content,
-            args: part.input ?? {},
-            result: part.output,
-            status: 'completed',
-          })
-          continue
-        }
-
-        if (part.type === 'tool-error') {
-          const errorMessage =
-            part.error instanceof Error
-              ? part.error.message
-              : typeof part.error === 'string'
-                ? part.error
-                : JSON.stringify(part.error, null, 2)
-          const content = formatToolEvent({
-            toolName: part.toolName ?? 'unknown',
-            status: 'failed',
-            args: part.input ?? {},
-            toolCallId: part.toolCallId,
-            result: `Error: ${errorMessage}`,
-          })
-          await this.upsertToolMessage(part.toolCallId, {
-            toolName: part.toolName ?? 'unknown',
-            content,
-            args: part.input ?? {},
-            result: `Error: ${errorMessage}`,
-            status: 'failed',
-          })
-        }
-      }
-
-      if (streamError) {
-        throw streamError instanceof Error ? streamError : new Error(extractErrorMessage(streamError))
-      }
-
-      streamLog.finish({ textChars: assistantContent.length, reasoningChars: reasoningContent.length })
-
-      const resolvedText = ((await result.text) || assistantContent).trim()
-      const finalContent = composeAssistantContent(reasoningContent, resolvedText)
+      const finalContent = await assistantBuilder.finish(result.text)
       turn.finishedAt = new Date().toISOString()
       turn.assistantOutput = finalContent
 
-      if (!assistantContent.trim() && resolvedText) {
-        currentAssistantText = resolvedText
-        await updateCurrentAssistantMessage()
-      }
-
-      if (currentTurnAssistantIds.size === 0 && finalContent) {
-        const assistantId = randomUUID()
-        currentTurnAssistantIds.add(assistantId)
-        await this.dependencies.store.pushMessage({
-          id: assistantId,
-          role: 'assistant',
-          content: finalContent,
-          timestamp: new Date().toISOString(),
-        })
-      }
-
-      await this.dependencies.store.replaceMessages(this.dependencies.store.getSnapshot().messages)
+      const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
+      await this.dependencies.store.persistMessages(turnMessages)
       await this.dependencies.store.appendTurn(turn)
       this.dependencies.store.setStatus('idle')
       return turn
     } catch (error) {
-      const isAbort = options.signal?.aborted === true
-      if (isAbort) {
-        streamLog.aborted({ textChars: assistantContent.length })
-      } else {
-        streamLog.error(error, { textChars: assistantContent.length })
-      }
-      for (const assistantId of currentTurnAssistantIds) {
-        this.dependencies.store.removeMessage(assistantId)
-      }
+      assistantBuilder.removeTurnMessages()
       this.dependencies.store.setStatus('idle')
       this.dependencies.store.setError(error instanceof Error ? error.message : String(error))
       throw error
@@ -453,32 +348,20 @@ export class ConversationRunner {
       { persist: false },
     )
   }
-}
 
-function extractErrorMessage(value: unknown): string {
-  if (value instanceof Error) {
-    return value.message
+  private async createToolSuite(options: {
+    includeSpawnAgent?: boolean
+    discoverMCPServerTools?: boolean
+    workspaceRoot?: string
+  }): Promise<RuntimeToolSuite> {
+    if (this.dependencies.createToolSuite) {
+      return this.dependencies.createToolSuite(options)
+    }
+
+    return createRuntimeToolSuite({
+      includeSpawnAgent: options.includeSpawnAgent,
+      discoverMCPServerTools: options.discoverMCPServerTools,
+      workspaceRoot: options.workspaceRoot,
+    })
   }
-  if (typeof value === 'string') {
-    return value
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    if (typeof record.message === 'string') {
-      return record.message
-    }
-    const error = record.error
-    if (error instanceof Error) {
-      return error.message
-    }
-    if (typeof error === 'string') {
-      return error
-    }
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return String(value)
-    }
-  }
-  return String(value)
 }
