@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
+import { createObservableStore, type ObservableStore } from '../lib/observable-store'
 import { appendJsonlEntry, readJsonlEntries } from './transcript'
 import { writeJsonlEntries } from '../session/jsonl'
 import type { ConversationMessage, ConversationTurnRecord } from './conversation-types'
@@ -22,8 +23,6 @@ export interface ConversationStoreSnapshot {
   initialized: boolean
 }
 
-type Listener = () => void
-
 export class ConversationStore {
   readonly rootPath: string
   private currentConversationId: string
@@ -33,23 +32,14 @@ export class ConversationStore {
   private status: 'idle' | 'running' = 'idle'
   private error: string | null = null
   private initialized = false
-  private snapshotState: ConversationStoreSnapshot
-  private readonly listeners = new Set<Listener>()
+  private readonly store: ObservableStore<ConversationStoreSnapshot>
 
   constructor(options: ConversationStoreOptions = {}) {
     this.rootPath = options.rootPath ?? workspaceRoot
-    this.currentConversationId = options.conversationId ?? randomUUID()
+    this.currentConversationId = options.conversationId ?? generateId()
     this.currentDirectory = path.join(this.rootPath, '.gambit', 'conversations', this.currentConversationId)
     this.currentTranscriptPath = path.join(this.currentDirectory, 'transcript.jsonl')
-    this.snapshotState = {
-      conversationId: this.currentConversationId,
-      directory: this.currentDirectory,
-      transcriptPath: this.currentTranscriptPath,
-      messages: this.messages,
-      status: this.status,
-      error: this.error,
-      initialized: this.initialized,
-    }
+    this.store = createObservableStore(this.createSnapshot())
   }
 
   get conversationId(): string {
@@ -64,11 +54,8 @@ export class ConversationStore {
     return this.currentTranscriptPath
   }
 
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener)
   }
 
   async ensureReady(): Promise<void> {
@@ -96,36 +83,32 @@ export class ConversationStore {
 
     this.initialized = true
     this.refreshSnapshot()
-    this.emit()
   }
 
   async startNewConversation(initialMessages: ConversationMessage[] = []): Promise<string> {
-    const conversationId = randomUUID()
+    const conversationId = generateId()
     await this.openConversation(conversationId, initialMessages)
     return conversationId
   }
 
   getSnapshot(): ConversationStoreSnapshot {
-    return this.snapshotState
+    return this.store.getSnapshot()
   }
 
   setStatus(status: 'idle' | 'running'): void {
     this.status = status
     this.refreshSnapshot()
-    this.emit()
   }
 
   setError(error: string | null): void {
     this.error = error
     this.refreshSnapshot()
-    this.emit()
   }
 
   async pushMessage(message: ConversationMessage, options: { persist?: boolean } = {}): Promise<void> {
     this.initialized = true
     this.messages = [...this.messages, message]
     this.refreshSnapshot()
-    this.emit()
 
     if (options.persist !== false) {
       await this.ensureReady()
@@ -152,13 +135,11 @@ export class ConversationStore {
   updateMessage(id: string, patch: Partial<ConversationMessage>): void {
     this.messages = this.messages.map((message) => (message.id === id ? { ...message, ...patch } : message))
     this.refreshSnapshot()
-    this.emit()
   }
 
   removeMessage(id: string): void {
     this.messages = this.messages.filter((message) => message.id !== id)
     this.refreshSnapshot()
-    this.emit()
   }
 
   reset(messages: ConversationMessage[]): void {
@@ -167,7 +148,6 @@ export class ConversationStore {
     this.error = null
     this.status = 'idle'
     this.refreshSnapshot()
-    this.emit()
   }
 
   async replaceMessages(messages: ConversationMessage[]): Promise<void> {
@@ -176,7 +156,6 @@ export class ConversationStore {
     this.error = null
     this.status = 'idle'
     this.refreshSnapshot()
-    this.emit()
     await this.persistMessageSnapshot(messages)
   }
 
@@ -191,7 +170,11 @@ export class ConversationStore {
   }
 
   private refreshSnapshot(): void {
-    this.snapshotState = {
+    this.store.setState(this.createSnapshot())
+  }
+
+  private createSnapshot(): ConversationStoreSnapshot {
+    return {
       conversationId: this.currentConversationId,
       directory: this.currentDirectory,
       transcriptPath: this.currentTranscriptPath,
@@ -199,12 +182,6 @@ export class ConversationStore {
       status: this.status,
       error: this.error,
       initialized: this.initialized,
-    }
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) {
-      listener()
     }
   }
 

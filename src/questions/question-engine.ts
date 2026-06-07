@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
+import { createObservableStore } from '../lib/observable-store'
 
 import type {
   Question,
@@ -10,8 +11,6 @@ export interface QuestionEngineSnapshot {
   activeRequest: QuestionRequestRecord | null
   queue: QuestionRequestRecord[]
 }
-
-type Listener = () => void
 
 interface PendingResolver {
   resolve: (bundle: QuestionAnswerBundle) => void
@@ -26,19 +25,15 @@ export interface AskOptions {
 export class QuestionEngine {
   private activeRequest: QuestionRequestRecord | null = null
   private readonly queue: QuestionRequestRecord[] = []
-  private readonly listeners = new Set<Listener>()
   private readonly resolvers = new Map<string, PendingResolver>()
-  private snapshot: QuestionEngineSnapshot = { activeRequest: null, queue: [] }
+  private readonly store = createObservableStore<QuestionEngineSnapshot>({ activeRequest: null, queue: [] })
 
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener)
   }
 
   getSnapshot(): QuestionEngineSnapshot {
-    return this.snapshot
+    return this.store.getSnapshot()
   }
 
   async ask(questions: Question[], options: AskOptions = {}): Promise<QuestionAnswerBundle> {
@@ -47,7 +42,7 @@ export class QuestionEngine {
     }
 
     const record: QuestionRequestRecord = {
-      id: randomUUID(),
+      id: generateId(),
       questions,
       state: 'pending',
       createdAt: new Date().toISOString(),
@@ -123,12 +118,9 @@ export class QuestionEngine {
   }
 
   private refresh(): void {
-    this.snapshot = {
+    this.store.setState({
       activeRequest: this.activeRequest,
       queue: [...this.queue],
-    }
-    for (const listener of this.listeners) {
-      listener()
-    }
+    })
   }
 }

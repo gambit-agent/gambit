@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -74,7 +74,7 @@ export async function forkConversation(
     forkPointId = messages[messages.length - 1]?.id
   }
 
-  const newConversationId = randomUUID()
+  const newConversationId = generateId()
   const newDir = getConversationDirectory(newConversationId, root)
   await mkdir(newDir, { recursive: true })
 

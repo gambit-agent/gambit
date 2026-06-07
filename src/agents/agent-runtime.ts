@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -39,7 +39,7 @@ export async function createAgentRun(
   options: AgentRuntimeOptions = {},
 ): Promise<AgentRunHandle> {
   const rootPath = options.rootPath ?? workspaceRoot
-  const runId = randomUUID()
+  const runId = generateId()
   const transcriptPath = getAgentTranscriptPath(runId, rootPath)
   const outputPath = getAgentOutputPath(runId, rootPath)
   const recordPath = getAgentRecordPath(runId, rootPath)

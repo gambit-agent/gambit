@@ -37,6 +37,19 @@ export interface ToolExecutionContext {
   }
 }
 
+export type ToolCapability =
+  | 'taskRuntime'
+  | 'permissions'
+  | 'questions'
+  | 'shell'
+  | 'memory'
+  | 'agents'
+  | 'hooks'
+
+export interface ToolPermissionMetadata<Input> {
+  planFilePath?: (input: Input) => string | null | undefined
+}
+
 /**
  * Describes a permission gate for a tool invocation. When a tool provides
  * `getPermissionRequest`, the permission engine will show a prompt to the user
@@ -87,6 +100,8 @@ export interface ToolDefinition<InputSchema extends ZodTypeAny, Output> {
   shouldPersistLargeResult?: boolean
   maxInlineResultChars?: number
   getPermissionRequest?: (input: z.infer<InputSchema>) => ToolPermissionRequest | null
+  requiredCapabilities?: readonly ToolCapability[]
+  permissionMetadata?: ToolPermissionMetadata<z.infer<InputSchema>>
 }
 
-export type AnyToolDefinition = ToolDefinition<ZodTypeAny, unknown>
+export type AnyToolDefinition = ToolDefinition<any, any>

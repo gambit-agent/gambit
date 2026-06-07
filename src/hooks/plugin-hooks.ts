@@ -1,9 +1,9 @@
-import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { workspaceRoot } from '../config'
+import { collectFiles } from '../lib/file-scanner'
 
 export type GambitHookEvent = {
   type: string
@@ -79,7 +79,7 @@ export class HookManager {
 
     const plugins: LoadedGambitPlugin[] = []
     for (const directory of directories) {
-      const files = await collectPluginFiles(directory)
+      const files = await collectFiles(directory, { extensions: PLUGIN_EXTENSIONS })
       for (const filePath of files) {
         const hooks = await loadPlugin(filePath, root, options.importSuffix)
         if (hooks) {
@@ -161,30 +161,6 @@ export class HookManager {
     }
     return hookOutput
   }
-}
-
-async function collectPluginFiles(directory: string): Promise<string[]> {
-  let entries
-  try {
-    entries = await readdir(directory, { withFileTypes: true })
-  } catch {
-    return []
-  }
-
-  const files: string[] = []
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...(await collectPluginFiles(entryPath)))
-      continue
-    }
-    if (!entry.isFile() || !PLUGIN_EXTENSIONS.has(path.extname(entry.name))) {
-      continue
-    }
-    files.push(entryPath)
-  }
-  files.sort((left, right) => left.localeCompare(right))
-  return files
 }
 
 async function loadPlugin(filePath: string, root: string, importSuffix: string | undefined): Promise<GambitHookMap | null> {

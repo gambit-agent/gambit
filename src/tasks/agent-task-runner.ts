@@ -1,3 +1,5 @@
+import type { ToolSet } from 'ai'
+
 import { createAgentRun } from '../agents/agent-runtime'
 import { AgentRunner } from '../agents/agent-runner'
 import { DEFAULT_AGENT_DEFINITIONS } from '../agents/agent-definitions'
@@ -64,7 +66,7 @@ export class AgentTaskRunner {
     private readonly createChildTools: (
       allowedToolIds?: readonly string[],
       agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
-    ) => Promise<Record<string, any>>,
+    ) => Promise<ToolSet>,
   ) {}
 
   async *streamBatch(input: RunAgentBatchInput): AsyncGenerator<AgentBatchEvent, AgentBatchResult> {

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { readFile } from 'node:fs/promises'
 
 import { defaultModel } from '../config'
@@ -233,7 +233,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
 
   try {
     await runtime.conversationStore.pushMessage({
-      id: randomUUID(),
+      id: generateId(),
       role: 'user',
       content: trimmedPrompt,
       timestamp: new Date().toISOString(),

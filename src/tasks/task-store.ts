@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -172,7 +172,7 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
     throw new Error('Task title must not be empty.')
   }
 
-  const id = randomUUID()
+  const id = generateId()
   const createdAt = new Date().toISOString()
   const outputPath = input.outputPath ?? getTaskOutputPath(id, 'output.txt', workspaceRoot)
   const transcriptPath = input.transcriptPath ?? getTaskTranscriptPath(id, workspaceRoot)

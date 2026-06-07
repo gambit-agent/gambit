@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { generateId } from '../lib/id'
 
 import { workspaceRoot } from '../config'
 import { isRecord, readJsonlEntries, writeJsonlEntries } from '../session/jsonl'
@@ -81,7 +81,7 @@ export async function createWorkItem(input: CreateWorkItemInput): Promise<WorkIt
   }
 
   const record: WorkItemRecord = {
-    id: randomUUID(),
+    id: generateId(),
     title,
     description,
     status: input.status ?? 'pending',

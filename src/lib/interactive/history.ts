@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto"
+﻿import { generateId } from "../id"
 
 import {
   appendSessionEntry,
@@ -64,7 +64,7 @@ export class InteractiveHistory {
     }
     this.items.push(trimmed)
     this.pendingEntries.push({
-      id: randomUUID(),
+      id: generateId(),
       role: "user",
       content: trimmed,
       timestamp: new Date().toISOString(),

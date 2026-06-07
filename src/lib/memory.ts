@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { generateId } from "./id"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 
@@ -22,7 +22,7 @@ export async function appendMemoryEntry(content: string): Promise<MemoryEntry | 
   const memoriesDirectory = path.join(workspaceRoot, ".gambit", "memories")
   await mkdir(memoriesDirectory, { recursive: true })
   const entry: MemoryEntry = {
-    id: randomUUID(),
+    id: generateId(),
     content: trimmed,
     timestamp: new Date().toISOString(),
   }

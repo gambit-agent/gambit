@@ -1,5 +1,5 @@
-import pkg from '../package.json'
 import { parseLaunchOptions } from './app/launch-options'
+import { appVersion } from './app/version'
 import { cleanupAllMCPClients } from './tools/mcp'
 
 /**
@@ -23,7 +23,7 @@ if (rawArgs[0] === 'update') {
 }
 
 if (rawArgs.includes('--version') || rawArgs.includes('-V')) {
-  console.log(`gambit ${pkg.version}`)
+  console.log(`gambit ${appVersion}`)
   process.exit(0)
 }
 

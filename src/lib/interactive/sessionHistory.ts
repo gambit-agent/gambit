@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto"
+﻿import { generateId } from "../id"
 import { mkdir, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
@@ -46,7 +46,7 @@ async function ensureSessionsDirectory(): Promise<string> {
 
 async function createSession(): Promise<SessionInfo> {
   const directory = await ensureSessionsDirectory()
-  const id = randomUUID()
+  const id = generateId()
   const filePath = path.join(directory, `${HISTORY_FILE_PREFIX}${id}${HISTORY_FILE_SUFFIX}`)
   return { id, filePath }
 }

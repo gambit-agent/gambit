@@ -2,6 +2,7 @@
  * Fetches and caches model metadata (context length) from the OpenRouter API.
  */
 
+import { DEFAULT_MODEL_CONTEXT_LENGTH, MODEL_METADATA_TIMEOUT_MS } from '../config'
 import { isCodexModel } from './codex-auth'
 
 export interface ModelInfo {
@@ -12,8 +13,6 @@ export interface ModelInfo {
 const cache = new Map<string, ModelInfo>()
 let allModelsFetched = false
 let allModelsFetchPromise: Promise<void> | null = null
-
-const FALLBACK_CONTEXT_LENGTH = 128_000
 
 /**
  * Fetch all models from OpenRouter and populate the cache.
@@ -26,7 +25,7 @@ async function fetchAllModels(apiKey: string): Promise<void> {
     try {
       const response = await fetch('https://openrouter.ai/api/v1/models', {
         headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS),
       })
 
       if (!response.ok) return
@@ -58,14 +57,14 @@ async function fetchAllModels(apiKey: string): Promise<void> {
  * Get the context length for a model. Fetches from OpenRouter API if not cached.
  */
 export async function getModelContextLength(modelId: string, apiKey: string): Promise<number> {
-  if (isCodexModel(modelId)) return FALLBACK_CONTEXT_LENGTH
+  if (isCodexModel(modelId)) return DEFAULT_MODEL_CONTEXT_LENGTH
 
   const cached = cache.get(modelId)
   if (cached) return cached.contextLength
 
   if (apiKey) await fetchAllModels(apiKey)
 
-  return cache.get(modelId)?.contextLength ?? FALLBACK_CONTEXT_LENGTH
+  return cache.get(modelId)?.contextLength ?? DEFAULT_MODEL_CONTEXT_LENGTH
 }
 
 /**

@@ -1,6 +1,6 @@
-import pkg from '../../package.json'
+import { appVersion } from './version'
 
-const HELP_TEXT = `gambit ${pkg.version} — TUI coding agent
+const HELP_TEXT = `gambit ${appVersion} — TUI coding agent
 
 USAGE
   gambit [options]                          Launch the interactive TUI
