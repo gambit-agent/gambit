@@ -4,6 +4,8 @@ import type { RefObject } from 'react'
 
 import { theme } from '../../ui/theme'
 import { FileMentionOverlay } from '../../ui/overlays/FileMentionOverlay'
+import { SlashCompletionOverlay } from '../../ui/overlays/SlashCompletionOverlay'
+import type { SlashCompletionMatch, SlashCompletionMode } from '../slash-completions'
 
 export interface TextareaKeyBinding {
   name: string
@@ -22,6 +24,7 @@ export function ReplComposer({
   onContentChange,
   onSubmit,
   fileMention,
+  slashCompletion,
 }: {
   inputValue: string
   inputPreview: string | null
@@ -35,6 +38,13 @@ export function ReplComposer({
     query: string
     selectedIndex: number
     results: string[]
+  }
+  slashCompletion?: {
+    isOpen: boolean
+    query: string
+    mode: SlashCompletionMode
+    selectedIndex: number
+    results: SlashCompletionMatch[]
   }
 }) {
   return (
@@ -51,7 +61,16 @@ export function ReplComposer({
     >
       <box flexDirection="column" gap={inputPreview ? 1 : 0}>
         {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
-        {fileMention ? (
+        {slashCompletion ? (
+          <SlashCompletionOverlay
+            isOpen={slashCompletion.isOpen}
+            query={slashCompletion.query}
+            mode={slashCompletion.mode}
+            selectedIndex={slashCompletion.selectedIndex}
+            results={slashCompletion.results}
+          />
+        ) : null}
+        {fileMention && !slashCompletion?.isOpen ? (
           <FileMentionOverlay
             isOpen={fileMention.isOpen}
             query={fileMention.query}

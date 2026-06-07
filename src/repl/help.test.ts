@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { SlashCommandDefinition } from '../lib/slashCommands'
+import type { SkillDefinition } from '../lib/skills'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from './help'
 
 function command(overrides: Partial<SlashCommandDefinition>): SlashCommandDefinition {
@@ -19,21 +20,43 @@ function command(overrides: Partial<SlashCommandDefinition>): SlashCommandDefini
   }
 }
 
+function skill(overrides: Partial<SkillDefinition>): SkillDefinition {
+  return {
+    name: 'opentui',
+    description: 'Build terminal user interfaces',
+    scope: 'project',
+    filePath: '/tmp/opentui/SKILL.md',
+    directoryPath: '/tmp/opentui',
+    body: 'Skill body',
+    ...overrides,
+  }
+}
+
 test('formats interactive help with built-in and custom slash commands', () => {
-  const help = formatInteractiveHelp([
-    command({ id: 'review', name: 'review' }),
-    command({
-      id: 'local',
-      name: 'local',
-      description: 'Local only',
-      disableModelInvocation: true,
-    }),
-  ])
+  const help = formatInteractiveHelp(
+    [
+      command({ id: 'review', name: 'review' }),
+      command({
+        id: 'local',
+        name: 'local',
+        description: 'Local only',
+        disableModelInvocation: true,
+      }),
+    ],
+    '',
+    [skill({ name: 'opentui' })],
+  )
 
   expect(help).toContain('/help - Show this help message.')
   expect(help).toContain('/workflow [help|clear|stop|edit] <task> - Create, revise, clear, or stop guidance for dynamic workflows.')
+  expect(help).toContain('/skill <name> [prompt] - Trigger an installed skill for a task.')
+  expect(help).toContain('/key <OPENROUTER_API_KEY> - Save the OpenRouter API key to the user config.')
+  expect(help).toContain('/mcp - Open MCP server management.')
+  expect(help).not.toContain(':key')
+  expect(help).not.toContain(':mcp')
   expect(help).toContain('/review - Review changes [project]')
   expect(help).toContain('/local - Local only [project] (user-only)')
+  expect(help).toContain('/skill opentui - Build terminal user interfaces [project]')
 })
 
 test('formats unknown slash command guidance without using the error panel', () => {
@@ -44,5 +67,7 @@ test('formats unknown slash command guidance without using the error panel', () 
   expect(message).toContain('Unknown slash command: /helo')
   expect(message).toContain('Type /help to see all commands.')
   expect(message).toContain('/workflow')
+  expect(message).toContain('/skill')
+  expect(message).toContain('/key')
   expect(message).toContain('/mcp')
 })

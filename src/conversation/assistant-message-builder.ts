@@ -1,6 +1,9 @@
 import { generateId } from '../lib/id'
 import { ConversationStore } from './conversation-store'
 
+const STREAM_FLUSH_INTERVAL_MS = 33
+const STREAM_FLUSH_CHAR_DELTA = 256
+
 export class AssistantMessageBuilder {
   private streamedText = ''
   private reasoning = ''
@@ -8,6 +11,8 @@ export class AssistantMessageBuilder {
   private currentText = ''
   private currentReasoning = ''
   private segmentAdded = false
+  private lastFlushedContent = ''
+  private lastFlushAt = 0
   private readonly turnAssistantIds = new Set<string>()
 
   constructor(
@@ -23,21 +28,24 @@ export class AssistantMessageBuilder {
     this.reasoning += text
     this.currentReasoning += text
     if (this.showReasoning && this.currentReasoning.trim()) {
-      await this.updateCurrentAssistantMessage()
+      await this.flushCurrentAssistantMessage()
     }
   }
 
   async appendText(text: string): Promise<void> {
     this.streamedText += text
     this.currentText += text
-    await this.updateCurrentAssistantMessage()
+    await this.flushCurrentAssistantMessage()
   }
 
-  startNextSegment(): void {
+  async startNextSegment(): Promise<void> {
+    await this.flushCurrentAssistantMessage({ force: true })
     this.currentAssistantId = null
     this.currentText = ''
     this.currentReasoning = ''
     this.segmentAdded = false
+    this.lastFlushedContent = ''
+    this.lastFlushAt = 0
   }
 
   async finish(finalText: string): Promise<string> {
@@ -45,18 +53,23 @@ export class AssistantMessageBuilder {
 
     if (!this.streamedText.trim() && finalText) {
       this.currentText = finalText
-      await this.updateCurrentAssistantMessage()
+      await this.flushCurrentAssistantMessage({ force: true })
+    } else {
+      await this.flushCurrentAssistantMessage({ force: true })
     }
 
     if (this.turnAssistantIds.size === 0 && finalContent) {
       const assistantId = generateId()
       this.turnAssistantIds.add(assistantId)
-      await this.store.pushMessage({
-        id: assistantId,
-        role: 'assistant',
-        content: finalContent,
-        timestamp: new Date().toISOString(),
-      })
+      await this.store.pushMessage(
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: finalContent,
+          timestamp: new Date().toISOString(),
+        },
+        { persist: false },
+      )
     }
 
     return finalContent
@@ -79,9 +92,12 @@ export class AssistantMessageBuilder {
     return this.composeContent(this.currentReasoning, this.currentText)
   }
 
-  private async updateCurrentAssistantMessage(): Promise<void> {
+  private async flushCurrentAssistantMessage(options: { force?: boolean } = {}): Promise<void> {
     const content = this.composeCurrentContent()
     if (!content.trim()) {
+      return
+    }
+    if (!options.force && !this.shouldFlush(content)) {
       return
     }
 
@@ -96,9 +112,23 @@ export class AssistantMessageBuilder {
         { id: this.currentAssistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
         { persist: false },
       )
+      this.lastFlushedContent = content
+      this.lastFlushAt = Date.now()
       return
     }
 
     this.store.updateMessage(this.currentAssistantId, { content })
+    this.lastFlushedContent = content
+    this.lastFlushAt = Date.now()
+  }
+
+  private shouldFlush(content: string): boolean {
+    if (!this.segmentAdded) {
+      return true
+    }
+    if (content.length - this.lastFlushedContent.length >= STREAM_FLUSH_CHAR_DELTA) {
+      return true
+    }
+    return Date.now() - this.lastFlushAt >= STREAM_FLUSH_INTERVAL_MS
   }
 }

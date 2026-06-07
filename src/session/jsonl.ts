@@ -24,6 +24,15 @@ export async function appendJsonlEntry(filePath: string, entry: unknown): Promis
   await appendFile(filePath, `${serializeJsonlEntry(entry)}\n`, 'utf8')
 }
 
+export async function appendJsonlEntries(filePath: string, entries: readonly unknown[]): Promise<void> {
+  if (entries.length === 0) {
+    return
+  }
+
+  await ensureParentDirectory(filePath)
+  await appendFile(filePath, `${entries.map(serializeJsonlEntry).join('\n')}\n`, 'utf8')
+}
+
 export async function readJsonlEntries<T>(filePath: string, transform: JsonlTransform<T>): Promise<T[]> {
   let raw = ''
 

@@ -68,3 +68,47 @@ test('can switch between persisted conversations and rewrite the active transcri
   await store.openConversation('first-session')
   expect(store.getSnapshot().messages.map((message) => message.content)).toEqual(['rewritten conversation'])
 })
+
+test('appends message batches without rewriting existing turn records', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'append-batch-test' })
+  await store.initialize()
+  await store.appendTurn({
+    id: 'turn-1',
+    startedAt: new Date().toISOString(),
+    userInput: 'first',
+  })
+
+  await store.appendMessages([
+    {
+      id: 'message-1',
+      role: 'assistant',
+      content: 'batched response',
+      timestamp: new Date().toISOString(),
+    },
+  ])
+
+  expect(await store.loadTurnRecords()).toHaveLength(1)
+  expect((await store.loadMessages()).map((message) => message.content)).toEqual(['batched response'])
+})
+
+test('message replacement preserves turn records', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replace-preserves-turns' })
+  await store.initialize()
+  await store.appendTurn({
+    id: 'turn-1',
+    startedAt: new Date().toISOString(),
+    userInput: 'first',
+  })
+
+  await store.replaceMessages([
+    {
+      id: 'message-1',
+      role: 'assistant',
+      content: 'compacted',
+      timestamp: new Date().toISOString(),
+    },
+  ])
+
+  expect(await store.loadTurnRecords()).toHaveLength(1)
+  expect((await store.loadMessages()).map((message) => message.content)).toEqual(['compacted'])
+})

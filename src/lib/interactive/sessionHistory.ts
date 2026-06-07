@@ -80,14 +80,12 @@ export async function loadUserHistoryEntries(limit: number = MAX_HISTORY_ENTRIES
   try {
     const directory = await ensureSessionsDirectory()
     const files = await readdir(directory)
-    for (const filename of files) {
-      if (!filename.startsWith(HISTORY_FILE_PREFIX) || !filename.endsWith(HISTORY_FILE_SUFFIX)) {
-        continue
-      }
-      const filePath = path.join(directory, filename)
-      const parsed = await readUserEntriesFromFile(filePath)
-      entries.push(...parsed)
-    }
+    const parsedFiles = await Promise.all(
+      files
+        .filter((filename) => filename.startsWith(HISTORY_FILE_PREFIX) && filename.endsWith(HISTORY_FILE_SUFFIX))
+        .map((filename) => readUserEntriesFromFile(path.join(directory, filename))),
+    )
+    entries.push(...parsedFiles.flat())
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error

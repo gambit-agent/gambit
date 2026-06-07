@@ -127,12 +127,21 @@ export class ConversationRunner {
    * execute any requested tools, and commit everything to the store.
    */
   async runTurn(options: RunConversationTurnOptions): Promise<ConversationTurnRecord> {
+    const relevantMemoriesPromise = this.dependencies.memoryStore.getRelevantMemories(options.userInput)
+    void relevantMemoriesPromise.catch(() => undefined)
+    const preflightToolContext = this.dependencies.createToolContext({ signal: options.signal })
+    const toolSuitePromise = this.createToolSuite({
+      includeSpawnAgent: true,
+      discoverMCPServerTools: true,
+      workspaceRoot: preflightToolContext.workspaceRoot,
+    })
+    void toolSuitePromise.catch(() => undefined)
+
     await this.compact({ apiKey: options.apiKey, modelId: options.modelId })
 
     const snapshot = this.dependencies.store.getSnapshot()
-    const relevantMemoryContext = formatRelevantMemories(
-      await this.dependencies.memoryStore.getRelevantMemories(options.userInput),
-    )
+    const initialMessageCount = snapshot.messages.length
+    const relevantMemoryContext = formatRelevantMemories(await relevantMemoriesPromise)
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
     const goalSystemPrompt = buildGoalSystemPrompt(snapshot.messages)
     const systemPrompt = [
@@ -157,11 +166,7 @@ export class ConversationRunner {
         maxSteps: maxAgentSteps,
       },
     })
-    const { registry, executor } = await this.createToolSuite({
-      includeSpawnAgent: true,
-      discoverMCPServerTools: true,
-      workspaceRoot: toolContext.workspaceRoot,
-    })
+    const { registry, executor } = await toolSuitePromise
     const tools = createAiToolMap(registry, executor, {
       ...toolContext,
       allowedToolIds: options.allowedToolIds,
@@ -222,7 +227,7 @@ export class ConversationRunner {
             await assistantBuilder.appendText(chunk)
           },
           onToolCall: async (part) => {
-            assistantBuilder.startNextSegment()
+            await assistantBuilder.startNextSegment()
             const toolCallId = part.toolCallId ?? generateId()
             const content = formatToolEvent({
               toolName: part.toolName ?? 'unknown',
@@ -281,7 +286,8 @@ export class ConversationRunner {
       turn.finishedAt = new Date().toISOString()
       turn.assistantOutput = finalContent
 
-      await this.dependencies.store.replaceMessages(this.dependencies.store.getSnapshot().messages)
+      const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
+      await this.dependencies.store.persistMessages(turnMessages)
       await this.dependencies.store.appendTurn(turn)
       this.dependencies.store.setStatus('idle')
       return turn

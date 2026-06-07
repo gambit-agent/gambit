@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { workspaceRoot } from '../config'
 import { createObservableStore, type ObservableStore } from '../lib/observable-store'
-import { appendJsonlEntry, readRawJsonlEntries, writeJsonlEntries } from '../session/jsonl'
+import { appendJsonlEntries, appendJsonlEntry, readRawJsonlEntries, writeJsonlEntries } from '../session/jsonl'
 import type { ConversationMessage, ConversationTurnRecord } from './conversation-types'
 
 export interface ConversationStoreOptions {
@@ -122,6 +122,32 @@ export class ConversationStore {
     await this.pushMessage(message)
   }
 
+  async appendMessages(messages: readonly ConversationMessage[]): Promise<void> {
+    if (messages.length === 0) {
+      return
+    }
+
+    this.initialized = true
+    this.messages = [...this.messages, ...messages]
+    this.refreshSnapshot()
+    await this.persistMessages(messages)
+  }
+
+  async persistMessages(messages: readonly ConversationMessage[]): Promise<void> {
+    if (messages.length === 0) {
+      return
+    }
+
+    await this.ensureReady()
+    await appendJsonlEntries(
+      this.currentTranscriptPath,
+      messages.map((message) => ({
+        kind: 'message',
+        ...message,
+      })),
+    )
+  }
+
   async appendTurn(record: ConversationTurnRecord): Promise<void> {
     this.initialized = true
     await this.ensureReady()
@@ -150,12 +176,13 @@ export class ConversationStore {
   }
 
   async replaceMessages(messages: ConversationMessage[]): Promise<void> {
+    const turnRecords = await this.loadTurnRecords()
     this.initialized = true
     this.messages = [...messages]
     this.error = null
     this.status = 'idle'
     this.refreshSnapshot()
-    await this.persistMessageSnapshot(messages)
+    await this.persistMessageSnapshot(messages, turnRecords)
   }
 
   async loadMessages(): Promise<ConversationMessage[]> {
@@ -190,14 +217,23 @@ export class ConversationStore {
     this.currentTranscriptPath = path.join(this.currentDirectory, 'transcript.jsonl')
   }
 
-  private async persistMessageSnapshot(messages: ConversationMessage[]): Promise<void> {
+  private async persistMessageSnapshot(
+    messages: ConversationMessage[],
+    turnRecords: ConversationTurnRecord[] = [],
+  ): Promise<void> {
     await this.ensureReady()
     await writeJsonlEntries(
       this.currentTranscriptPath,
-      messages.map((message) => ({
-        kind: 'message',
-        ...message,
-      })),
+      [
+        ...messages.map((message) => ({
+          kind: 'message',
+          ...message,
+        })),
+        ...turnRecords.map((record) => ({
+          kind: 'turn',
+          ...record,
+        })),
+      ],
     )
   }
 }

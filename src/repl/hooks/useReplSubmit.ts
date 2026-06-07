@@ -23,9 +23,9 @@ import {
 } from '../../workflows/workflow-command'
 import { buildWorkflowEditPrompt, buildWorkflowRunPrompt } from '../../workflows/workflow-prompt'
 import { executeSlashCommand, loadSlashCommands, type SlashCommandExecution } from '../../lib/slashCommands'
+import { activateSkill, loadSkills } from '../../lib/skills'
 import { formatSlashCommandMessage } from '../../lib/slash-command-format'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from '../help'
-import type { RoutedInput } from '../command-router'
 import { routeInput } from '../input-router'
 import { expandFileMentions } from '../file-mentions'
 
@@ -38,12 +38,6 @@ interface SubmitConversationSnapshot {
 interface RunConfig {
   modelId: string
   apiKey: string
-}
-
-type ColonCommand = Extract<RoutedInput, { kind: 'local' }> & { channel: 'colon' }
-
-function isColonCommand(input: RoutedInput): input is ColonCommand {
-  return input.kind === 'local' && input.channel === 'colon'
 }
 
 export function useReplSubmit({
@@ -83,13 +77,13 @@ export function useReplSubmit({
     (action: string): RunConfig | null => {
       const selectedModelId = modelId?.trim()
       if (!selectedModelId) {
-        runtime.conversationStore.setError(`Select a model before ${action} (:model <model-id> or /model).`)
+        runtime.conversationStore.setError(`Select a model before ${action} (/model).`)
         return null
       }
 
       const trimmedKey = apiKey.trim()
       if (modelRequiresApiKey(selectedModelId) && !trimmedKey) {
-        runtime.conversationStore.setError(`Set an OpenRouter API key before ${action} (:key <token>).`)
+        runtime.conversationStore.setError(`Set an OpenRouter API key before ${action} (/key <token>).`)
         return null
       }
 
@@ -204,122 +198,6 @@ export function useReplSubmit({
     [getRunConfig, reasoningEffort, runtime, thinkingEnabled],
   )
 
-  const handleColonCommand = useCallback(
-    async (routed: ColonCommand, signal: AbortSignal) => {
-      if (routed.name === 'model') {
-        if (!routed.argument) {
-          runtime.conversationStore.setError('Usage: :model <model-id>')
-          return
-        }
-        persistModelSelection(routed.argument, null)
-        await pushSystemMessage(runtime, `Model set to ${routed.argument}`)
-        return
-      }
-
-      if (routed.name === 'key') {
-        if (!routed.argument) {
-          runtime.conversationStore.setError('Usage: :key <OPENROUTER_API_KEY>')
-          return
-        }
-        persistApiKey(routed.argument)
-        await pushSystemMessage(
-          runtime,
-          `Saved OpenRouter API key to user config (${routed.argument.trim().length} characters provided).`,
-        )
-        return
-      }
-
-      if (routed.name === 'reset') {
-        await startFreshConversation()
-        return
-      }
-
-      if (routed.name === 'resume') {
-        openSessionPicker(routed.argument)
-        return
-      }
-
-      if (routed.name === 'mcp') {
-        setMcpOverlayOpen(true)
-        return
-      }
-
-      if (routed.name === 'compact') {
-        if (conversation.status === 'running') {
-          runtime.conversationStore.setError('Finish or cancel the current run before compacting.')
-          return
-        }
-        const selectedModelId = modelId?.trim()
-        if (!selectedModelId) {
-          runtime.conversationStore.setError('Select a model before compacting (:model <model-id> or /model).')
-          return
-        }
-        try {
-          const result = await runtime.conversationRunner.compact({
-            apiKey: apiKey.trim() || undefined,
-            modelId: selectedModelId,
-          })
-          await pushSystemMessage(
-            runtime,
-            result.compacted
-              ? `Compacted conversation: ${result.summarizedCount} older messages summarized.`
-              : 'No compaction needed — context is within limits.',
-          )
-        } catch (error) {
-          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-        }
-        return
-      }
-
-      if (routed.name === 'fork') {
-        if (conversation.status === 'running') {
-          runtime.conversationStore.setError('Finish or cancel the current run before forking.')
-          return
-        }
-        try {
-          const result = await runtime.forkConversation(routed.argument || undefined)
-          await pushSystemMessage(
-            runtime,
-            `Forked conversation -> ${result.conversationId.slice(0, 8)} (${result.messageCount} messages copied).`,
-          )
-        } catch (error) {
-          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-        }
-        return
-      }
-
-      if (routed.name === 'tree') {
-        try {
-          const tree = await runtime.getConversationTree()
-          await pushSystemMessage(runtime, `Conversation tree:\n\n${tree}`)
-        } catch (error) {
-          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-        }
-        return
-      }
-
-      if (routed.name === 'goal') {
-        if (await handleGoalCommand(routed.argument, ':goal', signal)) {
-          return
-        }
-      }
-
-      runtime.conversationStore.setError(`Unknown command: ${routed.name}`)
-    },
-    [
-      apiKey,
-      conversation.status,
-      handleGoalCommand,
-      modelId,
-      openSessionPicker,
-      persistApiKey,
-      persistModelSelection,
-      runtime,
-      setMcpOverlayOpen,
-      startFreshConversation,
-    ],
-  )
-
   return useCallback(
     async (value: string, { signal }: { signal: AbortSignal }) => {
       const routed = routeInput(value)
@@ -336,11 +214,6 @@ export function useReplSubmit({
           return
         }
         await runUserPrompt(routed.value, signal)
-        return
-      }
-
-      if (isColonCommand(routed)) {
-        await handleColonCommand(routed, signal)
         return
       }
 
@@ -412,19 +285,98 @@ export function useReplSubmit({
 
       if (routed.channel === 'slash') {
         if (routed.name === 'help') {
-          const [commands, templates] = await Promise.all([
+          const [commands, templates, skills] = await Promise.all([
             loadSlashCommands(),
             loadPromptTemplates(),
+            loadSkills(),
           ])
           await pushSystemMessage(runtime, formatInteractiveHelp(
             commands,
             buildPromptTemplateListDescription(templates),
+            skills,
           ))
           return
         }
 
         if (routed.name === 'clear') {
           await startFreshConversation()
+          return
+        }
+
+        if (routed.name === 'reset') {
+          await startFreshConversation()
+          return
+        }
+
+        if (routed.name === 'key') {
+          if (!routed.argument) {
+            runtime.conversationStore.setError('Usage: /key <OPENROUTER_API_KEY>')
+            return
+          }
+          persistApiKey(routed.argument)
+          await pushSystemMessage(
+            runtime,
+            `Saved OpenRouter API key to user config (${routed.argument.trim().length} characters provided).`,
+          )
+          return
+        }
+
+        if (routed.name === 'mcp') {
+          setMcpOverlayOpen(true)
+          return
+        }
+
+        if (routed.name === 'compact') {
+          if (conversation.status === 'running') {
+            runtime.conversationStore.setError('Finish or cancel the current run before compacting.')
+            return
+          }
+          const selectedModelId = modelId?.trim()
+          if (!selectedModelId) {
+            runtime.conversationStore.setError('Select a model before compacting (/model).')
+            return
+          }
+          try {
+            const result = await runtime.conversationRunner.compact({
+              apiKey: apiKey.trim() || undefined,
+              modelId: selectedModelId,
+            })
+            await pushSystemMessage(
+              runtime,
+              result.compacted
+                ? `Compacted conversation: ${result.summarizedCount} older messages summarized.`
+                : 'No compaction needed — context is within limits.',
+            )
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
+          return
+        }
+
+        if (routed.name === 'fork') {
+          if (conversation.status === 'running') {
+            runtime.conversationStore.setError('Finish or cancel the current run before forking.')
+            return
+          }
+          try {
+            const result = await runtime.forkConversation(routed.argument || undefined)
+            await pushSystemMessage(
+              runtime,
+              `Forked conversation -> ${result.conversationId.slice(0, 8)} (${result.messageCount} messages copied).`,
+            )
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
+          return
+        }
+
+        if (routed.name === 'tree') {
+          try {
+            const tree = await runtime.getConversationTree()
+            await pushSystemMessage(runtime, `Conversation tree:\n\n${tree}`)
+          } catch (error) {
+            runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+          }
           return
         }
 
@@ -478,6 +430,32 @@ export function useReplSubmit({
           }
 
           await runUserPrompt(buildWorkflowRunPrompt(workflowCommand.task), signal)
+          return
+        }
+
+        if (routed.name === 'skill') {
+          const [skillName = '', ...taskParts] = routed.argument.split(/\s+/)
+          const task = taskParts.join(' ').trim()
+
+          if (!skillName) {
+            runtime.conversationStore.setError('Usage: /skill <name> [prompt]')
+            return
+          }
+
+          try {
+            const activation = await activateSkill(skillName)
+            const prompt = [
+              `Use the installed skill "${activation.name}" for this task.`,
+              '',
+              activation.content,
+              task ? ['User task:', task].join('\n') : 'User task: acknowledge that the skill is ready to use.',
+            ].join('\n')
+            await runUserPrompt(prompt, signal)
+          } catch (error) {
+            runtime.conversationStore.setError(
+              error instanceof Error ? error.message : String(error),
+            )
+          }
           return
         }
 
@@ -536,16 +514,20 @@ export function useReplSubmit({
     [
       clearComposer,
       conversation.conversationId,
+      conversation.status,
       getRunConfig,
-      handleColonCommand,
       handleGoalCommand,
       handleModelFilterSubmit,
+      apiKey,
       modelPickerFetchState,
+      modelId,
       openModelPicker,
       openSessionPicker,
+      persistApiKey,
       reasoningEffort,
       runUserPrompt,
       runtime,
+      setMcpOverlayOpen,
       startFreshConversation,
       thinkingEnabled,
     ],

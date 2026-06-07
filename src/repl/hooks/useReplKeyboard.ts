@@ -44,6 +44,12 @@ interface ReplKeyboardOptions {
     selectCurrent: () => void
     close: () => void
   }
+  slashCompletion?: {
+    isOpen: boolean
+    moveSelection: (delta: number) => void
+    selectCurrent: () => void
+    close: () => void
+  }
 }
 
 export function useReplKeyboard(options: ReplKeyboardOptions): void {
@@ -153,6 +159,25 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         if (options.conversation.error && key.name === 'escape') {
           options.runtime.conversationStore.setError(null)
           return
+        }
+
+        if (options.slashCompletion?.isOpen) {
+          if (key.name === 'escape') {
+            options.slashCompletion.close()
+            return
+          }
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+            options.slashCompletion.moveSelection(-1)
+            return
+          }
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+            options.slashCompletion.moveSelection(1)
+            return
+          }
+          if (key.name === 'tab') {
+            options.slashCompletion.selectCurrent()
+            return
+          }
         }
 
         if (options.fileMentionCompletion?.isOpen) {

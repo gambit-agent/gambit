@@ -49,26 +49,22 @@ export async function scanMemoryRecords(rootPath: string = workspaceRoot): Promi
   const memoryDirectory = getMemoryDirectory(rootPath)
   await mkdir(memoryDirectory, { recursive: true })
   const entries = await readdir(memoryDirectory, { withFileTypes: true })
-  const records: MemoryRecord[] = []
-
-  for (const entry of entries) {
+  const records = await Promise.all(entries.map(async (entry) => {
     if (!entry.isFile()) {
-      continue
+      return null
     }
     if (!entry.name.endsWith('.md') || entry.name === 'MEMORY.md') {
-      continue
+      return null
     }
 
     const filePath = path.join(memoryDirectory, entry.name)
     const raw = await readFile(filePath, 'utf8')
-    const parsed = parseMemoryFile(filePath, raw)
-    if (parsed) {
-      records.push(parsed)
-    }
-  }
+    return parseMemoryFile(filePath, raw)
+  }))
 
-  records.sort((left, right) => right.updated.localeCompare(left.updated))
   return records
+    .filter((record): record is MemoryRecord => record !== null)
+    .sort((left, right) => right.updated.localeCompare(left.updated))
 }
 
 export async function rebuildMemoryIndex(rootPath: string = workspaceRoot): Promise<void> {

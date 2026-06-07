@@ -89,15 +89,12 @@ function normalizeDirOverride(value: string | string[] | null | undefined): stri
 }
 
 export async function loadSkills(): Promise<SkillDefinition[]> {
-  const projectSkills: SkillDefinition[] = [];
-  for (const dir of getProjectSkillDirs()) {
-    projectSkills.push(...(await collectSkills(dir, "project")));
-  }
-
-  const userSkills: SkillDefinition[] = [];
-  for (const dir of getUserSkillDirs()) {
-    userSkills.push(...(await collectSkills(dir, "user")));
-  }
+  const [projectSkillGroups, userSkillGroups] = await Promise.all([
+    Promise.all(getProjectSkillDirs().map((dir) => collectSkills(dir, "project"))),
+    Promise.all(getUserSkillDirs().map((dir) => collectSkills(dir, "user"))),
+  ]);
+  const projectSkills = projectSkillGroups.flat();
+  const userSkills = userSkillGroups.flat();
 
   const deduplicatedProject = dedupeByName(projectSkills);
   const projectNames = new Set(deduplicatedProject.map((skill) => skill.name));
@@ -207,19 +204,15 @@ async function collectSkills(root: string, scope: SkillScope): Promise<SkillDefi
     return [];
   }
 
-  const skills: SkillDefinition[] = [];
-  for (const entry of entries) {
+  const skills = await Promise.all(entries.map(async (entry) => {
     if (!entry.isDirectory()) {
-      continue;
+      return null;
     }
     const skillDir = path.join(root, entry.name);
     const skillFile = path.join(skillDir, "SKILL.md");
-    const definition = await parseSkillFile(skillFile, entry.name, skillDir, scope);
-    if (definition) {
-      skills.push(definition);
-    }
-  }
-  return skills;
+    return parseSkillFile(skillFile, entry.name, skillDir, scope);
+  }));
+  return skills.filter((definition): definition is SkillDefinition => definition !== null);
 }
 
 async function parseSkillFile(

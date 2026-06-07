@@ -21,16 +21,22 @@ export function useInteractiveKeyboard({
   handleShortcut,
   updateHistorySearch,
   exitHistorySearch,
+  completionNavigationActive = false,
 }: {
   historySearch: HistorySearchState
   handleEscape: () => void
   handleShortcut: (key: ParsedKey) => boolean
   updateHistorySearch: (query: string, advanced?: boolean) => void
   exitHistorySearch: () => void
+  completionNavigationActive?: boolean
 }) {
   useKeyboard(
     useCallback(
       (key: ParsedKey) => {
+        if (completionNavigationActive && isCompletionNavigationKey(key)) {
+          return
+        }
+
         if (key.name === 'escape') {
           handleEscape()
           return
@@ -65,7 +71,22 @@ export function useInteractiveKeyboard({
 
         handleShortcut(key)
       },
-      [exitHistorySearch, handleEscape, handleShortcut, historySearch, updateHistorySearch],
+      [
+        completionNavigationActive,
+        exitHistorySearch,
+        handleEscape,
+        handleShortcut,
+        historySearch,
+        updateHistorySearch,
+      ],
     ),
   )
+}
+
+function isCompletionNavigationKey(key: ParsedKey): boolean {
+  return key.name === 'escape' ||
+    key.name === 'up' ||
+    key.name === 'down' ||
+    key.name === 'tab' ||
+    key.name === 'backtab'
 }

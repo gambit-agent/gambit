@@ -11,26 +11,26 @@ let cachedFiles: string[] | null = null
 let scanPromise: Promise<string[]> | null = null
 
 async function scanFiles(dir: string): Promise<string[]> {
-  const results: string[] = []
-
   let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
   } catch {
-    return results
+    return []
   }
 
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') || EXCLUDE_DIRS.has(entry.name)) continue
+  const results = await Promise.all(entries.map(async (entry) => {
+    if (entry.name.startsWith('.') || EXCLUDE_DIRS.has(entry.name)) return []
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      results.push(...await scanFiles(fullPath))
-    } else if (entry.isFile()) {
-      results.push(fullPath)
+      return scanFiles(fullPath)
     }
-  }
+    if (entry.isFile()) {
+      return [fullPath]
+    }
+    return []
+  }))
 
-  return results
+  return results.flat()
 }
 
 export async function getWorkspaceFiles(forceRefresh = false): Promise<string[]> {

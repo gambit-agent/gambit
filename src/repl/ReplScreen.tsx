@@ -23,6 +23,13 @@ import {
   replaceActiveFileMention,
   type ActiveFileMention,
 } from './file-mentions'
+import {
+  findActiveSlashCompletion,
+  getSlashCompletionMatches,
+  replaceActiveSlashCompletion,
+  type ActiveSlashCompletion,
+  type SlashCompletionMatch,
+} from './slash-completions'
 import { ReplComposer, type TextareaKeyBinding } from './components/ReplComposer'
 import { ReplFooter } from './components/ReplFooter'
 import { ReplHeader } from './components/ReplHeader'
@@ -69,6 +76,24 @@ const closedFileMentionState: FileMentionState = {
   results: [],
 }
 
+interface SlashCompletionState {
+  isOpen: boolean
+  completion: ActiveSlashCompletion | null
+  query: string
+  mode: ActiveSlashCompletion['mode']
+  selectedIndex: number
+  results: SlashCompletionMatch[]
+}
+
+const closedSlashCompletionState: SlashCompletionState = {
+  isOpen: false,
+  completion: null,
+  query: '',
+  mode: 'command',
+  selectedIndex: 0,
+  results: [],
+}
+
 export interface ReplScreenProps {
   launchOptions: LaunchOptions
 }
@@ -97,7 +122,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
   const textareaRef = useRef<TextareaRenderable | null>(null)
   const fileMentionRequestIdRef = useRef(0)
+  const slashCompletionRequestIdRef = useRef(0)
   const [fileMentionState, setFileMentionState] = useState<FileMentionState>(closedFileMentionState)
+  const [slashCompletionState, setSlashCompletionState] = useState<SlashCompletionState>(closedSlashCompletionState)
   const { isLight, toggleTheme } = useTheme()
 
   const {
@@ -198,13 +225,59 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     })
   }, [inputValue])
 
+  useEffect(() => {
+    const cursorOffset = textareaRef.current?.cursorOffset ?? inputValue.length
+    const completion = findActiveSlashCompletion(inputValue, cursorOffset)
+    const requestId = slashCompletionRequestIdRef.current + 1
+    slashCompletionRequestIdRef.current = requestId
+
+    if (!completion) {
+      setSlashCompletionState(closedSlashCompletionState)
+      return
+    }
+
+    void getSlashCompletionMatches(completion.query, completion.mode).then((matches) => {
+      if (slashCompletionRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setSlashCompletionState({
+        isOpen: matches.length > 0,
+        completion,
+        query: completion.query,
+        mode: completion.mode,
+        selectedIndex: 0,
+        results: matches,
+      })
+    }).catch(() => {
+      if (slashCompletionRequestIdRef.current === requestId) {
+        setSlashCompletionState(closedSlashCompletionState)
+      }
+    })
+  }, [inputValue])
+
   const closeFileMention = useCallback(() => {
     fileMentionRequestIdRef.current += 1
     setFileMentionState(closedFileMentionState)
   }, [])
 
+  const closeSlashCompletion = useCallback(() => {
+    slashCompletionRequestIdRef.current += 1
+    setSlashCompletionState(closedSlashCompletionState)
+  }, [])
+
   const moveFileMentionSelection = useCallback((delta: number) => {
     setFileMentionState((current) => {
+      if (!current.isOpen || current.results.length === 0) {
+        return current
+      }
+      const nextIndex = (current.selectedIndex + delta + current.results.length) % current.results.length
+      return { ...current, selectedIndex: nextIndex }
+    })
+  }, [])
+
+  const moveSlashCompletionSelection = useCallback((delta: number) => {
+    setSlashCompletionState((current) => {
       if (!current.isOpen || current.results.length === 0) {
         return current
       }
@@ -231,6 +304,24 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     closeFileMention()
   }, [closeFileMention, fileMentionState, inputValue])
 
+  const selectSlashCompletion = useCallback(() => {
+    const completion = slashCompletionState.completion
+    const match = slashCompletionState.results[slashCompletionState.selectedIndex]
+    if (!completion || !match) {
+      closeSlashCompletion()
+      return
+    }
+
+    const next = replaceActiveSlashCompletion(inputValue, completion, match)
+    setInputValue(next.value)
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.setText(next.value)
+      textarea.cursorOffset = next.cursorOffset
+    }
+    closeSlashCompletion()
+  }, [closeSlashCompletion, inputValue, slashCompletionState])
+
   useReplKeyboard({
     runtime,
     scrollboxRef,
@@ -256,6 +347,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       moveSelection: moveFileMentionSelection,
       selectCurrent: selectFileMention,
       close: closeFileMention,
+    },
+    slashCompletion: {
+      isOpen: slashCompletionState.isOpen,
+      moveSelection: moveSlashCompletionSelection,
+      selectCurrent: selectSlashCompletion,
+      close: closeSlashCompletion,
     },
   })
 
@@ -342,7 +439,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onToggleBackgroundTasks: () => {
       setTasksOpen((current) => !current)
     },
-    historyNavigationEnabled: !fileMentionState.isOpen,
+    historyNavigationEnabled: !fileMentionState.isOpen && !slashCompletionState.isOpen,
+    completionNavigationActive: fileMentionState.isOpen || slashCompletionState.isOpen,
   })
 
   useEffect(() => {
@@ -371,6 +469,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     isLight,
     onInput: interactive.handleInput,
     onSubmit: (value) => {
+      if (slashCompletionState.isOpen) {
+        selectSlashCompletion()
+        return
+      }
       if (fileMentionState.isOpen) {
         selectFileMention()
         return
@@ -488,6 +590,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           query: fileMentionState.query,
           selectedIndex: fileMentionState.selectedIndex,
           results: fileMentionState.results,
+        }}
+        slashCompletion={{
+          isOpen: slashCompletionState.isOpen,
+          query: slashCompletionState.query,
+          mode: slashCompletionState.mode,
+          selectedIndex: slashCompletionState.selectedIndex,
+          results: slashCompletionState.results,
         }}
       />
       <ReplFooter

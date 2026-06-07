@@ -13,22 +13,19 @@ export async function collectFiles(directory: string, options: CollectFilesOptio
     return []
   }
 
-  const files: string[] = []
-  for (const entry of entries) {
+  const files = await Promise.all(entries.map(async (entry) => {
     const entryPath = path.join(directory, entry.name)
     if (entry.isDirectory()) {
-      files.push(...(await collectFiles(entryPath, options)))
-      continue
+      return collectFiles(entryPath, options)
     }
     if (!entry.isFile()) {
-      continue
+      return []
     }
     if (options.extensions && !options.extensions.has(path.extname(entry.name))) {
-      continue
+      return []
     }
-    files.push(entryPath)
-  }
+    return [entryPath]
+  }))
 
-  files.sort((left, right) => left.localeCompare(right))
-  return files
+  return files.flat().sort((left, right) => left.localeCompare(right))
 }

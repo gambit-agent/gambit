@@ -39,6 +39,7 @@ export interface UseInteractiveControllerOptions {
   onBackgroundRequest?: (command: string) => boolean
   onToggleBackgroundTasks?: () => void
   historyNavigationEnabled?: boolean
+  completionNavigationActive?: boolean
 }
 
 export interface UseInteractiveControllerResult {
@@ -69,6 +70,7 @@ export function useInteractiveController({
   onBackgroundRequest,
   onToggleBackgroundTasks,
   historyNavigationEnabled = true,
+  completionNavigationActive = false,
 }: UseInteractiveControllerOptions): UseInteractiveControllerResult {
   const sessionRef = useRef(new InteractiveSession())
   const historyRef = useRef<InteractiveHistory | null>(null)
@@ -374,6 +376,7 @@ export function useInteractiveController({
     handleShortcut,
     updateHistorySearch,
     exitHistorySearch,
+    completionNavigationActive,
   })
 
   useEffect(() => {

@@ -11,6 +11,9 @@ import type { AgentDefinition } from './agent-types'
 import type { ConversationMessage } from '../conversation/conversation-types'
 import type { ToolExecutionContext } from '../tools/tool-types'
 
+const AGENT_PROGRESS_INTERVAL_MS = 250
+const AGENT_TEXT_PROGRESS_CHAR_DELTA = 500
+
 /**
  * External dependencies injected into AgentRunner so it can operate
  * independently of the main conversation loop (used for background tasks).
@@ -102,6 +105,9 @@ export class AgentRunner {
     let assistantContent = ''
     let reasoningContent = ''
     let reasoningFlushed = false
+    let lastTextProgressAt = 0
+    let lastTextProgressChars = 0
+    let lastReasoningProgressAt = 0
 
     // Flush reasoning transcript so the user sees agent thinking in real time.
     const flushReasoning = async () => {
@@ -137,12 +143,24 @@ export class AgentRunner {
       handlers: {
         onTextDelta: async (chunk) => {
           assistantContent += chunk
-          await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
+          const now = Date.now()
+          if (
+            now - lastTextProgressAt >= AGENT_PROGRESS_INTERVAL_MS ||
+            assistantContent.length - lastTextProgressChars >= AGENT_TEXT_PROGRESS_CHAR_DELTA
+          ) {
+            lastTextProgressAt = now
+            lastTextProgressChars = assistantContent.length
+            await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
+          }
         },
         onReasoningDelta: async (text) => {
           reasoningContent += text
           const preview = reasoningContent.trim().slice(0, 120)
-          await options.updateProgress(`Agent reasoning: ${preview}`)
+          const now = Date.now()
+          if (now - lastReasoningProgressAt >= AGENT_PROGRESS_INTERVAL_MS) {
+            lastReasoningProgressAt = now
+            await options.updateProgress(`Agent reasoning: ${preview}`)
+          }
           await flushReasoning()
         },
         onToolCall: async (part) => {
