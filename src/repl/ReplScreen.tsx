@@ -342,6 +342,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onToggleBackgroundTasks: () => {
       setTasksOpen((current) => !current)
     },
+    historyNavigationEnabled: !fileMentionState.isOpen,
   })
 
   useEffect(() => {

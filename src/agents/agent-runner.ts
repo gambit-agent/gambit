@@ -27,6 +27,7 @@ export interface AgentRunnerOptions {
     allowedToolIds?: readonly string[],
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
   ) => Promise<ToolSet>
+  extraTools?: ToolSet
   appendTranscript: (entry: unknown) => Promise<void>
   updateProgress: (summary: string) => Promise<void>
   signal?: AbortSignal
@@ -52,6 +53,10 @@ export class AgentRunner {
       maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
       maxSteps: options.agentExecutionOptions?.maxSteps,
     })
+    const mergedTools = {
+      ...tools,
+      ...(options.extraTools ?? {}),
+    }
     const selectModel = createModelSelector(options.apiKey)
     const modelSettings = options.reasoningEffort
       ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
@@ -119,7 +124,7 @@ export class AgentRunner {
           timestamp: new Date(message.timestamp),
         })),
       ),
-      tools,
+      tools: mergedTools,
       maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
       signal: options.signal,
       logMetadata: {
@@ -127,7 +132,7 @@ export class AgentRunner {
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort ?? null,
         messageCount: history.length,
-        toolCount: Object.keys(tools).length,
+        toolCount: Object.keys(mergedTools).length,
       },
       handlers: {
         onTextDelta: async (chunk) => {

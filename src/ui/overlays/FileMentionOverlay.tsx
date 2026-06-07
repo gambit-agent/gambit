@@ -22,16 +22,15 @@ export function FileMentionOverlay({
     <box
       flexDirection="column"
       style={{
-        border: ['top', 'bottom', 'left', 'right'],
-        borderStyle: 'single',
-        borderColor: theme.border,
         backgroundColor: theme.panel,
         maxHeight: 18,
       }}
     >
-      <box paddingX={1} paddingY={0}>
-        <text fg={theme.headerAccent} attributes={TextAttributes.DIM} content={`@${query}`} />
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={` — ${results.length} files`} />
+      <box paddingX={1} paddingY={0} backgroundColor={theme.panel}>
+        <text>
+          <span fg={theme.headerAccent} attributes={TextAttributes.DIM}>{`@${query}`}</span>
+          <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{` — ${results.length} files`}</span>
+        </text>
       </box>
       {visibleResults.map((filePath, index) => {
         const isSelected = index === selectedIndex
@@ -39,11 +38,11 @@ export function FileMentionOverlay({
           <box
             key={filePath}
             paddingX={1}
-            backgroundColor={isSelected ? theme.selectedBg : undefined}
+            backgroundColor={isSelected ? theme.headerAccent : theme.panel}
           >
             <text
-              fg={isSelected ? theme.selectedFg : theme.statusFg}
-              attributes={isSelected ? TextAttributes.BOLD : TextAttributes.DIM}
+              fg={isSelected ? '#000000' : theme.assistantFg}
+              attributes={isSelected ? TextAttributes.BOLD : undefined}
               content={filePath}
             />
           </box>
@@ -52,4 +51,3 @@ export function FileMentionOverlay({
     </box>
   )
 }
-

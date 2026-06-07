@@ -137,10 +137,10 @@ export async function activateSkill(name: string): Promise<SkillActivation> {
 
 export function buildActivateSkillToolDescription(skills: SkillDefinition[]): string {
   const header = [
-    "Activate an Agent Skill to load its full instructions for a specialized task.",
+    "Activate an installed Agent Skill when a task matches its catalog description.",
     "Skills are discovered from `.gambit/skills/` and `.agents/skills/` at the project and user scope.",
-    "Call this tool with the exact `name` of a skill listed below when a task matches its description.",
-    "The tool returns the skill's SKILL.md body along with a list of bundled resources you can read on demand.",
+    "Call this with the exact `name` listed below.",
+    "The tool returns the skill's SKILL.md instructions and bundled resource paths to read only as needed.",
   ].join(" ");
 
   if (skills.length === 0) {

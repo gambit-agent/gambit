@@ -31,6 +31,7 @@ test('formats interactive help with built-in and custom slash commands', () => {
   ])
 
   expect(help).toContain('/help - Show this help message.')
+  expect(help).toContain('/workflow [help|clear|stop|edit] <task> - Create, revise, clear, or stop guidance for dynamic workflows.')
   expect(help).toContain('/review - Review changes [project]')
   expect(help).toContain('/local - Local only [project] (user-only)')
 })
@@ -42,5 +43,6 @@ test('formats unknown slash command guidance without using the error panel', () 
 
   expect(message).toContain('Unknown slash command: /helo')
   expect(message).toContain('Type /help to see all commands.')
+  expect(message).toContain('/workflow')
   expect(message).toContain('/mcp')
 })

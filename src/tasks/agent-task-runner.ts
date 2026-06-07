@@ -20,6 +20,7 @@ export interface RunAgentTaskInput {
   reasoningEffort?: ReasoningEffort | null
   baseSystemPrompt: string
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
+  extraTools?: ToolSet
   signal?: AbortSignal
 }
 
@@ -189,6 +190,7 @@ export class AgentTaskRunner {
           baseSystemPrompt: input.baseSystemPrompt,
           agentExecutionOptions: input.agentExecutionOptions,
           createTools: this.createChildTools,
+          extraTools: input.extraTools,
           appendTranscript: runHandle.appendTranscript,
           updateProgress: async (summary) => {
             await runHandle.updateProgress(summary)

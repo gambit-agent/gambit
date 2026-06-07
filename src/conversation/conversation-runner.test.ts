@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { setWorkspaceRootForTesting, workspaceRoot as originalWorkspaceRoot } from '../config'
-import { ConversationRunner } from './conversation-runner'
+import { buildDelegatedAgentBaseSystemPrompt, ConversationRunner } from './conversation-runner'
+import { buildGoalSystemPrompt, createGoalMessage } from './goal'
 import { createConversationStore } from './conversation-store'
 import { MemoryStore } from '../memory/memory-store'
 
@@ -69,4 +70,12 @@ test('appends turns to the conversation store', async () => {
   const turns = await store.loadTurnRecords()
   expect(turns).toHaveLength(1)
   expect(turns[0]?.userInput).toBe('hello')
+})
+
+test('delegated agent base prompt includes the active conversation goal', () => {
+  const goalPrompt = buildGoalSystemPrompt([createGoalMessage('finish the workflow port')])
+  const delegatedPrompt = buildDelegatedAgentBaseSystemPrompt('Base prompt', goalPrompt)
+
+  expect(delegatedPrompt).toContain('Base prompt')
+  expect(delegatedPrompt).toContain('Current conversation goal:\nfinish the workflow port')
 })

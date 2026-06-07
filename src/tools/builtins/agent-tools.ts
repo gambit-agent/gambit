@@ -10,7 +10,7 @@ export function createAgentTools(): AnyToolDefinition[] {
     id: 'runAgents',
     displayName: 'Run Agents',
     description:
-      'Run multiple delegated agents concurrently and wait for all results. Use this for parallel research or implementation when every result is needed before continuing.',
+      'Run multiple delegated agents concurrently and wait for all results. Use for parallel research, review, or implementation when every result is needed before continuing.',
     inputSchema: runAgentsSchema,
     requiredCapabilities: ['agents'],
     summarize: (result, context) =>
@@ -54,7 +54,8 @@ export function createAgentTools(): AnyToolDefinition[] {
   const spawnAgentTool: ToolDefinition<typeof spawnAgentSchema, string> = {
     id: 'spawnAgent',
     displayName: 'Spawn Agent',
-    description: 'Spawn a local delegated agent task.',
+    description:
+      'Spawn one delegated agent task. Use for substantial independent work; background true returns a task_id, otherwise this waits and includes output. Prefer runAgents for several parallel agents and workflow for structured orchestration.',
     inputSchema: spawnAgentSchema,
     requiredCapabilities: ['agents'],
     summarize: (result, context) =>

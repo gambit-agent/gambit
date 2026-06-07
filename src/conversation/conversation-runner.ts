@@ -49,6 +49,10 @@ export interface RunConversationTurnOptions {
   appendSystemPrompt?: string
 }
 
+export function buildDelegatedAgentBaseSystemPrompt(basePrompt: string, goalSystemPrompt: string | null): string {
+  return [basePrompt, goalSystemPrompt].filter(Boolean).join('\n\n')
+}
+
 /**
  * Drives a single user → assistant → tool turn for the main interactive loop.
  * Handles streaming, reasoning display, tool execution, compaction, and error recovery.
@@ -130,9 +134,10 @@ export class ConversationRunner {
       await this.dependencies.memoryStore.getRelevantMemories(options.userInput),
     )
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
+    const goalSystemPrompt = buildGoalSystemPrompt(snapshot.messages)
     const systemPrompt = [
       basePrompt,
-      buildGoalSystemPrompt(snapshot.messages),
+      goalSystemPrompt,
       options.appendSystemPrompt,
       getMemoryPrompt(),
       relevantMemoryContext,
@@ -146,7 +151,7 @@ export class ConversationRunner {
         apiKey: options.apiKey,
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort,
-        baseSystemPrompt: basePrompt,
+        baseSystemPrompt: buildDelegatedAgentBaseSystemPrompt(basePrompt, goalSystemPrompt),
         delegationDepth: 0,
         maxDelegationDepth: 3,
         maxSteps: maxAgentSteps,

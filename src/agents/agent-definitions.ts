@@ -5,13 +5,13 @@ export const DEFAULT_AGENT_DEFINITIONS: Record<'default' | 'explorer' | 'worker'
   default: {
     id: 'default',
     role: 'default',
-    description: 'General-purpose local delegated agent.',
+    description: 'General-purpose delegated agent with the broad default tool set.',
     allowedToolIds: agentToolIds,
   },
   explorer: {
     id: 'explorer',
     role: 'explorer',
-    description: 'Search and summarize workspace context.',
+    description: 'Read-only delegated agent for searching and summarizing workspace context.',
     allowedToolIds: [
       'readFile',
       'searchFiles',
@@ -27,7 +27,7 @@ export const DEFAULT_AGENT_DEFINITIONS: Record<'default' | 'explorer' | 'worker'
   worker: {
     id: 'worker',
     role: 'worker',
-    description: 'Carry out constrained edits or shell work.',
+    description: 'Delegated agent for constrained edits, shell work, and implementation checks.',
     allowedToolIds: [
       'readFile',
       'searchFiles',

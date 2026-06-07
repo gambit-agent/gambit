@@ -13,6 +13,7 @@ const ASK_USER_QUESTION_TOOL_PROMPT = `Use this tool when you need to ask the us
 4. Offer choices to the user about what direction to take.
 
 Usage notes:
+- Ask only when the answer is not discoverable from the workspace or available tools and a reasonable assumption would be risky.
 - Users will always be able to select "Other" to provide custom text input.
 - Use multiSelect: true to allow multiple answers to be selected for a question.
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
@@ -101,7 +102,7 @@ export const askUserQuestionTool: ToolDefinition<typeof askUserQuestionSchema, A
   id: ASK_USER_QUESTION_TOOL_ID,
   displayName: 'Ask User Question',
   description:
-    'Ask the user multiple-choice questions to gather information, clarify ambiguity, understand preferences, or offer them choices. ' +
+    'Ask the user 1-4 multiple-choice questions to resolve blocking ambiguity, preferences, or implementation decisions. ' +
     ASK_USER_QUESTION_TOOL_PROMPT,
   inputSchema: askUserQuestionSchema,
   shouldPersistLargeResult: false,

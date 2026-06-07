@@ -15,6 +15,13 @@ import {
   executePromptTemplate,
   loadPromptTemplates,
 } from '../../lib/promptTemplates'
+import {
+  clearWorkflowMessages,
+  findLatestWorkflowScript,
+  formatWorkflowCommandHelp,
+  parseWorkflowCommand,
+} from '../../workflows/workflow-command'
+import { buildWorkflowEditPrompt, buildWorkflowRunPrompt } from '../../workflows/workflow-prompt'
 import { executeSlashCommand, loadSlashCommands, type SlashCommandExecution } from '../../lib/slashCommands'
 import { formatSlashCommandMessage } from '../../lib/slash-command-format'
 import { formatInteractiveHelp, formatUnknownSlashCommandMessage } from '../help'
@@ -425,6 +432,53 @@ export function useReplSubmit({
           if (await handleGoalCommand(routed.argument, '/goal', signal)) {
             return
           }
+        }
+
+        if (routed.name === 'workflow') {
+          const workflowCommand = parseWorkflowCommand(routed.argument)
+          if (workflowCommand.action === 'help') {
+            await pushSystemMessage(runtime, formatWorkflowCommandHelp())
+            return
+          }
+
+          if (workflowCommand.action === 'clear') {
+            const currentMessages = runtime.conversationStore.getSnapshot().messages
+            const result = clearWorkflowMessages(currentMessages)
+            if (result.removedCount === 0) {
+              await pushSystemMessage(runtime, 'No workflow result messages found in this conversation.')
+              return
+            }
+            await runtime.conversationStore.replaceMessages(result.messages)
+            await pushSystemMessage(runtime, `Cleared ${result.removedCount} workflow result message${result.removedCount === 1 ? '' : 's'}.`)
+            return
+          }
+
+          if (workflowCommand.action === 'stop') {
+            await pushSystemMessage(runtime, 'Active workflows run inside the current generation. Press Ctrl+C to abort the active workflow or model run.')
+            return
+          }
+
+          if (workflowCommand.action === 'edit') {
+            if (!workflowCommand.change) {
+              runtime.conversationStore.setError('Usage: /workflow edit <change>')
+              return
+            }
+            const previousScript = findLatestWorkflowScript(runtime.conversationStore.getSnapshot().messages)
+            if (!previousScript) {
+              runtime.conversationStore.setError('No previous workflow script found to edit.')
+              return
+            }
+            await runUserPrompt(buildWorkflowEditPrompt(previousScript, workflowCommand.change), signal)
+            return
+          }
+
+          if (!workflowCommand.task) {
+            runtime.conversationStore.setError('Usage: /workflow <task>')
+            return
+          }
+
+          await runUserPrompt(buildWorkflowRunPrompt(workflowCommand.task), signal)
+          return
         }
 
         let execution: SlashCommandExecution

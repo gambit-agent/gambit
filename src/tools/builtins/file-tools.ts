@@ -24,7 +24,8 @@ export function createFileTools(): AnyToolDefinition[] {
   const readFileTool: ToolDefinition<typeof readFileSchema, string> = {
     id: 'readFile',
     displayName: 'Read File',
-    description: 'Read a UTF-8 file from the workspace.',
+    description:
+      'Read a workspace-relative UTF-8 file. Large files are truncated; use searchFiles first when locating context.',
     inputSchema: readFileSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('readFile', context.input, result, context.artifactPath),
@@ -43,7 +44,8 @@ export function createFileTools(): AnyToolDefinition[] {
   const searchFilesTool: ToolDefinition<typeof searchFilesSchema, string> = {
     id: 'searchFiles',
     displayName: 'Search Files',
-    description: 'Search workspace files with ripgrep. Read-only.',
+    description:
+      'Search workspace files with ripgrep using a text or regex pattern plus optional path/glob. Read-only and cheaper than broad file reads.',
     inputSchema: searchFilesSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('searchFiles', context.input, result, context.artifactPath),
@@ -53,7 +55,8 @@ export function createFileTools(): AnyToolDefinition[] {
   const writeFileTool: ToolDefinition<typeof writeFileSchema, string> = {
     id: 'writeFile',
     displayName: 'Write File',
-    description: 'Overwrite a file in the workspace with new content.',
+    description:
+      'Create or overwrite a workspace-relative file with complete content, creating parent directories as needed. Prefer patchFile for small edits.',
     inputSchema: writeFileSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('writeFile', context.input, result, context.artifactPath),
@@ -91,7 +94,8 @@ export function createFileTools(): AnyToolDefinition[] {
   const patchFileTool: ToolDefinition<typeof patchFileSchema, string> = {
     id: 'patchFile',
     displayName: 'Patch File',
-    description: 'Apply a unified diff patch to a file.',
+    description:
+      'Apply a git-style unified diff in the workspace. Supports single-file or multi-file update/create/delete/rename patches; omit path for multi-file patches. Do not use apply_patch formatted patches.',
     inputSchema: patchFileSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('patchFile', context.input, result, context.artifactPath),

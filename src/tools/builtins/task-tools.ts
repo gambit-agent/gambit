@@ -16,7 +16,8 @@ export function createTaskTools(): AnyToolDefinition[] {
   const readTaskOutputTool: ToolDefinition<typeof readTaskOutputSchema, string> = {
     id: 'readTaskOutput',
     displayName: 'Read Task Output',
-    description: 'Read persisted output for a runtime task.',
+    description:
+      'Read persisted stdout or agent output for a runtime task by taskId. Use after background shell or agent tasks finish.',
     inputSchema: readTaskOutputSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('readTaskOutput', context.input, result, context.artifactPath),
@@ -26,7 +27,7 @@ export function createTaskTools(): AnyToolDefinition[] {
   const listTasksTool: ToolDefinition<typeof listTasksSchema, Record<string, unknown>[]> = {
     id: 'listTasks',
     displayName: 'List Tasks',
-    description: 'List runtime shell and agent tasks with status summaries.',
+    description: 'List runtime shell and agent tasks with status summaries. Use when you need to find a taskId.',
     inputSchema: listTasksSchema,
     requiredCapabilities: ['taskRuntime'],
     summarize: (result, context) =>
@@ -40,7 +41,7 @@ export function createTaskTools(): AnyToolDefinition[] {
   const getTaskStatusTool: ToolDefinition<typeof getTaskStatusSchema, Record<string, unknown> | string> = {
     id: 'getTaskStatus',
     displayName: 'Get Task Status',
-    description: 'Read status metadata for a runtime task.',
+    description: 'Read status metadata for a runtime task. Use readTaskOutput for full output.',
     inputSchema: getTaskStatusSchema,
     requiredCapabilities: ['taskRuntime'],
     summarize: (result, context) =>
@@ -55,7 +56,7 @@ export function createTaskTools(): AnyToolDefinition[] {
     id: 'waitForTasks',
     displayName: 'Wait For Tasks',
     description:
-      'Wait until runtime shell or agent tasks finish. Use this instead of sleeping and repeatedly checking task status.',
+      'Wait until runtime shell or agent tasks finish. Use this instead of sleeping or polling; then call readTaskOutput when full output is needed.',
     inputSchema: waitForTasksSchema,
     requiredCapabilities: ['taskRuntime'],
     summarize: (result, context) =>
@@ -75,7 +76,7 @@ export function createTaskTools(): AnyToolDefinition[] {
   const cancelTaskTool: ToolDefinition<typeof cancelTaskSchema, Record<string, unknown> | string> = {
     id: 'cancelTask',
     displayName: 'Cancel Task',
-    description: 'Cancel a pending or running runtime task.',
+    description: 'Cancel a pending or running runtime task by taskId.',
     inputSchema: cancelTaskSchema,
     requiredCapabilities: ['taskRuntime'],
     summarize: (result, context) =>

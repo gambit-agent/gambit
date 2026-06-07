@@ -4,6 +4,7 @@ const builtInCommands = [
   ['/help', 'Show this help message.'],
   ['/clear', 'Start a fresh conversation.'],
   ['/goal [set|run|clear] <goal>', 'Manage or run the conversation goal.'],
+  ['/workflow [help|clear|stop|edit] <task>', 'Create, revise, clear, or stop guidance for dynamic workflows.'],
   ['/model [query]', 'Open the model picker.'],
   ['/resume [query]', 'Open saved conversations.'],
   [':model <model-id>', 'Set the model directly.'],
@@ -62,7 +63,7 @@ export function formatUnknownSlashCommandMessage(
 ): string {
   const normalizedName = name.replace(/^\//, '').trim()
   const customNames = commands.map((command) => `/${command.id}`)
-  const suggestions = ['/help', '/clear', '/goal', '/model', '/resume', ...customNames]
+  const suggestions = ['/help', '/clear', '/goal', '/workflow', '/model', '/resume', ...customNames]
   const uniqueSuggestions = [...new Set(suggestions)].slice(0, 12)
 
   return [

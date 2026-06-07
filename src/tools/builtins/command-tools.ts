@@ -19,7 +19,8 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
   const executeShellTool: ToolDefinition<typeof executeShellSchema, string> = {
     id: 'executeShell',
     displayName: 'Execute Shell',
-    description: 'Execute a shell command from the workspace root.',
+    description:
+      'Run a bash command from the workspace root for inspections, tests, builds, or other CLI work. Use background for long-running commands and task tools for follow-up status/output.',
     inputSchema: executeShellSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('executeShell', context.input, result, context.artifactPath),

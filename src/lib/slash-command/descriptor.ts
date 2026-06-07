@@ -4,7 +4,7 @@ import type { SlashCommandDefinition } from './types'
 
 export function buildSlashCommandToolDescription(commands: SlashCommandDefinition[]): string {
   const header =
-    'Execute a custom slash command defined in the workspace (.gambit/commands) or ~/.gambit/commands.'
+    'Execute a custom slash command defined in .gambit/commands or ~/.gambit/commands. Use only when a listed command directly matches the task; the result is rendered command content to follow.'
 
   const eligible = commands.filter((command) => !command.disableModelInvocation && Boolean(command.description))
   if (eligible.length === 0) {

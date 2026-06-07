@@ -14,7 +14,7 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
     'Enter Plan mode for complex tasks requiring exploration and design.',
     'Use this proactively when a task has multiple valid approaches, requires architectural decisions,',
     'or involves multi-file changes. In Plan mode you explore the codebase read-only and write your',
-    'Plan to the Plan file. When ready, call exitPlanMode to present your Plan for user approval.',
+    'Plan to the Plan file using writeFile only. When ready, call exitPlanMode to request user approval.',
   ].join(' '),
   inputSchema: enterPlanModeSchema,
   execute: async (_input, context) => {
@@ -58,7 +58,7 @@ export const exitPlanModeTool: ToolDefinition<typeof exitPlanModeSchema, string>
   displayName: 'Exit Plan Mode',
   description: [
     'Exit Plan mode and present your Plan for user approval.',
-    'Call this after writing your Plan to the Plan file.',
+    'Call this only after writing your Plan to the Plan file.',
     'The user will review the Plan and approve or reject it.',
     'If approved, you can proceed with implementation.',
     'If rejected, you will remain in Plan mode to refine your Plan.',

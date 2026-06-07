@@ -50,6 +50,7 @@ function getToolActionVerb(toolName: string): string {
       return 'Explored'
     case 'executeShell':
     case 'slashCommand':
+    case 'workflow':
     case 'call-mcp-tool':
       return 'Ran'
     case 'activateSkill':

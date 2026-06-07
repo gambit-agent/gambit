@@ -38,6 +38,7 @@ export interface UseInteractiveControllerOptions {
   onRewind?: () => void
   onBackgroundRequest?: (command: string) => boolean
   onToggleBackgroundTasks?: () => void
+  historyNavigationEnabled?: boolean
 }
 
 export interface UseInteractiveControllerResult {
@@ -67,6 +68,7 @@ export function useInteractiveController({
   onRewind,
   onBackgroundRequest,
   onToggleBackgroundTasks,
+  historyNavigationEnabled = true,
 }: UseInteractiveControllerOptions): UseInteractiveControllerResult {
   const sessionRef = useRef(new InteractiveSession())
   const historyRef = useRef<InteractiveHistory | null>(null)
@@ -271,13 +273,13 @@ export function useInteractiveController({
           return match.preventDefault ?? false
         }
         case "history-previous": {
-          if (!historySearch.active) {
+          if (historyNavigationEnabled && !historySearch.active) {
             handleHistoryNavigation("previous")
           }
           return match.preventDefault ?? false
         }
         case "history-next": {
-          if (!historySearch.active) {
+          if (historyNavigationEnabled && !historySearch.active) {
             handleHistoryNavigation("next")
           }
           return match.preventDefault ?? false
@@ -356,6 +358,7 @@ export function useInteractiveController({
       historySearch,
       handleAbortRun,
       handleExitSession,
+      historyNavigationEnabled,
       onBackgroundRequest,
       onToggleBackgroundTasks,
       onCyclePermissionMode,

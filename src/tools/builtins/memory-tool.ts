@@ -6,7 +6,8 @@ export function createMemoryTool(): AnyToolDefinition {
   const writeMemoryTool: ToolDefinition<typeof writeMemorySchema, string> = {
     id: 'writeMemory',
     displayName: 'Write Memory',
-    description: 'Write a typed memory record to `.gambit/memory/`.',
+    description:
+      'Write durable, typed memory to `.gambit/memory/`. Save only non-derivable context that will matter in future turns.',
     inputSchema: writeMemorySchema,
     requiredCapabilities: ['memory'],
     summarize: (result, context) =>

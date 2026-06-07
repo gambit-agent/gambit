@@ -13,6 +13,7 @@ export const agentToolIds = [
   'cancelTask',
   'spawnAgent',
   'runAgents',
+  'workflow',
   'writeMemory',
   'askUserQuestion',
 ] as const

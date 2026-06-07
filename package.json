@@ -72,6 +72,7 @@
     "@opentui/core": "0.3.3",
     "@opentui/react": "0.3.3",
     "@types/node": "^25.9.2",
+    "acorn": "^8.16.0",
     "ai": "^6.0.197",
     "marked": "^18.0.5",
     "react": "^19.2.7",

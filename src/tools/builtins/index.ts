@@ -10,6 +10,7 @@ import { createFileTools } from './file-tools'
 import { createMemoryTool } from './memory-tool'
 import { createActivateSkillTool } from './skill-tool'
 import { createTaskTools } from './task-tools'
+import { createWorkflowTool } from './workflow-tool'
 
 export interface CreateBuiltInToolDefinitionOptions {
   includeSpawnAgent?: boolean
@@ -26,6 +27,7 @@ export async function createBuiltInToolDefinitions(
     ...createFileTools(),
     ...createCommandTools(cachedSlashCommands),
     ...createTaskTools(),
+    ...createWorkflowTool(),
     createMemoryTool(),
     enterPlanModeTool,
     exitPlanModeTool,
