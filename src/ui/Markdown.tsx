@@ -361,6 +361,15 @@ export function Markdown({ content, textColor, strongColor }: MarkdownProps) {
   const sanitizedContent = content.trimEnd()
   const tokens = useMemo(() => marked.lexer(sanitizedContent), [sanitizedContent])
   const resolvedColor = textColor ?? theme.assistantFg
+  const resolvedStrongColor = strongColor ?? theme.responseStrongFg
+  const renderedBlocks = useMemo(
+    () =>
+      renderBlocks(tokens, 'md', 0, {
+        textColor: resolvedColor,
+        strongColor: resolvedStrongColor,
+      }),
+    [resolvedColor, resolvedStrongColor, tokens],
+  )
 
   if (!tokens.length) {
     return <text selectable fg={resolvedColor} content={content.length ? content : ' '} />
@@ -368,10 +377,7 @@ export function Markdown({ content, textColor, strongColor }: MarkdownProps) {
 
   return (
     <box flexDirection="column" gap={layout.markdownBlockGap}>
-      {renderBlocks(tokens, 'md', 0, {
-        textColor: resolvedColor,
-        strongColor: strongColor ?? theme.responseStrongFg,
-      })}
+      {renderedBlocks}
     </box>
   )
 }

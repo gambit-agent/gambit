@@ -30,30 +30,47 @@ export function useInteractiveHistorySearch({
   setInputValueWithRef,
   clearPreviewLabel,
 }: UseInteractiveHistorySearchOptions) {
-  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: '', match: null })
   const lastSearchIndex = useRef<number | null>(null)
+  const loadPromiseRef = useRef<Promise<InteractiveHistory> | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    InteractiveHistory.load().then((history) => {
+    const loadPromise = InteractiveHistory.load()
+    loadPromiseRef.current = loadPromise
+
+    loadPromise.then((history) => {
       if (!cancelled) {
         historyRef.current = history
-        setHistoryLoaded(true)
+      }
+    }).finally(() => {
+      if (loadPromiseRef.current === loadPromise) {
+        loadPromiseRef.current = null
       }
     })
+
     return () => {
       cancelled = true
     }
   }, [])
 
-  const ensureHistoryLoaded = useCallback(async () => {
-    if (!historyLoaded || !historyRef.current) {
-      const history = await InteractiveHistory.load()
-      historyRef.current = history
-      setHistoryLoaded(true)
+  const ensureHistoryLoaded = useCallback(async (): Promise<InteractiveHistory> => {
+    if (historyRef.current) {
+      return historyRef.current
     }
-  }, [historyLoaded])
+
+    const loadPromise = loadPromiseRef.current ?? InteractiveHistory.load()
+    loadPromiseRef.current = loadPromise
+
+    const history = await loadPromise
+    historyRef.current = history
+
+    if (loadPromiseRef.current === loadPromise) {
+      loadPromiseRef.current = null
+    }
+
+    return history
+  }, [])
 
   const persistHistory = useCallback(async () => {
     try {

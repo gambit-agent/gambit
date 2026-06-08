@@ -7,6 +7,7 @@ import { getWorkspaceFiles } from '../lib/workspace-files'
 const mentionBoundaryPattern = /[\s([{,;]/
 const mentionQueryPattern = /^[A-Za-z0-9._/-]*$/
 const mentionTokenPattern = /(^|[\s([{,;])@([A-Za-z0-9._/-]+)/g
+const mentionTokenDetectorPattern = /(^|[\s([{,;])@([A-Za-z0-9._/-]+)/
 const trailingPunctuationPattern = /[.,;:!?)}\]]+$/
 const binaryMarker = '\u0000'
 
@@ -115,6 +116,10 @@ export async function expandFileMentions(
     maxTotalBytes?: number
   } = {},
 ): Promise<FileMentionExpansion> {
+  if (!mentionTokenDetectorPattern.test(prompt)) {
+    return { content: prompt, files: [], omitted: [] }
+  }
+
   const rootPath = options.rootPath ?? workspaceRoot
   const workspaceFiles = options.workspaceFiles ?? (await getWorkspaceFiles())
   const mentionedPaths = collectMentionedFilePaths(prompt, workspaceFiles)
