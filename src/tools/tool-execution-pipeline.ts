@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { MAX_INLINE_TOOL_RESULT_CHARS, workspaceRoot as defaultWorkspaceRoot } from '../config'
@@ -366,7 +366,7 @@ export class DefaultToolExecutionPipeline implements ToolExecutionPipeline {
   private async writeArtifact(toolCallId: string, content: string, outputDirectory: string): Promise<string> {
     await mkdir(outputDirectory, { recursive: true })
     const artifactPath = path.join(outputDirectory, `${toolCallId}.txt`)
-    await writeFile(artifactPath, content, 'utf8')
+    await Bun.write(artifactPath, content)
     return artifactPath
   }
 }

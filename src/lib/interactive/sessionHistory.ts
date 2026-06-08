@@ -1,6 +1,7 @@
 ﻿import { generateId } from "../id"
-import { mkdir, readFile, readdir } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { Glob, JSONL } from "bun"
 
 import { workspaceRoot } from "../../config"
 import { appendJsonlEntry } from "../jsonl"
@@ -79,11 +80,19 @@ export async function loadUserHistoryEntries(limit: number = MAX_HISTORY_ENTRIES
 
   try {
     const directory = await ensureSessionsDirectory()
-    const files = await readdir(directory)
+    const historyFiles: string[] = []
+    const historyGlob = new Glob(`${HISTORY_FILE_PREFIX}*${HISTORY_FILE_SUFFIX}`)
+    for await (const filePath of historyGlob.scan({
+      cwd: directory,
+      dot: true,
+      absolute: true,
+      onlyFiles: false,
+      followSymlinks: false,
+    })) {
+      historyFiles.push(filePath)
+    }
     const parsedFiles = await Promise.all(
-      files
-        .filter((filename) => filename.startsWith(HISTORY_FILE_PREFIX) && filename.endsWith(HISTORY_FILE_SUFFIX))
-        .map((filename) => readUserEntriesFromFile(path.join(directory, filename))),
+      historyFiles.map((filePath) => readUserEntriesFromFile(filePath)),
     )
     entries.push(...parsedFiles.flat())
   } catch (error) {
@@ -105,7 +114,7 @@ async function readUserEntriesFromFile(filePath: string): Promise<ParsedHistoryE
   let content: string
 
   try {
-    content = await readFile(filePath, "utf8")
+    content = await Bun.file(filePath).text()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return entries
@@ -120,12 +129,18 @@ async function readUserEntriesFromFile(filePath: string): Promise<ParsedHistoryE
       continue
     }
     try {
-      const parsed = JSON.parse(trimmed) as Partial<SessionHistoryEntry>
-      if (parsed.role !== "user" || typeof parsed.content !== "string") {
-        continue
+      const parsedValues = JSONL.parse(`${trimmed}\n`) as unknown[]
+      for (const parsed of parsedValues) {
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          continue
+        }
+        const record = parsed as Partial<SessionHistoryEntry>
+        if (record.role !== "user" || typeof record.content !== "string") {
+          continue
+        }
+        const timestampMs = record.timestamp ? Date.parse(record.timestamp) : Number.NaN
+        entries.push({ content: record.content, timestamp: Number.isNaN(timestampMs) ? 0 : timestampMs })
       }
-      const timestampMs = parsed.timestamp ? Date.parse(parsed.timestamp) : Number.NaN
-      entries.push({ content: parsed.content, timestamp: Number.isNaN(timestampMs) ? 0 : timestampMs })
     } catch {
       // ignore malformed lines
     }
@@ -138,18 +153,8 @@ async function loadLegacyHistoryEntries(): Promise<ParsedHistoryEntry[]> {
   const entries: ParsedHistoryEntry[] = []
   const legacyPath = getLegacyHistoryPath()
 
-  let raw: string
   try {
-    raw = await readFile(legacyPath, "utf8")
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return entries
-    }
-    throw error
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { entries?: unknown }
+    const parsed = await Bun.file(legacyPath, { type: "application/json" }).json() as { entries?: unknown }
     if (!Array.isArray(parsed.entries)) {
       return entries
     }
@@ -159,8 +164,14 @@ async function loadLegacyHistoryEntries(): Promise<ParsedHistoryEntry[]> {
       }
       entries.push({ content: entry, timestamp: 0 })
     }
-  } catch {
-    // ignore malformed legacy file
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return entries
+    }
+    if (error instanceof SyntaxError) {
+      return entries
+    }
+    throw error
   }
 
   return entries

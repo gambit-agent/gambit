@@ -38,10 +38,10 @@ export interface ReplOverlayManagerProps {
   terminalHeight: number
   onModelFilterChange: (value: string) => void
   onModelFilterSubmit: (value: string) => void
-  onReasoningChange: (value: string) => void
-  onReasoningSubmit: (value: string) => void
   onModelOptionChange: (index: number, modelId?: string) => void
   onModelOptionSelect: (index: number, modelId?: string) => void
+  onModelProviderOptionChange: (index: number) => void
+  onModelProviderOptionSelect: (index: number) => void
   onModelClose: () => void
   onSessionFilterChange: (value: string) => void
   onSessionFilterSubmit: (value: string) => void
@@ -104,10 +104,10 @@ export function ReplOverlayManager({
   terminalHeight,
   onModelFilterChange,
   onModelFilterSubmit,
-  onReasoningChange,
-  onReasoningSubmit,
   onModelOptionChange,
   onModelOptionSelect,
+  onModelProviderOptionChange,
+  onModelProviderOptionSelect,
   onModelClose,
   onSessionFilterChange,
   onSessionFilterSubmit,
@@ -132,10 +132,10 @@ export function ReplOverlayManager({
           hasFocus={focus.modelPicker}
           onFilterChange={onModelFilterChange}
           onFilterSubmit={onModelFilterSubmit}
-          onReasoningChange={onReasoningChange}
-          onReasoningSubmit={onReasoningSubmit}
           onOptionChange={onModelOptionChange}
           onOptionSelect={onModelOptionSelect}
+          onProviderOptionChange={onModelProviderOptionChange}
+          onProviderOptionSelect={onModelProviderOptionSelect}
           onClose={onModelClose}
         />
       ) : null}

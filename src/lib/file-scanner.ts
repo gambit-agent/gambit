@@ -1,31 +1,30 @@
-import { readdir } from 'node:fs/promises'
 import path from 'node:path'
+import { Glob } from 'bun'
 
 export interface CollectFilesOptions {
   extensions?: ReadonlySet<string>
 }
 
 export async function collectFiles(directory: string, options: CollectFilesOptions = {}): Promise<string[]> {
-  let entries
+  const files: string[] = []
+
   try {
-    entries = await readdir(directory, { withFileTypes: true })
+    const glob = new Glob('**/*')
+    for await (const filePath of glob.scan({
+      cwd: directory,
+      dot: true,
+      absolute: true,
+      onlyFiles: true,
+      followSymlinks: false,
+    })) {
+      if (options.extensions && !options.extensions.has(path.extname(filePath))) {
+        continue
+      }
+      files.push(filePath)
+    }
   } catch {
     return []
   }
 
-  const files = await Promise.all(entries.map(async (entry) => {
-    const entryPath = path.join(directory, entry.name)
-    if (entry.isDirectory()) {
-      return collectFiles(entryPath, options)
-    }
-    if (!entry.isFile()) {
-      return []
-    }
-    if (options.extensions && !options.extensions.has(path.extname(entry.name))) {
-      return []
-    }
-    return [entryPath]
-  }))
-
-  return files.flat().sort((left, right) => left.localeCompare(right))
+  return files.sort((left, right) => left.localeCompare(right))
 }

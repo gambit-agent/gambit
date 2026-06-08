@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { fetchOpenRouterModels, isGpt5Model, normalizeOpenRouterModel } from "./openrouterModels";
+import {
+  fetchOpenRouterModelProviders,
+  fetchOpenRouterModels,
+  isGpt5Model,
+  normalizeOpenRouterModel,
+} from "./openrouterModels";
 
 test("normalizeOpenRouterModel extracts key fields", () => {
   const result = normalizeOpenRouterModel({
@@ -87,6 +92,54 @@ test("fetchOpenRouterModels requires an API key", async () => {
   await expect(fetchOpenRouterModels()).rejects.toThrow(
     "OpenRouter API key required to load the full model catalog.",
   )
+})
+
+test("fetchOpenRouterModelProviders normalizes endpoint tags", async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl = ""
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    requestedUrl = input.toString()
+    return new Response(
+      JSON.stringify({
+        data: {
+          endpoints: [
+            {
+              tag: "deepinfra/turbo",
+              name: "DeepInfra Turbo",
+              provider_name: "DeepInfra",
+              quantization: "fp8",
+              pricing: { prompt: "0.1", completion: "0.2", request: 0 },
+              status: 0,
+            },
+          ],
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    )
+  }) as unknown as typeof fetch
+
+  try {
+    const providers = await fetchOpenRouterModelProviders("deepseek/deepseek-r1", "test-key")
+
+    expect(requestedUrl).toContain("/models/deepseek/deepseek-r1/endpoints")
+    expect(providers).toEqual([
+      {
+        slug: "deepinfra/turbo",
+        name: "DeepInfra",
+        quantization: "fp8",
+        status: null,
+        promptPrice: "0.1",
+        completionPrice: "0.2",
+        requestPrice: "0",
+      },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 const liveTest: boolean = Bun.env.GAMBIT_RUN_LIVE_TESTS === "1" && Boolean(Bun.env.OPENROUTER_API_KEY);

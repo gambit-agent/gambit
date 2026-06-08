@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { getTaskOutputPath } from '../session/session-paths'
@@ -9,7 +9,7 @@ export async function readTaskOutput(taskId: string, fileName?: string): Promise
   const outputPath = task?.outputPath ?? getTaskOutputPath(taskId, fileName)
 
   try {
-    return await readFile(outputPath, 'utf8')
+    return await Bun.file(outputPath).text()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return ''
@@ -21,7 +21,7 @@ export async function readTaskOutput(taskId: string, fileName?: string): Promise
 export async function writeTaskOutput(taskId: string, content: string, fileName?: string): Promise<string> {
   const outputPath = getTaskOutputPath(taskId, fileName)
   await mkdir(path.dirname(outputPath), { recursive: true })
-  await writeFile(outputPath, content, 'utf8')
+  await Bun.write(outputPath, content)
   return outputPath
 }
 

@@ -1,4 +1,4 @@
-import { access, appendFile, chmod, copyFile, mkdir, readFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -53,16 +53,11 @@ function isOnPath(dir: string): boolean {
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath)
-    return true
-  } catch {
-    return false
-  }
+  return Bun.file(filePath).exists()
 }
 
 async function addPathCommand(configFile: string, command: string, binDir: string): Promise<boolean> {
-  const existing = await readFile(configFile, 'utf8').catch(() => '')
+  const existing = await Bun.file(configFile).text().catch(() => '')
   if (existing.split(/\r?\n/).includes(command)) {
     console.log(`PATH entry already exists in ${configFile}`)
     return true
@@ -135,7 +130,7 @@ export async function runInstall(args: string[]): Promise<number> {
   const destination = path.join(binDir, launcherName)
 
   await mkdir(binDir, { recursive: true })
-  await copyFile(sourcePath, destination)
+  await Bun.write(destination, Bun.file(sourcePath))
   await chmod(destination, 0o755)
 
   console.log(`Installed gambit to ${destination}`)

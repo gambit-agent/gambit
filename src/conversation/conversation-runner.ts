@@ -1,6 +1,6 @@
 import { generateId } from '../lib/id'
 import { toCoreMessages } from '../lib/messages'
-import { createModelSelector, type ReasoningEffort } from '../lib/model'
+import { buildOpenRouterModelSettings, createModelSelector, type ReasoningEffort } from '../lib/model'
 import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { maxAgentSteps } from '../config'
@@ -42,6 +42,7 @@ export interface RunConversationTurnOptions {
   apiKey: string
   modelId: string
   reasoningEffort?: ReasoningEffort | null
+  providerSlug?: string | null
   showReasoning?: boolean
   signal?: AbortSignal
   allowedToolIds?: readonly string[]
@@ -160,6 +161,7 @@ export class ConversationRunner {
         apiKey: options.apiKey,
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort,
+        providerSlug: options.providerSlug,
         baseSystemPrompt: buildDelegatedAgentBaseSystemPrompt(basePrompt, goalSystemPrompt),
         delegationDepth: 0,
         maxDelegationDepth: 3,
@@ -173,9 +175,10 @@ export class ConversationRunner {
     })
 
     const selectModel = createModelSelector(options.apiKey)
-    const modelSettings = options.reasoningEffort
-      ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
-      : undefined
+    const modelSettings = buildOpenRouterModelSettings({
+      reasoningEffort: options.reasoningEffort,
+      providerSlug: options.providerSlug,
+    })
 
     const turn: ConversationTurnRecord = {
       id: generateId(),
@@ -216,6 +219,7 @@ export class ConversationRunner {
         logMetadata: {
           modelId: options.modelId,
           reasoningEffort: options.reasoningEffort ?? null,
+          providerSlug: options.providerSlug ?? null,
           messageCount: snapshot.messages.length,
           toolCount: Object.keys(tools).length,
         },

@@ -18,6 +18,7 @@ export interface RunAgentTaskInput {
   apiKey: string
   modelId: string
   reasoningEffort?: ReasoningEffort | null
+  providerSlug?: string | null
   baseSystemPrompt: string
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   extraTools?: ToolSet
@@ -41,6 +42,7 @@ export interface RunAgentBatchInput {
   apiKey: string
   modelId: string
   reasoningEffort?: ReasoningEffort | null
+  providerSlug?: string | null
   baseSystemPrompt: string
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   signal?: AbortSignal
@@ -89,6 +91,7 @@ export class AgentTaskRunner {
           apiKey: input.apiKey,
           modelId: input.modelId,
           reasoningEffort: input.reasoningEffort,
+          providerSlug: input.providerSlug,
           baseSystemPrompt: input.baseSystemPrompt,
           agentExecutionOptions: input.agentExecutionOptions,
           signal: input.signal,
@@ -187,6 +190,7 @@ export class AgentTaskRunner {
           apiKey: input.apiKey,
           modelId: input.modelId,
           reasoningEffort: input.reasoningEffort,
+          providerSlug: input.providerSlug,
           baseSystemPrompt: input.baseSystemPrompt,
           agentExecutionOptions: input.agentExecutionOptions,
           createTools: this.createChildTools,

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
@@ -72,7 +72,7 @@ async function ensurePlansDirectory(): Promise<void> {
 export async function readPlan(sessionId: string): Promise<string | null> {
   const filePath = getPlanFilePath(sessionId)
   try {
-    return await readFile(filePath, 'utf-8')
+    return await Bun.file(filePath).text()
   } catch {
     return null
   }
@@ -81,7 +81,7 @@ export async function readPlan(sessionId: string): Promise<string | null> {
 async function writePlan(sessionId: string, content: string): Promise<string> {
   await ensurePlansDirectory()
   const filePath = getPlanFilePath(sessionId)
-  await writeFile(filePath, content, 'utf-8')
+  await Bun.write(filePath, content)
   return filePath
 }
 

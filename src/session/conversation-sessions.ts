@@ -1,5 +1,5 @@
-import { readdir } from 'node:fs/promises'
 import path from 'node:path'
+import { Glob } from 'bun'
 
 import type { ConversationMessage } from '../conversation/conversation-types'
 import { workspaceRoot } from '../config'
@@ -94,10 +94,20 @@ async function readSessionSummary(
 }
 
 export async function listConversationSessions(root: string = workspaceRoot): Promise<ConversationSessionSummary[]> {
-  let entries
+  const transcriptPaths: string[] = []
+  const conversationsDirectory = getConversationsDirectory(root)
 
   try {
-    entries = await readdir(getConversationsDirectory(root), { withFileTypes: true })
+    const transcriptGlob = new Glob('*/transcript.jsonl')
+    for await (const transcriptPath of transcriptGlob.scan({
+      cwd: conversationsDirectory,
+      dot: true,
+      absolute: true,
+      onlyFiles: true,
+      followSymlinks: false,
+    })) {
+      transcriptPaths.push(transcriptPath)
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return []
@@ -106,9 +116,7 @@ export async function listConversationSessions(root: string = workspaceRoot): Pr
   }
 
   const summaries = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => readSessionSummary(entry.name, root)),
+    transcriptPaths.map(async (transcriptPath) => readSessionSummary(path.basename(path.dirname(transcriptPath)), root)),
   )
 
   return summaries

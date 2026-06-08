@@ -29,7 +29,8 @@ export interface ToolExecutionContext {
   agentExecutionOptions?: {
     apiKey: string
     modelId: string
-    reasoningEffort?: 'low' | 'medium' | 'high' | null
+    reasoningEffort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none' | null
+    providerSlug?: string | null
     baseSystemPrompt: string
     delegationDepth?: number
     maxDelegationDepth?: number

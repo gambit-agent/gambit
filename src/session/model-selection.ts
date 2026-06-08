@@ -1,26 +1,19 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
-import type { ReasoningEffort } from '../lib/model'
+import { isReasoningEffort, normalizeProviderSlug, type ReasoningEffort } from '../lib/model'
 import { isRecord } from './jsonl'
 import { getModelSelectionPath } from './session-paths'
 
 export interface PersistedModelSelection {
   modelId: string
   reasoningEffort: ReasoningEffort | null
+  providerSlug: string | null
 }
 
 function parseReasoningEffort(value: unknown): ReasoningEffort | null {
-  if (value === null || value === undefined) {
-    return null
-  }
-
-  if (value === 'low' || value === 'medium' || value === 'high') {
-    return value
-  }
-
-  return null
+  return isReasoningEffort(value) ? value : null
 }
 
 function parseModelSelection(value: unknown): PersistedModelSelection | null {
@@ -28,7 +21,7 @@ function parseModelSelection(value: unknown): PersistedModelSelection | null {
     return null
   }
 
-  const { modelId, reasoningEffort } = value
+  const { modelId, reasoningEffort, providerSlug } = value
   if (typeof modelId !== 'string' || !modelId.trim()) {
     return null
   }
@@ -36,26 +29,23 @@ function parseModelSelection(value: unknown): PersistedModelSelection | null {
   return {
     modelId: modelId.trim(),
     reasoningEffort: parseReasoningEffort(reasoningEffort),
+    providerSlug: normalizeProviderSlug(providerSlug),
   }
 }
 
 export async function readModelSelection(root: string = workspaceRoot): Promise<PersistedModelSelection | null> {
   const filePath = getModelSelectionPath(root)
 
-  let raw: string
   try {
-    raw = await readFile(filePath, 'utf8')
+    return parseModelSelection(await Bun.file(filePath, { type: 'application/json' }).json())
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null
     }
+    if (error instanceof SyntaxError) {
+      return null
+    }
     throw error
-  }
-
-  try {
-    return parseModelSelection(JSON.parse(raw))
-  } catch {
-    return null
   }
 }
 
@@ -65,5 +55,5 @@ export async function writeModelSelection(
 ): Promise<void> {
   const filePath = getModelSelectionPath(root)
   await mkdir(path.dirname(filePath), { recursive: true })
-  await writeFile(filePath, `${JSON.stringify(selection, null, 2)}\n`, 'utf8')
+  await Bun.write(filePath, `${JSON.stringify(selection, null, 2)}\n`)
 }

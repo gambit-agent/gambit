@@ -34,6 +34,7 @@ export function createAgentTools(): AnyToolDefinition[] {
         apiKey: context.agentExecutionOptions.apiKey,
         modelId: context.agentExecutionOptions.modelId,
         reasoningEffort: context.agentExecutionOptions.reasoningEffort,
+        providerSlug: context.agentExecutionOptions.providerSlug,
         baseSystemPrompt: context.agentExecutionOptions.baseSystemPrompt,
         agentExecutionOptions: {
           ...context.agentExecutionOptions,
@@ -78,6 +79,7 @@ export function createAgentTools(): AnyToolDefinition[] {
         apiKey: context.agentExecutionOptions.apiKey,
         modelId: context.agentExecutionOptions.modelId,
         reasoningEffort: context.agentExecutionOptions.reasoningEffort,
+        providerSlug: context.agentExecutionOptions.providerSlug,
         baseSystemPrompt: context.agentExecutionOptions.baseSystemPrompt,
         agentExecutionOptions: {
           ...context.agentExecutionOptions,

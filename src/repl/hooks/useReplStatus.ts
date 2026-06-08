@@ -22,6 +22,7 @@ interface UseReplStatusOptions {
   tasks: TaskRecord[]
   modelId: string | null
   reasoningEffort: ReasoningEffort | null
+  providerSlug: string | null
   thinkingEnabled: boolean
   permissionMode: PermissionMode
   isLight: boolean
@@ -34,6 +35,7 @@ export function useReplStatus({
   tasks,
   modelId,
   reasoningEffort,
+  providerSlug,
   thinkingEnabled,
   permissionMode,
   isLight,
@@ -85,8 +87,9 @@ export function useReplStatus({
 
   const selectedModelLabel = modelId ?? 'no model'
   const shortModelId = selectedModelLabel.includes('/') ? selectedModelLabel.split('/').pop()! : selectedModelLabel
+  const modelSettingsLabel = `${shortModelId}${reasoningEffort ? `.${reasoningEffort}` : ''}${providerSlug ? `@${providerSlug}` : ''}`
   const shortModelDisplay = truncateMiddle(
-    reasoningEffort ? `${shortModelId}.${reasoningEffort}` : shortModelId,
+    modelSettingsLabel,
     terminalWidth < 100 ? 18 : 34,
   )
   const activeTasks = tasks.filter((task) => isActiveTaskStatus(task.status))

@@ -21,6 +21,7 @@ test('writes and reads the persisted model selection', async () => {
     {
       modelId: 'openai/gpt-5',
       reasoningEffort: 'high',
+      providerSlug: 'DeepInfra/Turbo',
     },
     tempRoot,
   )
@@ -28,6 +29,7 @@ test('writes and reads the persisted model selection', async () => {
   await expect(readModelSelection(tempRoot)).resolves.toEqual({
     modelId: 'openai/gpt-5',
     reasoningEffort: 'high',
+    providerSlug: 'deepinfra/turbo',
   })
 })
 
@@ -56,5 +58,6 @@ test('treats unknown reasoning effort values as null', async () => {
   await expect(readModelSelection(tempRoot)).resolves.toEqual({
     modelId: 'anthropic/claude-sonnet-4',
     reasoningEffort: null,
+    providerSlug: null,
   })
 })

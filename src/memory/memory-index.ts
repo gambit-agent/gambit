@@ -1,5 +1,6 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
+import { Glob } from 'bun'
 
 import { workspaceRoot } from '../config'
 import { getMemoryDirectory, getMemoryFilePath, getMemoryIndexPath } from './memory-paths'
@@ -48,17 +49,23 @@ export function parseMemoryFile(filePath: string, raw: string): MemoryRecord | n
 export async function scanMemoryRecords(rootPath: string = workspaceRoot): Promise<MemoryRecord[]> {
   const memoryDirectory = getMemoryDirectory(rootPath)
   await mkdir(memoryDirectory, { recursive: true })
-  const entries = await readdir(memoryDirectory, { withFileTypes: true })
-  const records = await Promise.all(entries.map(async (entry) => {
-    if (!entry.isFile()) {
-      return null
-    }
-    if (!entry.name.endsWith('.md') || entry.name === 'MEMORY.md') {
-      return null
-    }
+  const memoryFiles: string[] = []
+  const memoryGlob = new Glob('*.md')
 
-    const filePath = path.join(memoryDirectory, entry.name)
-    const raw = await readFile(filePath, 'utf8')
+  for await (const filePath of memoryGlob.scan({
+    cwd: memoryDirectory,
+    dot: true,
+    absolute: true,
+    onlyFiles: true,
+    followSymlinks: false,
+  })) {
+    if (path.basename(filePath) !== 'MEMORY.md') {
+      memoryFiles.push(filePath)
+    }
+  }
+
+  const records = await Promise.all(memoryFiles.map(async (filePath) => {
+    const raw = await Bun.file(filePath).text()
     return parseMemoryFile(filePath, raw)
   }))
 
@@ -91,16 +98,16 @@ export async function rebuildMemoryIndex(rootPath: string = workspaceRoot): Prom
     lines.push('')
   }
 
-  await writeFile(getMemoryIndexPath(rootPath), `${lines.join('\n')}\n`, 'utf8')
+  await Bun.write(getMemoryIndexPath(rootPath), `${lines.join('\n')}\n`)
 }
 
 export async function readMemoryIndex(rootPath: string = workspaceRoot): Promise<string> {
   try {
-    return await readFile(getMemoryIndexPath(rootPath), 'utf8')
+    return await Bun.file(getMemoryIndexPath(rootPath)).text()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       await rebuildMemoryIndex(rootPath)
-      return readFile(getMemoryIndexPath(rootPath), 'utf8')
+      return Bun.file(getMemoryIndexPath(rootPath)).text()
     }
     throw error
   }
@@ -118,7 +125,7 @@ export async function upsertMemoryRecord(
   const updated = input.updated?.trim() || new Date().toISOString().slice(0, 10)
   const filePath = getMemoryFilePath(slug, rootPath)
   await mkdir(getMemoryDirectory(rootPath), { recursive: true })
-  await writeFile(filePath, buildMemoryFileContents(input, updated), 'utf8')
+  await Bun.write(filePath, buildMemoryFileContents(input, updated))
   await rebuildMemoryIndex(rootPath)
 
   return {

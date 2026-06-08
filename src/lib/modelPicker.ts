@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { codexModelPresets, defaultModel, freeModelPresets } from "../config"
-import type { ReasoningEffort } from "./model"
-import { fetchOpenRouterModels, isGpt5Model, type ModelListItem } from "./openrouterModels"
+import {
+  codexReasoningEfforts,
+  modelRequiresApiKey,
+  normalizeProviderSlug,
+  reasoningEfforts,
+  type ReasoningEffort,
+} from "./model"
+import {
+  fetchOpenRouterModelProviders,
+  fetchOpenRouterModels,
+  isGpt5Model,
+  type ModelListItem,
+  type ModelProviderOption,
+} from "./openrouterModels"
 
-export type ModelPickerMode = "list" | "reasoning"
+export type ModelPickerMode = "list" | "options"
 
 export type ModelFetchState = "idle" | "loading" | "success" | "error"
 
@@ -12,7 +24,8 @@ export interface UseModelPickerOptions {
   apiKey: string | null
   currentModelId: string
   currentReasoning: ReasoningEffort | null
-  onSelect: (model: ModelListItem, effort: ReasoningEffort | null) => void
+  currentProvider: string | null
+  onSelect: (model: ModelListItem, effort: ReasoningEffort | null, providerSlug: string | null) => void
 }
 
 export interface ModelPickerState {
@@ -24,10 +37,15 @@ export interface ModelPickerState {
   reasoningError: string | null
   fetchState: ModelFetchState
   fetchError: string | null
+  providerFetchState: ModelFetchState
+  providerFetchError: string | null
   filteredModels: ModelListItem[]
   allModels: ModelListItem[]
+  providerOptions: ModelProviderOption[]
+  selectedProviderIndex: number
   selectedIndex: number
   reasoningEffort: ReasoningEffort | null
+  providerSlug: string | null
   pendingModel: ModelListItem | null
 }
 
@@ -40,6 +58,10 @@ export interface UseModelPickerResult {
   handleFilterSubmit: (value: string) => void
   handleReasoningInput: (value: string) => void
   handleReasoningSubmit: (value: string) => void
+  moveReasoningEffort: (delta: number) => void
+  moveProviderSelection: (delta: number) => void
+  setProviderSelection: (index: number) => void
+  applyOptionsSelection: (providerIndex?: number) => void
   moveSelection: (delta: number) => void
   setSelection: (index: number) => void
   selectHighlighted: () => void
@@ -104,10 +126,53 @@ function buildFallbackModels(): ModelListItem[] {
   })
 }
 
+function shouldConfigureModel(model: ModelListItem): boolean {
+  return model.supportsReasoning || modelRequiresApiKey(model.id)
+}
+
+function getAllowedReasoningEfforts(model: ModelListItem): readonly ReasoningEffort[] {
+  return modelRequiresApiKey(model.id) ? reasoningEfforts : codexReasoningEfforts
+}
+
+function getInitialReasoningEffort(
+  model: ModelListItem,
+  currentReasoning: ReasoningEffort | null,
+): ReasoningEffort {
+  const allowed = getAllowedReasoningEfforts(model)
+  if (currentReasoning && allowed.includes(currentReasoning)) {
+    return currentReasoning
+  }
+  return allowed.includes(DEFAULT_REASONING) ? DEFAULT_REASONING : allowed[0] ?? DEFAULT_REASONING
+}
+
+function getProviderSlugAtIndex(providerOptions: readonly ModelProviderOption[], selectedIndex: number): string | null {
+  if (selectedIndex <= 0) {
+    return null
+  }
+  return providerOptions[selectedIndex - 1]?.slug ?? null
+}
+
+function getProviderIndex(providerOptions: readonly ModelProviderOption[], providerSlug: string | null): number {
+  if (!providerSlug) {
+    return 0
+  }
+  const normalized = normalizeProviderSlug(providerSlug)
+  if (!normalized) {
+    return 0
+  }
+  const index = providerOptions.findIndex((provider) => provider.slug === normalized)
+  return index >= 0 ? index + 1 : 0
+}
+
+function clampProviderIndex(index: number, providerOptions: readonly ModelProviderOption[]): number {
+  return Math.max(0, Math.min(index, providerOptions.length))
+}
+
 export function useModelPicker({
   apiKey,
   currentModelId,
   currentReasoning,
+  currentProvider,
   onSelect,
 }: UseModelPickerOptions): UseModelPickerResult {
   const [isOpen, setIsOpen] = useState(false)
@@ -120,7 +185,12 @@ export function useModelPicker({
   const [fetchState, setFetchState] = useState<ModelFetchState>("idle")
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [fetchKey, setFetchKey] = useState<string | null>(null)
+  const [providerOptions, setProviderOptions] = useState<ModelProviderOption[]>([])
+  const [providerFetchState, setProviderFetchState] = useState<ModelFetchState>("idle")
+  const [providerFetchError, setProviderFetchError] = useState<string | null>(null)
+  const [providerFetchNonce, setProviderFetchNonce] = useState(0)
   const [pendingModel, setPendingModel] = useState<ModelListItem | null>(null)
+  const [selectedProviderIndex, setSelectedProviderIndex] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   useEffect(() => {
@@ -191,8 +261,59 @@ export function useModelPicker({
   }, [apiKey, fetchKey, isOpen])
 
   useEffect(() => {
+    if (pendingModel?.supportsReasoning) {
+      setReasoningInput(getInitialReasoningEffort(pendingModel, currentReasoning))
+      return
+    }
     setReasoningInput(currentReasoning ?? DEFAULT_REASONING)
-  }, [currentReasoning, isOpen])
+  }, [currentReasoning, isOpen, pendingModel])
+
+  useEffect(() => {
+    if (!isOpen || mode !== "options" || !pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+      setProviderOptions([])
+      setProviderFetchState("idle")
+      setProviderFetchError(null)
+      return
+    }
+
+    const sanitizedKey = apiKey?.trim() ?? ""
+    if (!sanitizedKey) {
+      setProviderOptions([])
+      setProviderFetchState("idle")
+      setProviderFetchError(null)
+      return
+    }
+
+    let cancelled = false
+    setProviderFetchState("loading")
+    setProviderFetchError(null)
+    setProviderOptions([])
+
+    ;(async () => {
+      try {
+        const providers = await fetchOpenRouterModelProviders(pendingModel.id, sanitizedKey)
+        if (cancelled) {
+          return
+        }
+        setProviderOptions(providers)
+        setSelectedProviderIndex(
+          pendingModel.id === currentModelId ? getProviderIndex(providers, currentProvider) : 0,
+        )
+        setProviderFetchState("success")
+      } catch (error) {
+        if (cancelled) {
+          return
+        }
+        setProviderOptions([])
+        setProviderFetchState("error")
+        setProviderFetchError(error instanceof Error ? error.message : String(error))
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [apiKey, currentModelId, currentProvider, isOpen, mode, pendingModel, providerFetchNonce])
 
   const filteredModels = useMemo(() => filterModels(availableModels, filterValue), [availableModels, filterValue])
 
@@ -208,6 +329,10 @@ export function useModelPicker({
     })
   }, [filteredModels])
 
+  useEffect(() => {
+    setSelectedProviderIndex((previous) => clampProviderIndex(previous, providerOptions))
+  }, [providerOptions])
+
   const close = useCallback(
     (nextReasoning: ReasoningEffort | null = currentReasoning ?? null) => {
       setIsOpen(false)
@@ -216,6 +341,10 @@ export function useModelPicker({
       setHint(null)
       setReasoningError(null)
       setPendingModel(null)
+      setProviderOptions([])
+      setProviderFetchState("idle")
+      setProviderFetchError(null)
+      setSelectedProviderIndex(0)
       setSelectedIndex(0)
       setReasoningInput(nextReasoning ?? DEFAULT_REASONING)
     },
@@ -230,6 +359,10 @@ export function useModelPicker({
       setHint(null)
       setReasoningError(null)
       setPendingModel(null)
+      setProviderOptions([])
+      setProviderFetchState("idle")
+      setProviderFetchError(null)
+      setSelectedProviderIndex(0)
       setSelectedIndex(0)
       setReasoningInput(currentReasoning ?? DEFAULT_REASONING)
       if (availableModels.length === 0) {
@@ -249,8 +382,8 @@ export function useModelPicker({
   }, [])
 
   const applySelection = useCallback(
-    (model: ModelListItem, effort: ReasoningEffort | null) => {
-      onSelect(model, effort)
+    (model: ModelListItem, effort: ReasoningEffort | null, providerSlug: string | null) => {
+      onSelect(model, effort, providerSlug)
       close(effort)
     },
     [close, onSelect],
@@ -301,14 +434,15 @@ export function useModelPicker({
 
   const selectModel = useCallback(
     (model: ModelListItem) => {
-      if (isGpt5Model(model)) {
+      if (shouldConfigureModel(model)) {
         setPendingModel(model)
-        setMode("reasoning")
+        setMode("options")
         setReasoningError(null)
-        setReasoningInput(currentReasoning ?? DEFAULT_REASONING)
+        setReasoningInput(getInitialReasoningEffort(model, currentReasoning))
+        setSelectedProviderIndex(0)
         return
       }
-      applySelection(model, null)
+      applySelection(model, null, null)
     },
     [applySelection, currentReasoning],
   )
@@ -366,42 +500,65 @@ export function useModelPicker({
     [availableModels, close, fetchState, resetFetch, selectHighlighted, selectModel, selectedIndex],
   )
 
-  const handleReasoningInput = useCallback((value: string) => {
-    setReasoningInput(value.toLowerCase())
-  }, [])
-
-  const handleReasoningSubmit = useCallback(
-    (rawValue: string) => {
-      const trimmed = rawValue.trim().toLowerCase()
-
-      if (trimmed === "cancel") {
-        close()
+  const moveReasoningEffort = useCallback(
+    (delta: number) => {
+      if (!pendingModel?.supportsReasoning) {
         return
       }
-
-      if (trimmed === "back") {
-        setMode("list")
-        setPendingModel(null)
-        setReasoningError(null)
-        setReasoningInput(currentReasoning ?? DEFAULT_REASONING)
-        return
-      }
-
-      if (!pendingModel) {
-        setReasoningError("No model pending selection. Type \"back\" to choose again.")
-        return
-      }
-
-      if (trimmed !== "low" && trimmed !== "medium" && trimmed !== "high") {
-        setReasoningError("Enter low, medium, or high.")
-        return
-      }
-
+      const efforts = getAllowedReasoningEfforts(pendingModel)
+      const currentIndex = Math.max(0, efforts.indexOf(reasoningInput as ReasoningEffort))
+      const nextIndex = Math.max(0, Math.min(currentIndex + delta, efforts.length - 1))
+      setReasoningInput(efforts[nextIndex] ?? DEFAULT_REASONING)
       setReasoningError(null)
-      applySelection(pendingModel, trimmed as ReasoningEffort)
     },
-    [applySelection, close, currentReasoning, pendingModel],
+    [pendingModel, reasoningInput],
   )
+
+  const moveProviderSelection = useCallback(
+    (delta: number) => {
+      if (!pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+        return
+      }
+      setSelectedProviderIndex((previous) => clampProviderIndex(previous + delta, providerOptions))
+      setReasoningError(null)
+    },
+    [pendingModel, providerOptions],
+  )
+
+  const setProviderSelection = useCallback(
+    (index: number) => {
+      if (!pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+        return
+      }
+      setSelectedProviderIndex(clampProviderIndex(index, providerOptions))
+      setReasoningError(null)
+    },
+    [pendingModel, providerOptions],
+  )
+
+  const applyOptionsSelection = useCallback((providerIndex: number = selectedProviderIndex) => {
+    if (!pendingModel) {
+      setReasoningError("No model pending selection. Choose a model again.")
+      return
+    }
+
+    const effort = pendingModel.supportsReasoning ? reasoningInput as ReasoningEffort : null
+    const providerSlug = modelRequiresApiKey(pendingModel.id)
+      ? getProviderSlugAtIndex(providerOptions, clampProviderIndex(providerIndex, providerOptions))
+      : null
+    setReasoningError(null)
+    applySelection(pendingModel, effort, providerSlug)
+  }, [applySelection, pendingModel, providerOptions, reasoningInput, selectedProviderIndex])
+
+  const handleReasoningInput = useCallback((value: string) => {
+    if (pendingModel?.supportsReasoning && getAllowedReasoningEfforts(pendingModel).includes(value as ReasoningEffort)) {
+      setReasoningInput(value)
+    }
+  }, [pendingModel])
+
+  const handleReasoningSubmit = useCallback(() => {
+    applyOptionsSelection()
+  }, [applyOptionsSelection])
 
   const selectByIndex = useCallback(
     (index: number) => {
@@ -436,10 +593,15 @@ export function useModelPicker({
       reasoningError,
       fetchState,
       fetchError,
+      providerFetchState,
+      providerFetchError,
       filteredModels,
       allModels: availableModels,
+      providerOptions,
+      selectedProviderIndex,
       selectedIndex,
       reasoningEffort: currentReasoning,
+      providerSlug: currentProvider,
       pendingModel,
     },
     open,
@@ -449,6 +611,10 @@ export function useModelPicker({
     handleFilterSubmit,
     handleReasoningInput,
     handleReasoningSubmit,
+    moveReasoningEffort,
+    moveProviderSelection,
+    setProviderSelection,
+    applyOptionsSelection,
     moveSelection,
     setSelection,
     selectHighlighted,

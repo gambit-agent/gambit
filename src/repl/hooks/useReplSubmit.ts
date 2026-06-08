@@ -46,6 +46,7 @@ export function useReplSubmit({
   modelId,
   apiKey,
   reasoningEffort,
+  providerSlug,
   thinkingEnabled,
   clearComposer,
   openModelPicker,
@@ -62,6 +63,7 @@ export function useReplSubmit({
   modelId: string | null
   apiKey: string
   reasoningEffort: ReasoningEffort | null
+  providerSlug: string | null
   thinkingEnabled: boolean
   clearComposer: () => void
   openModelPicker: (query?: string) => void
@@ -116,6 +118,7 @@ export function useReplSubmit({
           apiKey: runConfig.apiKey,
           modelId: runConfig.modelId,
           reasoningEffort,
+          providerSlug,
           showReasoning: thinkingEnabled,
           signal,
         })
@@ -123,7 +126,7 @@ export function useReplSubmit({
         // Error already surfaced via conversationStore.setError by the runner.
       }
     },
-    [conversation.initialized, getRunConfig, reasoningEffort, runtime, thinkingEnabled],
+    [conversation.initialized, getRunConfig, providerSlug, reasoningEffort, runtime, thinkingEnabled],
   )
 
   const handleGoalCommand = useCallback(
@@ -187,6 +190,7 @@ export function useReplSubmit({
           apiKey: runConfig.apiKey,
           modelId: runConfig.modelId,
           reasoningEffort,
+          providerSlug,
           showReasoning: thinkingEnabled,
           signal: goalSignal,
         })
@@ -195,7 +199,7 @@ export function useReplSubmit({
       }
       return true
     },
-    [getRunConfig, reasoningEffort, runtime, thinkingEnabled],
+    [getRunConfig, providerSlug, reasoningEffort, runtime, thinkingEnabled],
   )
 
   return useCallback(
@@ -503,6 +507,7 @@ export function useReplSubmit({
             apiKey: runConfig.apiKey,
             modelId: runConfig.modelId,
             reasoningEffort,
+            providerSlug,
             showReasoning: thinkingEnabled,
             signal,
           })
@@ -524,6 +529,7 @@ export function useReplSubmit({
       openModelPicker,
       openSessionPicker,
       persistApiKey,
+      providerSlug,
       reasoningEffort,
       runUserPrompt,
       runtime,

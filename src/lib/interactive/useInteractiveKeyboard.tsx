@@ -21,6 +21,7 @@ export function useInteractiveKeyboard({
   handleShortcut,
   updateHistorySearch,
   exitHistorySearch,
+  enabled = true,
   completionNavigationActive = false,
 }: {
   historySearch: HistorySearchState
@@ -28,11 +29,16 @@ export function useInteractiveKeyboard({
   handleShortcut: (key: ParsedKey) => boolean
   updateHistorySearch: (query: string, advanced?: boolean) => void
   exitHistorySearch: () => void
+  enabled?: boolean
   completionNavigationActive?: boolean
 }) {
   useKeyboard(
     useCallback(
       (key: ParsedKey) => {
+        if (!enabled) {
+          return
+        }
+
         if (completionNavigationActive && isCompletionNavigationKey(key)) {
           return
         }
@@ -73,6 +79,7 @@ export function useInteractiveKeyboard({
       },
       [
         completionNavigationActive,
+        enabled,
         exitHistorySearch,
         handleEscape,
         handleShortcut,

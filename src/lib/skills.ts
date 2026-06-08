@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { Glob } from "bun";
 
 import { skillCatalogCharBudget, workspaceRoot } from "../config";
 import { parseFrontmatter, parseFrontmatterList } from "./frontmatter";
@@ -197,20 +198,27 @@ function assembleWithBudget(lines: string[], budget: number): string | null {
 }
 
 async function collectSkills(root: string, scope: SkillScope): Promise<SkillDefinition[]> {
-  let entries;
+  const skillFiles: string[] = [];
+
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    const skillGlob = new Glob("*/SKILL.md");
+    for await (const filePath of skillGlob.scan({
+      cwd: root,
+      dot: true,
+      absolute: true,
+      onlyFiles: true,
+      followSymlinks: false,
+    })) {
+      skillFiles.push(filePath);
+    }
   } catch {
     return [];
   }
 
-  const skills = await Promise.all(entries.map(async (entry) => {
-    if (!entry.isDirectory()) {
-      return null;
-    }
-    const skillDir = path.join(root, entry.name);
-    const skillFile = path.join(skillDir, "SKILL.md");
-    return parseSkillFile(skillFile, entry.name, skillDir, scope);
+  const skills = await Promise.all(skillFiles.map(async (skillFile) => {
+    const skillDir = path.dirname(skillFile);
+    const directoryName = path.basename(skillDir);
+    return parseSkillFile(skillFile, directoryName, skillDir, scope);
   }));
   return skills.filter((definition): definition is SkillDefinition => definition !== null);
 }

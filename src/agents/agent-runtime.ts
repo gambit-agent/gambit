@@ -1,5 +1,5 @@
 import { generateId } from '../lib/id'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
@@ -30,7 +30,7 @@ function toErrorMessage(error: unknown): string {
 }
 
 async function writeAgentRecord(recordPath: string, record: AgentRunRecord): Promise<void> {
-  await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+  await Bun.write(recordPath, `${JSON.stringify(record, null, 2)}\n`)
 }
 
 export async function createAgentRun(
@@ -64,7 +64,7 @@ export async function createAgentRun(
   }
 
   await writeAgentRecord(recordPath, record)
-  await writeFile(outputPath, '', 'utf8')
+  await Bun.write(outputPath, '')
 
   const persist = async (nextStatus: AgentRunStatus, patch: Partial<AgentRunRecord>): Promise<AgentRunRecord> => {
     const nextRecord: AgentRunRecord = {
@@ -86,7 +86,7 @@ export async function createAgentRun(
       return await persist('running', { progressSummary: summary })
     },
     complete: async (output: string, summary?: string) => {
-      await writeFile(outputPath, `${output.trimEnd()}\n`, 'utf8')
+      await Bun.write(outputPath, `${output.trimEnd()}\n`)
       return await persist('completed', {
         progressSummary: summary ?? output.slice(0, 200),
         finishedAt: new Date().toISOString(),
@@ -110,8 +110,7 @@ export async function readAgentRecord(runId: string, rootPath?: string): Promise
   const recordPath = getAgentRecordPath(runId, rootPath)
 
   try {
-    const raw = await readFile(recordPath, 'utf8')
-    return JSON.parse(raw) as AgentRunRecord
+    return await Bun.file(recordPath, { type: 'application/json' }).json() as AgentRunRecord
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null

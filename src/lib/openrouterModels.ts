@@ -20,6 +20,25 @@ interface OpenRouterModelsResponse {
   data?: OpenRouterModelEntry[];
 }
 
+interface OpenRouterEndpointEntry {
+  tag?: string | null;
+  name?: string | null;
+  provider_name?: string | null;
+  quantization?: string | null;
+  status?: string | number | null;
+  pricing?: {
+    prompt?: string | number | null;
+    completion?: string | number | null;
+    request?: string | number | null;
+  } | null;
+}
+
+interface OpenRouterModelEndpointsResponse {
+  data?: {
+    endpoints?: OpenRouterEndpointEntry[] | null;
+  } | null;
+}
+
 export interface ModelListItem {
   id: string;
   name: string;
@@ -29,6 +48,16 @@ export interface ModelListItem {
   completionPrice: string | null;
   requestPrice: string | null;
   supportsReasoning: boolean;
+}
+
+export interface ModelProviderOption {
+  slug: string;
+  name: string;
+  quantization: string | null;
+  status: string | null;
+  promptPrice: string | null;
+  completionPrice: string | null;
+  requestPrice: string | null;
 }
 
 export function normalizeOpenRouterModel(entry: OpenRouterModelEntry): ModelListItem {
@@ -105,6 +134,60 @@ export async function fetchOpenRouterModels(apiKey?: string): Promise<ModelListI
   throw lastError ?? new Error("Failed to load OpenRouter models.");
 }
 
+export async function fetchOpenRouterModelProviders(modelId: string, apiKey?: string): Promise<ModelProviderOption[]> {
+  const normalizedKey = apiKey?.trim();
+  if (!normalizedKey) {
+    throw new Error("OpenRouter API key required to load model providers.");
+  }
+
+  const [author, ...slugParts] = modelId.split("/");
+  const slug = slugParts.join("/");
+  if (!author || !slug) {
+    throw new Error(`Model id "${modelId}" cannot be used to load provider endpoints.`);
+  }
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "HTTP-Referer": refererHeader,
+    "X-Title": titleHeader,
+    Authorization: `Bearer ${normalizedKey}`,
+  };
+  const endpoint = `${MODELS_ENDPOINT}/${encodeURIComponent(author)}/${encodeURIComponent(slug)}/endpoints`;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MODELS_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        headers,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        if (shouldRetryModelsRequest(response.status) && attempt < MODELS_MAX_ATTEMPTS) {
+          await sleep(MODELS_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        throw new Error(`Failed to load OpenRouter providers for ${modelId} (status ${response.status}).`);
+      }
+
+      const payload = (await response.json()) as OpenRouterModelEndpointsResponse;
+      const endpoints = payload.data?.endpoints;
+      if (!payload || !Array.isArray(endpoints)) {
+        throw new Error("Unexpected response from OpenRouter model endpoints API.");
+      }
+
+      return normalizeProviderOptions(endpoints);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MODELS_MAX_ATTEMPTS) {
+        await sleep(MODELS_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`Failed to load OpenRouter providers for ${modelId}.`);
+}
+
 function shouldRetryModelsRequest(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -115,8 +198,38 @@ function sleep(milliseconds: number): Promise<void> {
   });
 }
 
-function normalizeString(value: string | null | undefined): string | null {
+function normalizeProviderOptions(endpoints: readonly OpenRouterEndpointEntry[]): ModelProviderOption[] {
+  const providers = new Map<string, ModelProviderOption>();
+  for (const endpoint of endpoints) {
+    const slug = normalizeString(endpoint.tag) ?? normalizeString(endpoint.provider_name);
+    if (!slug || providers.has(slug)) {
+      continue;
+    }
+    providers.set(slug, {
+      slug,
+      name: normalizeString(endpoint.provider_name) ?? normalizeString(endpoint.name) ?? slug,
+      quantization: normalizeString(endpoint.quantization),
+      status: normalizeEndpointStatus(endpoint.status),
+      promptPrice: normalizePrice(endpoint.pricing?.prompt),
+      completionPrice: normalizePrice(endpoint.pricing?.completion),
+      requestPrice: normalizePrice(endpoint.pricing?.request),
+    });
+  }
+  return Array.from(providers.values()).sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+function normalizeEndpointStatus(value: string | number | null | undefined): string | null {
+  if (typeof value === "number") {
+    return value === 0 ? null : value.toString();
+  }
+  return normalizeString(value);
+}
+
+function normalizeString(value: unknown): string | null {
   if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
     return null;
   }
   const trimmed = value.trim();

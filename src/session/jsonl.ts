@@ -1,5 +1,6 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
+import { JSONL } from 'bun'
 
 export type JsonlTransform<T> = (value: unknown) => T | null
 
@@ -37,7 +38,7 @@ export async function readJsonlEntries<T>(filePath: string, transform: JsonlTran
   let raw = ''
 
   try {
-    raw = await readFile(filePath, 'utf8')
+    raw = await Bun.file(filePath).text()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return []
@@ -55,10 +56,12 @@ export async function readJsonlEntries<T>(filePath: string, transform: JsonlTran
     }
 
     try {
-      const parsed = JSON.parse(trimmed) as unknown
-      const transformed = transform(parsed)
-      if (transformed !== null) {
-        entries.push(transformed)
+      const parsedValues = JSONL.parse(`${trimmed}\n`) as unknown[]
+      for (const parsed of parsedValues) {
+        const transformed = transform(parsed)
+        if (transformed !== null) {
+          entries.push(transformed)
+        }
       }
     } catch {
       // Ignore malformed lines so a single bad record does not block the store.
@@ -81,10 +84,10 @@ export async function writeJsonlEntries(filePath: string, entries: readonly unkn
   await ensureParentDirectory(filePath)
 
   if (entries.length === 0) {
-    await writeFile(filePath, '', 'utf8')
+    await Bun.write(filePath, '')
     return
   }
 
   const content = `${entries.map(serializeJsonlEntry).join('\n')}\n`
-  await writeFile(filePath, content, 'utf8')
+  await Bun.write(filePath, content)
 }
