@@ -530,6 +530,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     terminalWidth,
     followUpCount,
   })
+  const handleConversationClipboardError = useCallback((error: Error) => {
+    runtime.conversationStore.setError(error.message)
+  }, [runtime.conversationStore])
 
   return (
     <box
@@ -545,9 +548,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         messages={conversation.messages}
         scrollboxRef={scrollboxRef}
         transcriptMode={transcriptMode}
-        onClipboardError={(error) => {
-          runtime.conversationStore.setError(error.message)
-        }}
+        onClipboardError={handleConversationClipboardError}
       />
 
       <ReplNotices

@@ -163,17 +163,22 @@ export function useInteractiveController({
         return
       }
 
-      await ensureHistoryLoaded()
-
-      historyRef.current?.clearCursor()
-      historyRef.current?.add(trimmed)
-      await persistHistory()
-
       session.pushSnapshot(messages)
       const signal = session.startRun()
 
       clearPreviewLabel()
       setInputValueWithRef("")
+
+      void (async () => {
+        try {
+          const history = await ensureHistoryLoaded()
+          history.clearCursor()
+          history.add(trimmed)
+          await persistHistory()
+        } catch (error) {
+          console.warn("Failed to record submitted prompt history", error)
+        }
+      })()
 
       try {
         await performSubmit(actualValue, { signal })

@@ -40,3 +40,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .gambit
 .gambit/**gambit
 gambit
+
+# Generated review artifacts
+docs/Thermo-Nuclear Code Quality Review: Gamb.md
+thermo-nuclear-code-quality-review.md
+gambit-theme-editor.html

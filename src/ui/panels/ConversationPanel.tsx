@@ -1,5 +1,5 @@
 import { TextAttributes, type ScrollBoxRenderable } from '@opentui/core'
-import { useEffect, useState, type RefObject } from 'react'
+import { memo, useEffect, useMemo, useState, type RefObject } from 'react'
 
 import type { ConversationMessage } from '../../conversation/conversation-types'
 import { inferFiletype } from '../../lib/change-diff'
@@ -155,6 +155,155 @@ function ReasoningBlock({ content }: { content: string }) {
   )
 }
 
+interface ConversationMessageItemProps {
+  message: ConversationMessage
+  transcriptMode: boolean
+  toolMessageAnimationFrame: number
+  onClipboardError?: (error: Error) => void
+}
+
+const ConversationMessageItem = memo(function ConversationMessageItem({
+  message,
+  transcriptMode,
+  toolMessageAnimationFrame,
+  onClipboardError,
+}: ConversationMessageItemProps) {
+  const isToolMessage = message.role === 'tool'
+  const presentation = getRolePresentation(message.role, theme)
+  const isUser = message.role === 'user'
+  const assistantReasoning =
+    message.role === 'assistant' ? parseAssistantReasoning(message.content) : null
+
+  if (isToolMessage) {
+    const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
+    const toolDiff = message.metadata?.toolStatus === 'completed' ? getToolDiff(message) : null
+
+    if (transcriptMode) {
+      const argsDetail = formatToolDetail('Args', message.metadata?.toolArgs)
+      const resultDetail = formatToolDetail('Result', getToolResultMessage(message.metadata?.toolResult))
+      const artifactPath = message.metadata?.toolArtifactPath
+
+      return (
+        <box
+          flexDirection="column"
+          paddingX={layout.messagePaddingX}
+          paddingY={1}
+          gap={0}
+          style={{
+            border: ['left'],
+            borderColor: theme.toolFg,
+            paddingLeft: 2,
+          }}
+        >
+          <box flexDirection="row" gap={1}>
+            {toolLine.indicator ? (
+              <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+                {toolLine.indicator}
+              </text>
+            ) : null}
+            <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+              {toolLine.text}
+            </text>
+          </box>
+          {argsDetail ? (
+            <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
+              {argsDetail}
+            </text>
+          ) : null}
+          {resultDetail ? (
+            <text selectable fg={theme.statusFg}>
+              {resultDetail}
+            </text>
+          ) : null}
+          {artifactPath ? (
+            <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
+              {`Path: ${artifactPath}`}
+            </text>
+          ) : null}
+          {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
+        </box>
+      )
+    }
+
+    return (
+      <box
+        flexDirection="column"
+        gap={0}
+        paddingX={layout.messagePaddingX}
+        paddingY={0}
+      >
+        <box flexDirection="row" gap={toolLine.indicator ? 1 : 0}>
+          {toolLine.indicator ? (
+            <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+              {toolLine.indicator}
+            </text>
+          ) : null}
+          <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
+            {toolLine.text}
+          </text>
+        </box>
+        {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
+      </box>
+    )
+  }
+
+  return (
+    <HoverClipboardBox
+      content={message.content}
+      onCopyError={onClipboardError}
+      flexDirection="column"
+      alignItems={isUser ? 'flex-end' : 'flex-start'}
+      paddingX={layout.messagePaddingX}
+      paddingY={1}
+    >
+      <box flexDirection="column" gap={0}>
+        {assistantReasoning ? (
+          <>
+            <ReasoningBlock content={assistantReasoning.reasoning} />
+            {assistantReasoning.response.trim() ? (
+              <Markdown
+                content={assistantReasoning.response}
+                textColor={presentation.textColor}
+                strongColor={theme.responseStrongFg}
+              />
+            ) : null}
+          </>
+        ) : (
+          <Markdown
+            content={message.content}
+            textColor={presentation.textColor}
+            strongColor={message.role === 'assistant' ? theme.responseStrongFg : presentation.textColor}
+          />
+        )}
+      </box>
+      <box marginTop={1}>
+        <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
+          {formatTimestamp(message.timestamp)}
+        </text>
+      </box>
+    </HoverClipboardBox>
+  )
+}, areConversationMessageItemPropsEqual)
+
+function areConversationMessageItemPropsEqual(
+  previous: ConversationMessageItemProps,
+  next: ConversationMessageItemProps,
+): boolean {
+  if (
+    previous.message !== next.message ||
+    previous.transcriptMode !== next.transcriptMode ||
+    previous.onClipboardError !== next.onClipboardError
+  ) {
+    return false
+  }
+
+  return !(
+    next.message.role === 'tool' &&
+    next.message.metadata?.toolStatus === 'started' &&
+    previous.toolMessageAnimationFrame !== next.toolMessageAnimationFrame
+  )
+}
+
 export function ConversationPanel({
   messages,
   scrollboxRef,
@@ -162,6 +311,7 @@ export function ConversationPanel({
   onClipboardError,
 }: ConversationPanelProps) {
   const [toolMessageAnimationFrame, setToolMessageAnimationFrame] = useState(0)
+  const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages])
   const hasRunningToolMessage = messages.some(
     (message) => message.role === 'tool' && message.metadata?.toolStatus === 'started',
   )
@@ -203,129 +353,15 @@ export function ConversationPanel({
         },
       }}
     >
-      {messages
-        .filter((message) => !message.hidden)
-        .map((message) => {
-          const isToolMessage = message.role === 'tool'
-          const presentation = getRolePresentation(message.role, theme)
-          const isUser = message.role === 'user'
-          const assistantReasoning =
-            message.role === 'assistant' ? parseAssistantReasoning(message.content) : null
-
-          if (isToolMessage) {
-            const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
-            const toolDiff = message.metadata?.toolStatus === 'completed' ? getToolDiff(message) : null
-
-            if (transcriptMode) {
-              const argsDetail = formatToolDetail('Args', message.metadata?.toolArgs)
-              const resultDetail = formatToolDetail('Result', getToolResultMessage(message.metadata?.toolResult))
-              const artifactPath = message.metadata?.toolArtifactPath
-
-              return (
-                <box
-                  key={message.id}
-                  flexDirection="column"
-                  paddingX={layout.messagePaddingX}
-                  paddingY={1}
-                  gap={0}
-                  style={{
-                    border: ['left'],
-                    borderColor: theme.toolFg,
-                    paddingLeft: 2,
-                  }}
-                >
-                  <box flexDirection="row" gap={1}>
-                    {toolLine.indicator ? (
-                      <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
-                        {toolLine.indicator}
-                      </text>
-                    ) : null}
-                    <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
-                      {toolLine.text}
-                    </text>
-                  </box>
-                  {argsDetail ? (
-                    <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                      {argsDetail}
-                    </text>
-                  ) : null}
-                  {resultDetail ? (
-                    <text selectable fg={theme.statusFg}>
-                      {resultDetail}
-                    </text>
-                  ) : null}
-                  {artifactPath ? (
-                    <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                      {`Path: ${artifactPath}`}
-                    </text>
-                  ) : null}
-                  {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
-                </box>
-              )
-            }
-
-            return (
-              <box
-                key={message.id}
-                flexDirection="column"
-                gap={0}
-                paddingX={layout.messagePaddingX}
-                paddingY={0}
-              >
-                <box flexDirection="row" gap={toolLine.indicator ? 1 : 0}>
-                  {toolLine.indicator ? (
-                    <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
-                      {toolLine.indicator}
-                    </text>
-                  ) : null}
-                  <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                    {toolLine.text}
-                  </text>
-                </box>
-                {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
-              </box>
-            )
-          }
-
-          return (
-            <HoverClipboardBox
-              key={message.id}
-              content={message.content}
-              onCopyError={onClipboardError}
-              flexDirection="column"
-              alignItems={isUser ? 'flex-end' : 'flex-start'}
-              paddingX={layout.messagePaddingX}
-              paddingY={1}
-            >
-              <box flexDirection="column" gap={0}>
-                {/* For user, we might want right-aligned markdown. We rely on the parent alignItems='flex-end' */}
-                {assistantReasoning ? (
-                  <>
-                    <ReasoningBlock content={assistantReasoning.reasoning} />
-                    {assistantReasoning.response.trim() ? (
-                      <Markdown
-                        content={assistantReasoning.response}
-                        textColor={presentation.textColor}
-                        strongColor={theme.responseStrongFg}
-                      />
-                    ) : null}
-                  </>
-                ) : (
-                  <Markdown
-                    content={message.content}
-                    textColor={presentation.textColor}
-                    strongColor={message.role === 'assistant' ? theme.responseStrongFg : presentation.textColor}
-                  />
-                )}
-              </box>
-              <box marginTop={1}>
-                <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-                  {formatTimestamp(message.timestamp)}
-                </text>
-              </box>
-            </HoverClipboardBox>
-          )
-        })}
+      {visibleMessages.map((message) => (
+        <ConversationMessageItem
+          key={message.id}
+          message={message}
+          transcriptMode={transcriptMode}
+          toolMessageAnimationFrame={toolMessageAnimationFrame}
+          onClipboardError={onClipboardError}
+        />
+      ))}
     </scrollbox>
   )
 }
