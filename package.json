@@ -1,6 +1,6 @@
 {
   "name": "gambit",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "TUI coding agent CLI built with Bun, TypeScript, and OpenTUI.",
   "module": "src/index.tsx",
   "bin": {
