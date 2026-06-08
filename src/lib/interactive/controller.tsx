@@ -38,6 +38,7 @@ export interface UseInteractiveControllerOptions {
   onRewind?: () => void
   onBackgroundRequest?: (command: string) => boolean
   onToggleBackgroundTasks?: () => void
+  keyboardEnabled?: boolean
   historyNavigationEnabled?: boolean
   completionNavigationActive?: boolean
 }
@@ -69,6 +70,7 @@ export function useInteractiveController({
   onRewind,
   onBackgroundRequest,
   onToggleBackgroundTasks,
+  keyboardEnabled = true,
   historyNavigationEnabled = true,
   completionNavigationActive = false,
 }: UseInteractiveControllerOptions): UseInteractiveControllerResult {
@@ -376,6 +378,7 @@ export function useInteractiveController({
     handleShortcut,
     updateHistorySearch,
     exitHistorySearch,
+    enabled: keyboardEnabled,
     completionNavigationActive,
   })
 

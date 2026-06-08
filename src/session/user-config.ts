@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -26,21 +26,17 @@ function parseUserConfig(value: unknown): UserConfig {
 }
 
 async function readUserConfigRecord(configPath: string): Promise<Record<string, unknown>> {
-  let raw: string
   try {
-    raw = await readFile(configPath, 'utf8')
+    const parsed = await Bun.file(configPath, { type: 'application/json' }).json()
+    return isRecord(parsed) ? parsed : {}
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return {}
     }
+    if (error instanceof SyntaxError) {
+      return {}
+    }
     throw error
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    return isRecord(parsed) ? parsed : {}
-  } catch {
-    return {}
   }
 }
 
@@ -63,5 +59,5 @@ export async function writeOpenRouterApiKey(
   }
 
   await mkdir(path.dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  await Bun.write(configPath, `${JSON.stringify(next, null, 2)}\n`)
 }

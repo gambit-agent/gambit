@@ -1,5 +1,4 @@
 import { generateId } from '../lib/id'
-import { readFile } from 'node:fs/promises'
 
 import { defaultModel } from '../config'
 import { setMCPConfigPathOverride } from '../lib/mcp-config'
@@ -83,7 +82,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   if (headless.appendSystemPromptFiles?.length) {
     for (const filePath of headless.appendSystemPromptFiles) {
       try {
-        const contents = await readFile(filePath, 'utf8')
+        const contents = await Bun.file(filePath).text()
         appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${contents}` : contents
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -117,6 +116,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const selection = await readModelSelection().catch(() => null)
   const modelId = selection?.modelId ?? defaultModel
   const reasoningEffort = selection?.reasoningEffort ?? null
+  const providerSlug = selection?.providerSlug ?? null
 
   if (!modelId) {
     stderr.write('Error: no model selected. Set GAMBIT_MODEL/OPENROUTER_MODEL or choose one in the TUI with :model <model-id>.\n')
@@ -141,6 +141,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
       subtype: 'init',
       session_id: sessionId,
       model: modelId,
+      provider: providerSlug,
       cwd: process.cwd(),
       permission_mode: permissionMode,
       tools: allowedToolIds ?? null,
@@ -245,6 +246,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
       apiKey,
       modelId,
       reasoningEffort,
+      providerSlug,
       signal: controller.signal,
       allowedToolIds,
       systemPromptOverride: headless.systemPromptOverride,

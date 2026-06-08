@@ -1,6 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { homedir } from 'node:os'
+import { Glob } from 'bun'
 
 import { workspaceRoot } from '../config'
 
@@ -42,22 +42,29 @@ async function discoverTemplatesInDir(
   dir: string,
   scope: 'project' | 'user',
 ): Promise<PromptTemplate[]> {
-  let entries
+  const templatePaths: string[] = []
+
   try {
-    entries = await readdir(dir, { withFileTypes: true })
+    const templateGlob = new Glob('*.md')
+    for await (const filePath of templateGlob.scan({
+      cwd: dir,
+      dot: true,
+      absolute: true,
+      onlyFiles: true,
+      followSymlinks: false,
+    })) {
+      templatePaths.push(filePath)
+    }
   } catch {
     return []
   }
 
   const templates: PromptTemplate[] = []
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) continue
-
-    const filePath = path.join(dir, entry.name)
-    const name = entry.name.replace(/\.md$/, '')
+  for (const filePath of templatePaths) {
+    const name = path.basename(filePath).replace(/\.md$/, '')
 
     try {
-      const raw = await readFile(filePath, 'utf8')
+      const raw = await Bun.file(filePath).text()
       const { frontmatter, body } = parseYamlFrontmatter(raw)
 
       templates.push({

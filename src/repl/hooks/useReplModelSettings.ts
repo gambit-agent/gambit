@@ -20,6 +20,7 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
   const [modelId, setModelId] = useState<string | null>(defaultModel)
   const [apiKey, setApiKey] = useState<string>(Bun.env.OPENROUTER_API_KEY ?? '')
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
+  const [providerSlug, setProviderSlug] = useState<string | null>(null)
   const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | null>(null)
   const modelSelectionDirtyRef = useRef(false)
   const apiKeyDirtyRef = useRef(false)
@@ -29,10 +30,12 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
       modelSelectionDirtyRef.current = true
       setModelId(nextModelId)
       setReasoningEffort(nextReasoningEffort)
+      setProviderSlug(null)
 
       void writeModelSelection({
         modelId: nextModelId,
         reasoningEffort: nextReasoningEffort,
+        providerSlug: null,
       }).catch((error) => {
         runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
       })
@@ -57,12 +60,29 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
     apiKey: apiKey.trim().length > 0 ? apiKey.trim() : null,
     currentModelId: modelId ?? '',
     currentReasoning: reasoningEffort,
-    onSelect: (model, effort) => {
-      persistModelSelection(model.id, effort)
+    currentProvider: providerSlug,
+    onSelect: (model, effort, provider) => {
+      modelSelectionDirtyRef.current = true
+      setModelId(model.id)
+      setReasoningEffort(effort)
+      setProviderSlug(provider)
+
+      void writeModelSelection({
+        modelId: model.id,
+        reasoningEffort: effort,
+        providerSlug: provider,
+      }).catch((error) => {
+        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+      })
+
+      const details = [
+        effort ? `${effort} reasoning effort` : null,
+        provider ? `provider ${provider}` : null,
+      ].filter(Boolean)
       void runtime.conversationStore.pushMessage({
         id: generateId(),
         role: 'system',
-        content: `Model set to ${model.id}${effort ? ` with ${effort} reasoning effort` : ''}.`,
+        content: `Model set to ${model.id}${details.length ? ` with ${details.join(' and ')}` : ''}.`,
         timestamp: new Date().toISOString(),
       })
     },
@@ -80,6 +100,7 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
 
         setModelId(persistedSelection.modelId)
         setReasoningEffort(persistedSelection.reasoningEffort)
+        setProviderSlug(persistedSelection.providerSlug)
       } catch (error) {
         if (!cancelled) {
           runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
@@ -145,6 +166,7 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
     modelId,
     apiKey,
     reasoningEffort,
+    providerSlug,
     contextUsage,
     persistModelSelection,
     persistApiKey,

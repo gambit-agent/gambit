@@ -1,4 +1,3 @@
-import { open } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
@@ -211,19 +210,14 @@ async function readFilePreview(
   filePath: string,
   maxBytes: number,
 ): Promise<{ content: string; bytesRead: number; truncated: boolean }> {
-  const handle = await open(filePath, 'r')
-  try {
-    const stats = await handle.stat()
-    const bytesToRead = Math.min(stats.size, maxBytes)
-    const buffer = Buffer.alloc(bytesToRead)
-    const result = await handle.read(buffer, 0, bytesToRead, 0)
-    return {
-      content: buffer.subarray(0, result.bytesRead).toString('utf8'),
-      bytesRead: result.bytesRead,
-      truncated: stats.size > result.bytesRead,
-    }
-  } finally {
-    await handle.close()
+  const file = Bun.file(filePath)
+  const fileSize = file.size
+  const bytesToRead = Math.min(fileSize, maxBytes)
+  const bytes = await file.slice(0, bytesToRead).bytes()
+  return {
+    content: Buffer.from(bytes).toString('utf8'),
+    bytesRead: bytes.byteLength,
+    truncated: fileSize > bytes.byteLength,
   }
 }
 

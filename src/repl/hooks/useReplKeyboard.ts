@@ -28,6 +28,9 @@ interface ReplKeyboardOptions {
   }
   closeModelPicker: () => void
   moveModelSelection: (delta: number) => void
+  moveModelReasoningEffort: (delta: number) => void
+  moveModelProviderSelection: (delta: number) => void
+  applyModelOptionsSelection: () => void
   sessionPickerState: SessionPickerState
   dismissSessionPicker: () => void
   startFreshConversation: () => Promise<void>
@@ -156,6 +159,50 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
           }
         }
 
+        if (options.modelPickerState.isOpen) {
+          if (key.name === 'escape') {
+            options.closeModelPicker()
+            return
+          }
+
+          if (options.modelPickerState.mode === 'list') {
+            if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+              options.moveModelSelection(-1)
+              return
+            }
+            if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+              options.moveModelSelection(1)
+              return
+            }
+            return
+          }
+
+          if (options.modelPickerState.mode === 'options') {
+            if (key.name === 'left' || key.name === 'h') {
+              options.moveModelReasoningEffort(-1)
+              return
+            }
+            if (key.name === 'right' || key.name === 'l') {
+              options.moveModelReasoningEffort(1)
+              return
+            }
+            if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+              options.moveModelProviderSelection(-1)
+              return
+            }
+            if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+              options.moveModelProviderSelection(1)
+              return
+            }
+            if (key.name === 'return' || key.name === 'enter') {
+              options.applyModelOptionsSelection()
+            }
+            return
+          }
+
+          return
+        }
+
         if (options.conversation.error && key.name === 'escape') {
           options.runtime.conversationStore.setError(null)
           return
@@ -199,24 +246,7 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
           }
         }
 
-        if (!options.modelPickerState.isOpen) {
-          return
-        }
-
-        if (key.name === 'escape') {
-          options.closeModelPicker()
-          return
-        }
-
-        if (options.modelPickerState.mode === 'list') {
-          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
-            options.moveModelSelection(-1)
-            return
-          }
-          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
-            options.moveModelSelection(1)
-          }
-        }
+        return
       },
       [options],
     ),

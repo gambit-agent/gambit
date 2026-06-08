@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -171,7 +171,7 @@ async function runWindowsUpdate(options: UpdateOptions): Promise<number> {
     const installer = await downloadInstaller(installerUrl)
     tempDir = await mkdtemp(path.join(tmpdir(), 'gambit-update-'))
     const installerPath = path.join(tempDir, 'install.ps1')
-    await writeFile(installerPath, installer, 'utf8')
+    await Bun.write(installerPath, installer)
 
     const child = Bun.spawn(
       [
@@ -238,7 +238,7 @@ export async function runUpdate(args: string[]): Promise<number> {
     const patchedInstaller = patchInstallerScript(installer)
     tempDir = await mkdtemp(path.join(tmpdir(), 'gambit-update-'))
     const installerPath = path.join(tempDir, 'install')
-    await writeFile(installerPath, patchedInstaller, 'utf8')
+    await Bun.write(installerPath, patchedInstaller)
 
     const child = Bun.spawn(['bash', installerPath, ...installerArgs], {
       stdout: 'inherit',

@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { glob } from 'node:fs/promises'
 import path from 'node:path'
 import { workspaceRoot } from '../config'
 
@@ -7,30 +7,26 @@ const EXCLUDE_DIRS = new Set([
   'target', 'build', 'dist', '.venv', 'venv', '__pycache__',
 ])
 
+const EXCLUDE_GLOBS = Array.from(EXCLUDE_DIRS).flatMap((dir) => [dir, `${dir}/**`])
+
 let cachedFiles: string[] | null = null
 let scanPromise: Promise<string[]> | null = null
 
 async function scanFiles(dir: string): Promise<string[]> {
-  let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[]
+  const files: string[] = []
+
   try {
-    entries = await readdir(dir, { withFileTypes: true })
+    for await (const relativePath of glob('**/*', { cwd: dir, exclude: EXCLUDE_GLOBS })) {
+      const fullPath = path.join(dir, relativePath)
+      if (await Bun.file(fullPath).exists()) {
+        files.push(fullPath)
+      }
+    }
   } catch {
     return []
   }
 
-  const results = await Promise.all(entries.map(async (entry) => {
-    if (entry.name.startsWith('.') || EXCLUDE_DIRS.has(entry.name)) return []
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      return scanFiles(fullPath)
-    }
-    if (entry.isFile()) {
-      return [fullPath]
-    }
-    return []
-  }))
-
-  return results.flat()
+  return files
 }
 
 export async function getWorkspaceFiles(forceRefresh = false): Promise<string[]> {

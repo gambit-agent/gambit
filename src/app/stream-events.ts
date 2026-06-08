@@ -8,6 +8,7 @@ export interface StreamEventInit {
   subtype: 'init'
   session_id: string
   model: string
+  provider: string | null
   cwd: string
   permission_mode: string
   tools: string[] | null

@@ -158,6 +158,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     modelId,
     apiKey,
     reasoningEffort,
+    providerSlug,
     contextUsage,
     persistModelSelection,
     persistApiKey,
@@ -174,8 +175,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     close: closeModelPicker,
     handleFilterChange: handleModelFilterChange,
     handleFilterSubmit,
-    handleReasoningInput,
-    handleReasoningSubmit,
+    moveReasoningEffort: moveModelReasoningEffort,
+    moveProviderSelection: moveModelProviderSelection,
+    setProviderSelection: setModelProviderSelection,
+    applyOptionsSelection: applyModelOptionsSelection,
     selectByIndex: selectModelByIndex,
     selectById: selectModelById,
     setSelection: setModelSelection,
@@ -332,6 +335,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     modelPickerState,
     closeModelPicker,
     moveModelSelection,
+    moveModelReasoningEffort,
+    moveModelProviderSelection,
+    applyModelOptionsSelection,
     sessionPickerState,
     dismissSessionPicker,
     startFreshConversation,
@@ -362,6 +368,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     modelId,
     apiKey,
     reasoningEffort,
+    providerSlug,
     thinkingEnabled,
     clearComposer,
     openModelPicker,
@@ -387,6 +394,14 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     },
     [interactiveMessages, runtime.conversationStore],
   )
+
+  const composerInputActive =
+    !sessionInitializing &&
+    !modelPickerState.isOpen &&
+    !sessionPickerState.isOpen &&
+    !mcpOverlayOpen &&
+    !permissionSnapshot.activeRequest &&
+    !questionSnapshot.activeRequest
 
   const interactive = useInteractiveController({
     inputValue,
@@ -439,8 +454,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onToggleBackgroundTasks: () => {
       setTasksOpen((current) => !current)
     },
-    historyNavigationEnabled: !fileMentionState.isOpen && !slashCompletionState.isOpen,
-    completionNavigationActive: fileMentionState.isOpen || slashCompletionState.isOpen,
+    keyboardEnabled: composerInputActive,
+    historyNavigationEnabled: composerInputActive && !fileMentionState.isOpen && !slashCompletionState.isOpen,
+    completionNavigationActive: composerInputActive && (fileMentionState.isOpen || slashCompletionState.isOpen),
   })
 
   useEffect(() => {
@@ -463,10 +479,20 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setPermissionExplainOpen(false)
   }, [permissionSnapshot.activeRequest])
 
+  const overlayFocus = getReplOverlayFocus({
+    sessionInitializing,
+    modelPickerOpen: modelPickerState.isOpen,
+    sessionPickerOpen: sessionPickerState.isOpen,
+    mcpOverlayOpen,
+    permissionOpen: Boolean(permissionSnapshot.activeRequest),
+    questionOpen: Boolean(questionSnapshot.activeRequest),
+  })
+
   const { handleTextareaContentChange, handleTextareaSubmit } = useComposerTextarea({
     inputValue,
     textareaRef,
     isLight,
+    enabled: overlayFocus.mainInput,
     onInput: interactive.handleInput,
     onSubmit: (value) => {
       if (slashCompletionState.isOpen) {
@@ -497,19 +523,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     tasks: taskSnapshot.tasks,
     modelId,
     reasoningEffort,
+    providerSlug,
     thinkingEnabled,
     permissionMode: permissionSnapshot.mode,
     isLight,
     terminalWidth,
     followUpCount,
-  })
-  const overlayFocus = getReplOverlayFocus({
-    sessionInitializing,
-    modelPickerOpen: modelPickerState.isOpen,
-    sessionPickerOpen: sessionPickerState.isOpen,
-    mcpOverlayOpen,
-    permissionOpen: Boolean(permissionSnapshot.activeRequest),
-    questionOpen: Boolean(questionSnapshot.activeRequest),
   })
 
   return (
@@ -558,8 +577,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         terminalHeight={terminalHeight}
         onModelFilterChange={handleModelFilterChange}
         onModelFilterSubmit={handleFilterSubmit}
-        onReasoningChange={handleReasoningInput}
-        onReasoningSubmit={handleReasoningSubmit}
         onModelOptionChange={(index) => setModelSelection(index)}
         onModelOptionSelect={(index, modelOptionId) => {
           if (modelOptionId) {
@@ -567,6 +584,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
             return
           }
           selectModelByIndex(index)
+        }}
+        onModelProviderOptionChange={setModelProviderSelection}
+        onModelProviderOptionSelect={(index) => {
+          setModelProviderSelection(index)
+          applyModelOptionsSelection(index)
         }}
         onModelClose={closeModelPicker}
         onSessionFilterChange={handleSessionFilterChange}

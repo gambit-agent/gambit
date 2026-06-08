@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-
 import {
   parseMemoryFile,
   readMemoryIndex,
@@ -39,7 +37,7 @@ export class MemoryStore {
     if (!record) {
       return ''
     }
-    return readFile(record.filePath, 'utf8')
+    return Bun.file(record.filePath).text()
   }
 }
 
@@ -59,7 +57,7 @@ export async function writeMemoryRecord(
 }
 
 export async function readMemoryRecord(filePath: string): Promise<MemoryRecord> {
-  const raw = await readFile(filePath, 'utf8')
+  const raw = await Bun.file(filePath).text()
   const record = parseMemoryFile(filePath, raw)
   if (!record) {
     throw new Error(`Unable to parse memory record: ${filePath}`)

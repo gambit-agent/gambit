@@ -1,4 +1,4 @@
-import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -93,31 +93,24 @@ export async function readProjectDocs(
       break;
     }
 
-    let handle: FileHandle | null = null;
     try {
-      handle = await open(docPath, "r");
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        continue;
-      }
-      throw error;
-    }
-
-    try {
-      const stats = await handle.stat();
-      const size = Number(stats.size);
+      const file = Bun.file(docPath);
+      const size = file.size;
       if (size === 0) {
+        if (!(await file.exists())) {
+          continue;
+        }
         continue;
       }
 
       const bytesToRead = Math.min(remaining, size);
-      const buffer = Buffer.alloc(bytesToRead);
-      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
+      const bytes = await file.slice(0, bytesToRead).bytes();
+      const bytesRead = bytes.byteLength;
       if (bytesRead === 0) {
         continue;
       }
 
-      const text = buffer.toString("utf8", 0, bytesRead);
+      const text = Buffer.from(bytes).toString("utf8");
       if (!text.trim()) {
         continue;
       }
@@ -131,10 +124,11 @@ export async function readProjectDocs(
           `Project doc ${docPath} exceeds remaining budget (${previousRemaining} bytes) - truncating.`,
         );
       }
-    } finally {
-      if (handle) {
-        await handle.close();
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        continue;
       }
+      throw error;
     }
   }
 

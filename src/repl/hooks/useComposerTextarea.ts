@@ -7,12 +7,14 @@ export function useComposerTextarea({
   inputValue,
   textareaRef,
   isLight,
+  enabled,
   onInput,
   onSubmit,
 }: {
   inputValue: string
   textareaRef: RefObject<TextareaRenderable | null>
   isLight: boolean
+  enabled: boolean
   onInput: (value: string) => void
   onSubmit: (value: string) => void
 }) {
@@ -41,21 +43,27 @@ export function useComposerTextarea({
   }, [isLight, textareaRef])
 
   const handleTextareaContentChange = useCallback(() => {
+    if (!enabled) {
+      return
+    }
     const textarea = textareaRef.current
     if (!textarea) {
       return
     }
     inputFromTextareaRef.current = true
     onInput(textarea.plainText)
-  }, [onInput, textareaRef])
+  }, [enabled, onInput, textareaRef])
 
   const handleTextareaSubmit = useCallback(() => {
+    if (!enabled) {
+      return
+    }
     const textarea = textareaRef.current
     if (!textarea) {
       return
     }
     onSubmit(textarea.plainText)
-  }, [onSubmit, textareaRef])
+  }, [enabled, onSubmit, textareaRef])
 
   return {
     handleTextareaContentChange,

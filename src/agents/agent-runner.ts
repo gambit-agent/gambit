@@ -2,7 +2,7 @@ import { type ToolSet } from 'ai'
 
 import { generateId } from '../lib/id'
 import { toCoreMessages } from '../lib/messages'
-import { createModelSelector, type ReasoningEffort } from '../lib/model'
+import { buildOpenRouterModelSettings, createModelSelector, type ReasoningEffort } from '../lib/model'
 import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
@@ -24,6 +24,7 @@ export interface AgentRunnerOptions {
   apiKey: string
   modelId: string
   reasoningEffort?: ReasoningEffort | null
+  providerSlug?: string | null
   baseSystemPrompt: string
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   createTools: (
@@ -51,6 +52,7 @@ export class AgentRunner {
       apiKey: options.apiKey,
       modelId: options.modelId,
       reasoningEffort: options.reasoningEffort,
+      providerSlug: options.providerSlug,
       baseSystemPrompt: options.baseSystemPrompt,
       delegationDepth: options.agentExecutionOptions?.delegationDepth ?? 1,
       maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
@@ -61,9 +63,10 @@ export class AgentRunner {
       ...(options.extraTools ?? {}),
     }
     const selectModel = createModelSelector(options.apiKey)
-    const modelSettings = options.reasoningEffort
-      ? { reasoning: { enabled: true, effort: options.reasoningEffort } }
-      : undefined
+    const modelSettings = buildOpenRouterModelSettings({
+      reasoningEffort: options.reasoningEffort,
+      providerSlug: options.providerSlug,
+    })
 
     // Compose the ephemeral system prompt for this agent run.
     const systemPrompt = [
@@ -137,6 +140,7 @@ export class AgentRunner {
         agentId: options.definition.id,
         modelId: options.modelId,
         reasoningEffort: options.reasoningEffort ?? null,
+        providerSlug: options.providerSlug ?? null,
         messageCount: history.length,
         toolCount: Object.keys(mergedTools).length,
       },
