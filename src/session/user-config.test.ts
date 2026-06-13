@@ -36,10 +36,20 @@ test('preserves unrelated user config fields when saving the API key', async () 
 })
 
 test('returns an empty config when the user config file is missing or malformed', async () => {
-  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null })
 
   await mkdir(path.dirname(configPath), { recursive: true })
   await writeFile(configPath, '{bad json', 'utf8')
 
-  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null })
+})
+
+test('reads max_depth from the user config', async () => {
+  await mkdir(path.dirname(configPath), { recursive: true })
+  await writeFile(configPath, JSON.stringify({ max_depth: 7 }), 'utf8')
+
+  await expect(readUserConfig(configPath)).resolves.toEqual({
+    openRouterApiKey: null,
+    maxDepth: 7,
+  })
 })

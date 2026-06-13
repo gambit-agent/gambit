@@ -8,6 +8,9 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from '../../workflows/workflow-display'
+import { maxDelegationDepth as defaultMaxDelegationDepth } from '../../config'
+import { writeTaskOutput } from '../../tasks/task-output'
+import type { TaskRecord, UpdateTaskInput } from '../../tasks/task-types'
 import { parseWorkflowScript } from '../../workflows/workflow-parser'
 import { runWorkflow } from '../../workflows/workflow-runtime'
 import type { JsonSchema, WorkflowAgentRunOptions } from '../../workflows/workflow-types'
@@ -74,7 +77,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
   }
 
   const currentDepth = context.agentExecutionOptions.delegationDepth ?? 0
-  const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? 3
+  const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? defaultMaxDelegationDepth
   if (currentDepth >= maxDepth) {
     throw new Error(`Maximum delegation depth reached (${maxDepth}).`)
   }
@@ -82,9 +85,49 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
   const script = normalizeWorkflowScript(input.script)
   const parsed = parseWorkflowScript(script)
   let snapshot: WorkflowSnapshot = createWorkflowSnapshot(parsed.meta)
+  let workflowTask: TaskRecord | null = null
+  let workflowUpdateQueue = Promise.resolve()
+
+  const workflowMetadata = () => ({
+    workflowName: snapshot.name,
+    workflowDescription: snapshot.description,
+    workflowSnapshot: snapshot,
+    concurrency: input.concurrency ?? null,
+    tokenBudget: input.tokenBudget ?? null,
+  })
+
+  const queueWorkflowTaskUpdate = (patch: UpdateTaskInput) => {
+    if (!context.taskRuntime || !workflowTask) {
+      return
+    }
+
+    const taskId = workflowTask.id
+    workflowUpdateQueue = workflowUpdateQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const updated = await context.taskRuntime!.updateTask(taskId, {
+          ...patch,
+          metadata: {
+            ...(workflowTask?.metadata ?? {}),
+            ...(patch.metadata ?? {}),
+          },
+        })
+        if (updated) {
+          workflowTask = updated
+        }
+      })
+  }
+
+  const flushWorkflowTaskUpdates = async () => {
+    await workflowUpdateQueue.catch(() => undefined)
+  }
 
   const update = () => {
     snapshot = recomputeWorkflowSnapshot(snapshot)
+    queueWorkflowTaskUpdate({
+      progressSummary: formatWorkflowProgressSummary(snapshot),
+      metadata: workflowMetadata(),
+    })
   }
 
   const recordPhase = (title: string | undefined) => {
@@ -94,6 +137,18 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     if (!snapshot.phases.includes(title)) {
       snapshot.phases.push(title)
     }
+  }
+
+  if (context.taskRuntime) {
+    workflowTask = await context.taskRuntime.createTask({
+      kind: 'workflow',
+      title: `Workflow - ${parsed.meta.name}`,
+      background: false,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      progressSummary: parsed.meta.description || 'Workflow running',
+      metadata: workflowMetadata(),
+    })
   }
 
   const agent = {
@@ -130,61 +185,88 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     },
   }
 
-  const result = await runWorkflow(script, {
-    cwd: context.cwd ?? context.workspaceRoot,
-    args: input.args,
-    agent,
-    signal: context.signal,
-    concurrency: input.concurrency,
-    tokenBudget: input.tokenBudget,
-    onLog(message) {
-      snapshot.logs.push(message)
-      update()
-    },
-    onPhase(title) {
-      snapshot.currentPhase = title
-      recordPhase(title)
-      update()
-    },
-    onAgentStart(event) {
-      recordPhase(event.phase)
-      snapshot.agents.push({
-        id: snapshot.agents.length + 1,
-        label: event.label,
-        phase: event.phase,
-        prompt: event.prompt,
-        status: 'running',
+  try {
+    const result = await runWorkflow(script, {
+      cwd: context.cwd ?? context.workspaceRoot,
+      args: input.args,
+      agent,
+      signal: context.signal,
+      concurrency: input.concurrency,
+      tokenBudget: input.tokenBudget,
+      onLog(message) {
+        snapshot.logs.push(message)
+        update()
+      },
+      onPhase(title) {
+        snapshot.currentPhase = title
+        recordPhase(title)
+        update()
+      },
+      onAgentStart(event) {
+        recordPhase(event.phase)
+        snapshot.agents.push({
+          id: snapshot.agents.length + 1,
+          label: event.label,
+          phase: event.phase,
+          prompt: event.prompt,
+          status: 'running',
+        })
+        update()
+      },
+      onAgentEnd(event) {
+        const agentSnapshot = [...snapshot.agents]
+          .reverse()
+          .find((item) => item.label === event.label && item.status === 'running')
+        if (agentSnapshot) {
+          agentSnapshot.status = event.result === null ? 'error' : 'done'
+          agentSnapshot.resultPreview = preview(event.result)
+        }
+        update()
+      },
+    })
+
+    if (result.agentCount === 0) {
+      throw new Error('workflow scripts must call agent() at least once')
+    }
+
+    snapshot.result = result.result
+    snapshot.durationMs = result.durationMs
+    snapshot = recomputeWorkflowSnapshot(snapshot)
+
+    const output = [
+      `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).`,
+      '',
+      renderWorkflowText(snapshot, true, { maxAgents: 12, maxLogs: 4, showResultPreviews: true }),
+      '',
+      'Result:',
+      JSON.stringify(result.result, null, 2),
+    ].join('\n')
+
+    await flushWorkflowTaskUpdates()
+    if (context.taskRuntime && workflowTask) {
+      await writeTaskOutput(workflowTask.id, output)
+      await context.taskRuntime.updateTask(workflowTask.id, {
+        status: 'completed',
+        finishedAt: new Date().toISOString(),
+        progressSummary: formatWorkflowProgressSummary(snapshot),
+        metadata: workflowMetadata(),
       })
-      update()
-    },
-    onAgentEnd(event) {
-      const agentSnapshot = [...snapshot.agents]
-        .reverse()
-        .find((item) => item.label === event.label && item.status === 'running')
-      if (agentSnapshot) {
-        agentSnapshot.status = event.result === null ? 'error' : 'done'
-        agentSnapshot.resultPreview = preview(event.result)
-      }
-      update()
-    },
-  })
+    }
 
-  if (result.agentCount === 0) {
-    throw new Error('workflow scripts must call agent() at least once')
+    return output
+  } catch (error) {
+    await flushWorkflowTaskUpdates()
+    if (context.taskRuntime && workflowTask) {
+      await context.taskRuntime.updateTask(workflowTask.id, {
+        status: context.signal?.aborted ? 'cancelled' : 'failed',
+        finishedAt: new Date().toISOString(),
+        progressSummary: context.signal?.aborted ? 'Workflow cancelled' : 'Workflow failed',
+        error: context.signal?.aborted ? null : error instanceof Error ? error.message : String(error),
+        metadata: workflowMetadata(),
+      })
+    }
+    throw error
   }
-
-  snapshot.result = result.result
-  snapshot.durationMs = result.durationMs
-  snapshot = recomputeWorkflowSnapshot(snapshot)
-
-  return [
-    `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).`,
-    '',
-    renderWorkflowText(snapshot, true, { maxAgents: 12, maxLogs: 4, showResultPreviews: true }),
-    '',
-    'Result:',
-    JSON.stringify(result.result, null, 2),
-  ].join('\n')
 }
 
 function createStructuredOutputTools(schema: JsonSchema, capture: StructuredOutputCapture): ToolSet {
@@ -241,4 +323,18 @@ function normalizeWorkflowScript(script: string): string {
     text = fence[1]?.trim() ?? ''
   }
   return text
+}
+
+function formatWorkflowProgressSummary(snapshot: WorkflowSnapshot): string {
+  const parts = [`${snapshot.doneCount}/${snapshot.agentCount} agents`]
+  if (snapshot.runningCount > 0) {
+    parts.push(`${snapshot.runningCount} running`)
+  }
+  if (snapshot.errorCount > 0) {
+    parts.push(`${snapshot.errorCount} failed`)
+  }
+  if (snapshot.currentPhase) {
+    parts.push(snapshot.currentPhase)
+  }
+  return `Workflow ${snapshot.name}: ${parts.join(' / ')}`
 }

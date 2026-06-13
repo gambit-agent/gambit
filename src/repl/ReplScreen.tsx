@@ -3,6 +3,7 @@ import { useRenderer, useTerminalDimensions } from '@opentui/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 
 import type { LaunchOptions } from '../app/launch-options'
+import { getConversationGoal } from '../conversation/goal'
 import {
   useAppRuntime,
   useConversationSnapshot,
@@ -48,6 +49,7 @@ import { useReplSessionLaunch } from './hooks/useReplSessionLaunch'
 import { useReplStatus } from './hooks/useReplStatus'
 import { useReplSubmit } from './hooks/useReplSubmit'
 import { useSessionPicker } from './hooks/useSessionPicker'
+import { isActiveTaskStatus } from './repl-format'
 
 const textareaKeyBindings: TextareaKeyBinding[] = [
   { name: 'return', action: 'submit' as const },
@@ -116,6 +118,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [inputPreview, setInputPreview] = useState<string | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
+  const [taskDrawerSelectedIndex, setTaskDrawerSelectedIndex] = useState(0)
   const [mcpOverlayOpen, setMcpOverlayOpen] = useState(false)
   const [transcriptMode, setTranscriptMode] = useState(false)
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
@@ -192,6 +195,33 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       })),
     [conversation.messages],
   )
+  const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
+  const drawerTaskCount = useMemo(() => {
+    const activeCount = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status)).length
+    const recentCount = taskSnapshot.tasks
+      .filter((task) => !isActiveTaskStatus(task.status))
+      .slice(0, 8)
+      .length
+    return activeCount + recentCount
+  }, [taskSnapshot.tasks])
+
+  useEffect(() => {
+    setTaskDrawerSelectedIndex((current) => {
+      if (drawerTaskCount === 0) {
+        return 0
+      }
+      return Math.min(current, drawerTaskCount - 1)
+    })
+  }, [drawerTaskCount])
+
+  const moveTaskDrawerSelection = useCallback((delta: number) => {
+    setTaskDrawerSelectedIndex((current) => {
+      if (drawerTaskCount === 0) {
+        return 0
+      }
+      return (current + delta + drawerTaskCount) % drawerTaskCount
+    })
+  }, [drawerTaskCount])
 
   const clearComposer = useCallback(() => {
     setInputValue('')
@@ -333,6 +363,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     questionSnapshot,
     questionController,
     modelPickerState,
+    openModelPicker,
     closeModelPicker,
     moveModelSelection,
     moveModelReasoningEffort,
@@ -348,6 +379,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setTranscriptMode,
     toggleTheme,
     setPermissionExplainOpen,
+    taskDrawer: {
+      isOpen: tasksOpen,
+      close: () => setTasksOpen(false),
+      moveSelection: moveTaskDrawerSelection,
+      selectFirst: () => setTaskDrawerSelectedIndex(0),
+      selectLast: () => setTaskDrawerSelectedIndex(Math.max(0, drawerTaskCount - 1)),
+    },
     fileMentionCompletion: {
       isOpen: fileMentionState.isOpen,
       moveSelection: moveFileMentionSelection,
@@ -454,8 +492,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onToggleBackgroundTasks: () => {
       setTasksOpen((current) => !current)
     },
-    keyboardEnabled: composerInputActive,
-    historyNavigationEnabled: composerInputActive && !fileMentionState.isOpen && !slashCompletionState.isOpen,
+    keyboardEnabled: composerInputActive && !tasksOpen,
+    historyNavigationEnabled: composerInputActive && !tasksOpen && !fileMentionState.isOpen && !slashCompletionState.isOpen,
     completionNavigationActive: composerInputActive && (fileMentionState.isOpen || slashCompletionState.isOpen),
   })
 
@@ -574,6 +612,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         tasksOpen={tasksOpen}
         activeTasks={activeTasks}
         recentTasks={recentTasks}
+        selectedTaskIndex={taskDrawerSelectedIndex}
+        goal={currentGoal}
         terminalWidth={terminalWidth}
         terminalHeight={terminalHeight}
         onModelFilterChange={handleModelFilterChange}
@@ -592,6 +632,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           applyModelOptionsSelection(index)
         }}
         onModelClose={closeModelPicker}
+        onTasksClose={() => setTasksOpen(false)}
         onSessionFilterChange={handleSessionFilterChange}
         onSessionFilterSubmit={handleSessionFilterSubmit}
         onSessionOptionChange={setSessionSelection}
@@ -604,7 +645,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         inputValue={inputValue}
         inputPreview={inputPreview}
         textareaRef={textareaRef}
-        focused={overlayFocus.mainInput}
+        focused={overlayFocus.mainInput && !tasksOpen}
         keyBindings={textareaKeyBindings}
         onContentChange={handleTextareaContentChange}
         onSubmit={handleTextareaSubmit}
@@ -627,6 +668,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         contextUsage={contextUsage}
         shortModelDisplay={shortModelDisplay}
         activeTasks={activeTasks}
+        goalActive={Boolean(currentGoal)}
       />
     </box>
   )

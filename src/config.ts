@@ -4,6 +4,12 @@ const DEFAULT_PROJECT_DOC_MAX_BYTES = 64_000;
 const DEFAULT_SLASH_COMMAND_CHAR_BUDGET = 15_000;
 const DEFAULT_SKILL_CATALOG_CHAR_BUDGET = 8_000;
 const DEFAULT_MAX_AGENT_STEPS = 200;
+export const DEFAULT_MAX_DELEGATION_DEPTH = 5;
+const maxDelegationDepthEnv =
+  Bun.env.GAMBIT_MAX_DELEGATION_DEPTH?.trim()
+  || Bun.env.GAMBIT_MAX_DEPTH?.trim()
+  || undefined;
+const envMaxDelegationDepth = parseOptionalPositiveInteger(maxDelegationDepthEnv);
 
 /**
  * Absolute path to the active workspace root. Defaults to `process.cwd()` but
@@ -62,6 +68,9 @@ export const skillCatalogCharBudget = parseSkillCatalogCharBudget(
 /** Maximum model/tool loop steps per agent turn. */
 export const maxAgentSteps = parseMaxAgentSteps(Bun.env.GAMBIT_MAX_AGENT_STEPS);
 
+/** Maximum nested delegated-agent launch depth. */
+export const maxDelegationDepth = envMaxDelegationDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
+
 /** Maximum inline characters for aggregated delegated-agent output. */
 export const MAX_AGENT_BATCH_INLINE_OUTPUT_CHARS = 12_000;
 
@@ -77,6 +86,27 @@ export const responseSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", 
 /** Override the workspace root at test time so tests run in a temp directory. */
 export function setWorkspaceRootForTesting(newRoot: string) {
   workspaceRoot = computeWorkspaceRoot(newRoot);
+}
+
+export function resolveMaxDelegationDepth(configMaxDepth: number | null | undefined): number {
+  if (envMaxDelegationDepth !== null) {
+    return envMaxDelegationDepth;
+  }
+  return configMaxDepth ?? maxDelegationDepth;
+}
+
+export function parseOptionalPositiveInteger(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string" && !value.trim()) {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed)) {
+    return null;
+  }
+  return Math.max(1, Math.floor(parsed));
 }
 
 function computeWorkspaceRoot(root: string | undefined): string {

@@ -34,6 +34,8 @@ export interface ReplOverlayManagerProps {
   tasksOpen: boolean
   activeTasks: TaskRecord[]
   recentTasks: TaskRecord[]
+  selectedTaskIndex: number
+  goal: string | null
   terminalWidth: number
   terminalHeight: number
   onModelFilterChange: (value: string) => void
@@ -43,6 +45,7 @@ export interface ReplOverlayManagerProps {
   onModelProviderOptionChange: (index: number) => void
   onModelProviderOptionSelect: (index: number) => void
   onModelClose: () => void
+  onTasksClose: () => void
   onSessionFilterChange: (value: string) => void
   onSessionFilterSubmit: (value: string) => void
   onSessionOptionChange: (index: number) => void
@@ -100,6 +103,8 @@ export function ReplOverlayManager({
   tasksOpen,
   activeTasks,
   recentTasks,
+  selectedTaskIndex,
+  goal,
   terminalWidth,
   terminalHeight,
   onModelFilterChange,
@@ -109,6 +114,7 @@ export function ReplOverlayManager({
   onModelProviderOptionChange,
   onModelProviderOptionSelect,
   onModelClose,
+  onTasksClose,
   onSessionFilterChange,
   onSessionFilterSubmit,
   onSessionOptionChange,
@@ -174,8 +180,11 @@ export function ReplOverlayManager({
         <TaskDrawer
           activeTasks={activeTasks}
           recentTasks={recentTasks}
+          selectedTaskIndex={selectedTaskIndex}
+          goal={goal}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}
+          onClose={onTasksClose}
         />
       ) : null}
     </>

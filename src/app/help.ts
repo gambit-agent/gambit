@@ -36,6 +36,7 @@ ENVIRONMENT
   CODEX_AUTH_FILE                           Optional path to Codex auth.json (default ~/.codex/auth.json)
   OPENROUTER_REFERRER                       HTTP-Referer header sent to OpenRouter
   OPENROUTER_TITLE                          X-Title header sent to OpenRouter
+  GAMBIT_MAX_DELEGATION_DEPTH               Nested delegated-agent launch depth (default: 5)
   WORKSPACE_ROOT                            Override the workspace root directory
 `
 

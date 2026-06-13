@@ -4,7 +4,7 @@ import { generateId } from '../lib/id'
 import { ConversationRunner } from '../conversation/conversation-runner'
 import { createConversationStore, type ConversationStore } from '../conversation/conversation-store'
 import type { ConversationMessage } from '../conversation/conversation-types'
-import { workspaceRoot } from '../config'
+import { resolveMaxDelegationDepth, workspaceRoot } from '../config'
 import { AgentRunner } from '../agents/agent-runner'
 import { agentToolIds } from '../agents/agent-tool-policy'
 import { MemoryStore } from '../memory/memory-store'
@@ -24,6 +24,7 @@ import {
   type ConversationSessionSummary,
 } from '../session/conversation-sessions'
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
+import { readUserConfig } from '../session/user-config'
 
 export interface ConversationRuntimeServices {
   baseSystemPrompt: string
@@ -92,6 +93,8 @@ function extractShellTaskId(output: string): string | null {
 export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = {}): Promise<AppRuntime> {
   const baseSystemPrompt = await loadSystemPrompt()
   const systemMessage = buildSystemMessage(baseSystemPrompt)
+  const userConfig = await readUserConfig().catch(() => null)
+  const runtimeMaxDelegationDepth = resolveMaxDelegationDepth(userConfig?.maxDepth)
 
   const memoryStore = new MemoryStore()
   const permissionEngine = new PermissionEngine()
@@ -157,6 +160,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   const conversationRunner = new ConversationRunner({
     store: conversationStore,
     baseSystemPrompt,
+    maxDelegationDepth: runtimeMaxDelegationDepth,
     memoryStore,
     createToolContext: (options) => ({
       ...createToolContext(options),

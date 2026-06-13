@@ -1,4 +1,5 @@
 import type { AnyToolDefinition, ToolDefinition } from '../tool-types'
+import { maxDelegationDepth as defaultMaxDelegationDepth } from '../../config'
 import { runAgentsSchema, spawnAgentSchema } from './schemas'
 import {
   formatAgentBatchResult,
@@ -20,7 +21,7 @@ export function createAgentTools(): AnyToolDefinition[] {
         throw new Error('Agent task runner is not configured.')
       }
       const currentDepth = context.agentExecutionOptions.delegationDepth ?? 0
-      const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? 3
+      const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? defaultMaxDelegationDepth
       if (currentDepth >= maxDepth) {
         throw new Error(`Maximum delegation depth reached (${maxDepth}).`)
       }
@@ -66,7 +67,7 @@ export function createAgentTools(): AnyToolDefinition[] {
         throw new Error('Agent task runner is not configured.')
       }
       const currentDepth = context.agentExecutionOptions.delegationDepth ?? 0
-      const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? 3
+      const maxDepth = context.agentExecutionOptions.maxDelegationDepth ?? defaultMaxDelegationDepth
       if (currentDepth >= maxDepth) {
         throw new Error(`Maximum delegation depth reached (${maxDepth}).`)
       }

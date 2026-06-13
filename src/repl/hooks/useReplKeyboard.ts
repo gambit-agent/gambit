@@ -6,6 +6,15 @@ import type { AppRuntime } from '../../app/bootstrap'
 import { matchShortcut } from '../../lib/interactive/shortcuts'
 import type { SessionPickerState } from './useSessionPicker'
 
+function consumeKey(key: ParsedKey): void {
+  const event = key as ParsedKey & {
+    preventDefault?: () => void
+    stopPropagation?: () => void
+  }
+  event.preventDefault?.()
+  event.stopPropagation?.()
+}
+
 interface ReplKeyboardOptions {
   runtime: AppRuntime
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
@@ -26,6 +35,7 @@ interface ReplKeyboardOptions {
     isOpen: boolean
     mode: string
   }
+  openModelPicker: () => void
   closeModelPicker: () => void
   moveModelSelection: (delta: number) => void
   moveModelReasoningEffort: (delta: number) => void
@@ -41,6 +51,13 @@ interface ReplKeyboardOptions {
   setTranscriptMode: Dispatch<SetStateAction<boolean>>
   toggleTheme: () => void
   setPermissionExplainOpen: Dispatch<SetStateAction<boolean>>
+  taskDrawer?: {
+    isOpen: boolean
+    close: () => void
+    moveSelection: (delta: number) => void
+    selectFirst: () => void
+    selectLast: () => void
+  }
   fileMentionCompletion?: {
     isOpen: boolean
     moveSelection: (delta: number) => void
@@ -59,6 +76,37 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
   useKeyboard(
     useCallback(
       async (key: ParsedKey) => {
+        if (key.name === 'm' && key.ctrl && !key.meta && !key.shift && !key.option) {
+          consumeKey(key)
+          options.taskDrawer?.close()
+          options.openModelPicker()
+          return
+        }
+
+        if (options.taskDrawer?.isOpen) {
+          if (key.name === 'escape' || (key.name === 'b' && key.ctrl && !key.meta && !key.shift)) {
+            options.taskDrawer.close()
+            return
+          }
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+            options.taskDrawer.moveSelection(-1)
+            return
+          }
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+            options.taskDrawer.moveSelection(1)
+            return
+          }
+          if (key.name === 'home') {
+            options.taskDrawer.selectFirst()
+            return
+          }
+          if (key.name === 'end') {
+            options.taskDrawer.selectLast()
+            return
+          }
+          return
+        }
+
         const scrollShortcut = matchShortcut(key)
         if (scrollShortcut) {
           const sb = options.scrollboxRef.current

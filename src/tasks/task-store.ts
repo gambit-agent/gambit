@@ -21,7 +21,7 @@ const interruptedTaskSummary = 'Task was interrupted when Gambit exited.'
 const abandonedTaskSummary = 'Task did not start before Gambit exited.'
 
 function isTaskKind(value: unknown): value is TaskRecord['kind'] {
-  return value === 'shell' || value === 'agent'
+  return value === 'shell' || value === 'agent' || value === 'workflow'
 }
 
 function isTaskStatus(value: unknown): value is TaskStatus {

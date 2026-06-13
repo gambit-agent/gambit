@@ -3,7 +3,7 @@ import { toCoreMessages } from '../lib/messages'
 import { buildOpenRouterModelSettings, createModelSelector, type ReasoningEffort } from '../lib/model'
 import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
-import { maxAgentSteps } from '../config'
+import { maxAgentSteps, maxDelegationDepth } from '../config'
 import { getMemoryPrompt } from '../memory/memory-prompt'
 import { formatRelevantMemories } from '../memory/memory-retrieval'
 import { MemoryStore } from '../memory/memory-store'
@@ -24,6 +24,7 @@ import type { ConversationMessage, ConversationToolCall, ConversationTurnRecord 
 export interface ConversationRunnerDependencies {
   store: ConversationStore
   baseSystemPrompt: string
+  maxDelegationDepth?: number
   memoryStore: MemoryStore
   createToolContext: (options?: {
     allowedToolIds?: readonly string[]
@@ -164,7 +165,7 @@ export class ConversationRunner {
         providerSlug: options.providerSlug,
         baseSystemPrompt: buildDelegatedAgentBaseSystemPrompt(basePrompt, goalSystemPrompt),
         delegationDepth: 0,
-        maxDelegationDepth: 3,
+        maxDelegationDepth: this.dependencies.maxDelegationDepth ?? maxDelegationDepth,
         maxSteps: maxAgentSteps,
       },
     })

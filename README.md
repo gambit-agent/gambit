@@ -261,6 +261,8 @@ Supported frontmatter fields: `name` (required, must match the directory), `desc
 
 ### Configuration
 
+- `max_depth` in `~/.gambit/config.json` — maximum nested delegated-agent launch depth (default `5`).
+- `GAMBIT_MAX_DELEGATION_DEPTH` — environment override for nested delegated-agent launch depth (default `5`).
 - `SKILL_CATALOG_CHAR_BUDGET` — truncation budget for the catalog embedded in the tool description (default `8000`). Long catalogs are summarized with a `… (N more skills)` note.
 - `GAMBIT_MAX_AGENT_STEPS` — maximum model/tool loop steps per main or delegated agent turn (default `200`).
 

@@ -2,26 +2,36 @@ import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
+import { parseOptionalPositiveInteger } from '../config'
 import { isRecord } from './jsonl'
 
 export interface UserConfig {
   openRouterApiKey: string | null
+  maxDepth: number | null
 }
 
 export function getUserConfigPath(home: string = homedir()): string {
   return path.join(home, '.gambit', 'config.json')
 }
 
+function emptyUserConfig(): UserConfig {
+  return { openRouterApiKey: null, maxDepth: null }
+}
+
 function parseUserConfig(value: unknown): UserConfig {
   if (!isRecord(value)) {
-    return { openRouterApiKey: null }
+    return emptyUserConfig()
   }
 
   const openRouterApiKey = value.openRouterApiKey
+  const maxDepth = value.max_depth ?? value.maxDepth ?? value.maxDelegationDepth
   return {
     openRouterApiKey: typeof openRouterApiKey === 'string' && openRouterApiKey.trim()
       ? openRouterApiKey.trim()
       : null,
+    maxDepth: parseOptionalPositiveInteger(
+      typeof maxDepth === 'string' || typeof maxDepth === 'number' ? maxDepth : null,
+    ),
   }
 }
 

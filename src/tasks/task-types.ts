@@ -1,4 +1,4 @@
-export type TaskKind = 'shell' | 'agent'
+export type TaskKind = 'shell' | 'agent' | 'workflow'
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 

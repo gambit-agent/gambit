@@ -2,7 +2,7 @@ import type { ConversationMessage } from '../../conversation/conversation-types'
 import { summarizeToolEvent } from '../../lib/toolSummaries'
 
 /** Spinner characters shown while a tool call is in the "started" state. */
-export const toolMessageRunningFrames = ['□', '▫', '◻', '▫'] as const
+export const toolMessageRunningFrames = ['-', '\\', '|', '/'] as const
 
 /** Interval (ms) between spinner frame updates. */
 export const toolMessageRunningIntervalMs = 120

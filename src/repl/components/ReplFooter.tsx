@@ -18,14 +18,16 @@ export function ReplFooter({
   contextUsage,
   shortModelDisplay,
   activeTasks,
+  goalActive,
 }: {
   segments: FooterSegment[]
   contextUsage: { used: number; max: number } | null
   shortModelDisplay: string
   activeTasks: TaskRecord[]
+  goalActive: boolean
 }) {
   return (
-    <box flexDirection="row" flexShrink={0} justifyContent="space-between" paddingX={1}>
+    <box flexDirection="row" flexShrink={0} justifyContent="space-between" paddingX={1} paddingTop={1}>
       <box flexDirection="row" flexShrink={1}>
         {segments.map((segment, index) => (
           <Fragment key={segment.key}>
@@ -36,7 +38,7 @@ export function ReplFooter({
           </Fragment>
         ))}
       </box>
-      <box flexDirection="row" flexShrink={0} gap={1}>
+      <box flexDirection="row" flexShrink={0} gap={2}>
         {contextUsage ? (
           <text
             fg={
@@ -52,7 +54,7 @@ export function ReplFooter({
             {` ${formatTokenCount(contextUsage.used)}/${formatTokenCount(contextUsage.max)}`}
           </text>
         ) : null}
-        <TaskPanel tasks={activeTasks} />
+        <TaskPanel tasks={activeTasks} goalActive={goalActive} />
       </box>
     </box>
   )
