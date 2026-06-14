@@ -585,6 +585,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       <ConversationPanel
         messages={conversation.messages}
         scrollboxRef={scrollboxRef}
+        isLightTheme={isLight}
         transcriptMode={transcriptMode}
         onClipboardError={handleConversationClipboardError}
       />

@@ -9,6 +9,7 @@
 [![OpenTUI](https://img.shields.io/badge/OpenTUI-0.3.0-6c5ce7?labelColor=14151a)](https://github.com/opentui/opentui)
 [![License](https://img.shields.io/github/license/gambit-agent/gambit?labelColor=14151a)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/gambit-agent/gambit?labelColor=14151a)](https://github.com/gambit-agent/gambit/releases/latest)
+![coded on linux](https://img.shields.io/badge/coded%20on-linux-14151a?labelColor=14151a)
 
 ## Overview
 

@@ -6,11 +6,18 @@ import { inferFiletype } from '../../lib/change-diff'
 import { Markdown } from '../Markdown'
 import { getRolePresentation, layout, theme } from '../theme'
 import { HoverClipboardBox } from '../components/HoverClipboardBox'
-import { formatToolMessageLine, toolMessageRunningFrames, toolMessageRunningIntervalMs } from './tool-message-line'
+import {
+  formatToolMessageLine,
+  formatToolMessagePresentation,
+  toolMessageRunningFrames,
+  toolMessageRunningIntervalMs,
+  type ToolMessagePresentationLine,
+} from './tool-message-line'
 
 export interface ConversationPanelProps {
   messages: ConversationMessage[]
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
+  isLightTheme?: boolean
   transcriptMode?: boolean
   onClipboardError?: (error: Error) => void
 }
@@ -30,6 +37,20 @@ const timestampLabels: Record<ConversationMessage['role'], string> = {
   assistant: 'Responded',
   tool: 'Tool event',
 }
+
+const reasoningBorderChars = {
+  topLeft: '▌',
+  topRight: '▌',
+  bottomLeft: '▌',
+  bottomRight: '▌',
+  horizontal: '▌',
+  vertical: '▌',
+  topT: '▌',
+  bottomT: '▌',
+  leftT: '▌',
+  rightT: '▌',
+  cross: '▌',
+} as const
 
 function formatTimestamp(value: string): string {
   return timestampFormatter.format(new Date(value))
@@ -134,20 +155,18 @@ function ToolDiffView({ diff, filetype }: { diff: string; filetype?: string }) {
   )
 }
 
-function ReasoningBlock({ content }: { content: string }) {
+function ReasoningBlock({ content, marginBottom = 1 }: { content: string; marginBottom?: number }) {
   return (
     <box
       flexDirection="column"
       gap={0}
-      marginBottom={1}
-      style={{
-        border: ['left'],
-        borderStyle: 'heavy',
-        borderColor: theme.reasoningBorder,
-        paddingLeft: 1,
-        paddingRight: 1,
-        backgroundColor: theme.reasoningBg,
-      }}
+      marginBottom={marginBottom}
+      border={['left']}
+      borderColor={theme.reasoningBorder}
+      customBorderChars={reasoningBorderChars}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={theme.reasoningBg}
     >
       <text selectable fg={theme.reasoningBorder} attributes={TextAttributes.BOLD} content="Reasoning" />
       <Markdown content={content} textColor={theme.reasoningFg} strongColor={theme.reasoningBorder} />
@@ -155,8 +174,140 @@ function ReasoningBlock({ content }: { content: string }) {
   )
 }
 
+function formatDuration(ms: number | undefined): string | null {
+  if (ms === undefined || !Number.isFinite(ms)) {
+    return null
+  }
+
+  return `${(Math.max(0, ms) / 1000).toFixed(1)}s`
+}
+
+function getReasoningDurationMs(message: ConversationMessage): number | undefined {
+  const duration = message.metadata?.reasoningDurationMs
+  if (typeof duration === 'number') {
+    return duration
+  }
+
+  const startedAt = message.metadata?.reasoningStartedAt
+  const finishedAt = message.metadata?.reasoningFinishedAt
+  if (!startedAt || !finishedAt) {
+    return undefined
+  }
+
+  const startedMs = Date.parse(startedAt)
+  const finishedMs = Date.parse(finishedAt)
+  if (!Number.isFinite(startedMs) || !Number.isFinite(finishedMs)) {
+    return undefined
+  }
+
+  return Math.max(0, finishedMs - startedMs)
+}
+
+function ThoughtToggle({
+  expanded,
+  durationLabel,
+  onToggle,
+}: {
+  expanded: boolean
+  durationLabel: string | null
+  onToggle: () => void
+}) {
+  const marker = expanded ? '-' : '+'
+
+  return (
+    <box
+      flexDirection="row"
+      gap={1}
+      onMouseDown={(event) => {
+        event.preventDefault()
+        onToggle()
+      }}
+    >
+      <text selectable={false} fg={theme.reasoningBorder} attributes={TextAttributes.BOLD} content={marker} />
+      <text selectable={false}>
+        <span fg={theme.reasoningBorder} attributes={TextAttributes.BOLD}>Thought</span>
+        {durationLabel ? <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{`: ${durationLabel}`}</span> : null}
+      </text>
+    </box>
+  )
+}
+
+function splitLeadingWord(value: string): { leading: string; rest: string } {
+  const match = value.match(/^(\S+)(.*)$/)
+  return {
+    leading: match?.[1] ?? value,
+    rest: match?.[2] ?? '',
+  }
+}
+
+function ToolHeading({ heading }: { heading: string }) {
+  if (heading === 'Explored') {
+    return (
+      <text selectable>
+        <span fg={theme.userFg}>{`• ${heading}`}</span>
+      </text>
+    )
+  }
+
+  const { leading, rest } = splitLeadingWord(heading)
+  return (
+    <text selectable>
+      <span fg={theme.userFg}>• </span>
+      <span fg={theme.toolFg}>{leading}</span>
+      <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{rest}</span>
+    </text>
+  )
+}
+
+function ToolNormalDetailLine({ text }: { text: string }) {
+  const match = text.match(/^(\s*└\s+)(\S+)(.*)$/)
+  if (!match) {
+    return (
+      <text selectable>
+        <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{text}</span>
+      </text>
+    )
+  }
+
+  return (
+    <text selectable>
+      <span fg={theme.userFg}>{match[1]}</span>
+      <span fg={theme.toolFg}>{match[2]}</span>
+      <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{match[3]}</span>
+    </text>
+  )
+}
+
+function ToolDetailLine({ line }: { line: ToolMessagePresentationLine }) {
+  if (line.kind === 'normal') {
+    return (
+      <box width="100%">
+        <ToolNormalDetailLine text={line.text} />
+      </box>
+    )
+  }
+
+  const isAdded = line.kind === 'added'
+  const isRemoved = line.kind === 'removed'
+  const backgroundColor = isAdded ? theme.successBg : isRemoved ? theme.errorBg : undefined
+  const color = isAdded ? theme.diffAddedFg : isRemoved ? theme.diffRemovedFg : theme.statusFg
+
+  return (
+    <box width="100%" backgroundColor={backgroundColor}>
+      <text
+        selectable
+        fg={color}
+        attributes={line.kind === 'context' ? TextAttributes.DIM : undefined}
+      >
+        {line.text}
+      </text>
+    </box>
+  )
+}
+
 interface ConversationMessageItemProps {
   message: ConversationMessage
+  isLightTheme: boolean
   transcriptMode: boolean
   toolMessageAnimationFrame: number
   onClipboardError?: (error: Error) => void
@@ -171,11 +322,15 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
   const isToolMessage = message.role === 'tool'
   const presentation = getRolePresentation(message.role, theme)
   const isUser = message.role === 'user'
+  const [reasoningExpanded, setReasoningExpanded] = useState(false)
   const assistantReasoning =
     message.role === 'assistant' ? parseAssistantReasoning(message.content) : null
+  const hasAssistantResponse = Boolean(assistantReasoning?.response.trim())
+  const reasoningDurationLabel = assistantReasoning ? formatDuration(getReasoningDurationMs(message)) : null
 
   if (isToolMessage) {
     const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
+    const toolPresentation = formatToolMessagePresentation(message, toolMessageAnimationFrame)
     const toolDiff = message.metadata?.toolStatus === 'completed' ? getToolDiff(message) : null
 
     if (transcriptMode) {
@@ -232,17 +387,17 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
         paddingX={layout.messagePaddingX}
         paddingY={0}
       >
-        <box flexDirection="row" gap={toolLine.indicator ? 1 : 0}>
-          {toolLine.indicator ? (
+        <box flexDirection="row" gap={toolPresentation.indicator ? 1 : 0}>
+          {toolPresentation.indicator ? (
             <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
-              {toolLine.indicator}
+              {toolPresentation.indicator}
             </text>
           ) : null}
-          <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-            {toolLine.text}
-          </text>
+          <ToolHeading heading={toolPresentation.heading} />
         </box>
-        {toolDiff ? <ToolDiffView diff={toolDiff.diff} filetype={toolDiff.filetype} /> : null}
+        {toolPresentation.detailLines.map((line, index) => (
+          <ToolDetailLine key={`${line.kind}-${index}-${line.text}`} line={line} />
+        ))}
       </box>
     )
   }
@@ -259,8 +414,15 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
       <box flexDirection="column" gap={0}>
         {assistantReasoning ? (
           <>
-            <ReasoningBlock content={assistantReasoning.reasoning} />
-            {assistantReasoning.response.trim() ? (
+            <ThoughtToggle
+              expanded={reasoningExpanded}
+              durationLabel={reasoningDurationLabel}
+              onToggle={() => setReasoningExpanded((current) => !current)}
+            />
+            {reasoningExpanded ? (
+              <ReasoningBlock content={assistantReasoning.reasoning} marginBottom={hasAssistantResponse ? 1 : 0} />
+            ) : null}
+            {hasAssistantResponse ? (
               <Markdown
                 content={assistantReasoning.response}
                 textColor={presentation.textColor}
@@ -291,6 +453,7 @@ function areConversationMessageItemPropsEqual(
 ): boolean {
   if (
     previous.message !== next.message ||
+    previous.isLightTheme !== next.isLightTheme ||
     previous.transcriptMode !== next.transcriptMode ||
     previous.onClipboardError !== next.onClipboardError
   ) {
@@ -307,6 +470,7 @@ function areConversationMessageItemPropsEqual(
 export function ConversationPanel({
   messages,
   scrollboxRef,
+  isLightTheme = false,
   transcriptMode = false,
   onClipboardError,
 }: ConversationPanelProps) {
@@ -357,6 +521,7 @@ export function ConversationPanel({
         <ConversationMessageItem
           key={message.id}
           message={message}
+          isLightTheme={isLightTheme}
           transcriptMode={transcriptMode}
           toolMessageAnimationFrame={toolMessageAnimationFrame}
           onClipboardError={onClipboardError}

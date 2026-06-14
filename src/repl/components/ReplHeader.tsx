@@ -10,6 +10,7 @@ export function ReplHeader() {
       flexDirection="row"
       justifyContent="space-between"
       alignItems="center"
+      paddingTop={1}
       paddingBottom={1}
     >
       <text fg={theme.logoFg} attributes={TextAttributes.BOLD}>

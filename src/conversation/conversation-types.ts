@@ -14,6 +14,9 @@ export interface ConversationMessage {
     toolResult?: unknown
     toolStatus?: 'started' | 'completed' | 'failed'
     toolArtifactPath?: string
+    reasoningStartedAt?: string
+    reasoningFinishedAt?: string
+    reasoningDurationMs?: number
   }
 }
 
