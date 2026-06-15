@@ -114,6 +114,10 @@ export function parseAssistantReasoning(content: string): ParsedAssistantReasoni
   return { reasoning, response }
 }
 
+export function shouldRenderMessageTimestamp(message: ConversationMessage): boolean {
+  return message.role !== 'assistant' || parseAssistantReasoning(message.content) === null
+}
+
 function getToolDiff(message: ConversationMessage): { diff: string; filetype?: string } | null {
   const toolName = message.metadata?.toolName
   const args = asRecord(message.metadata?.toolArgs)
@@ -168,7 +172,6 @@ function ReasoningBlock({ content, marginBottom = 1 }: { content: string; margin
       paddingRight={1}
       backgroundColor={theme.reasoningBg}
     >
-      <text selectable fg={theme.reasoningBorder} attributes={TextAttributes.BOLD} content="Reasoning" />
       <Markdown content={content} textColor={theme.reasoningFg} strongColor={theme.reasoningBorder} />
     </box>
   )
@@ -206,10 +209,12 @@ function getReasoningDurationMs(message: ConversationMessage): number | undefine
 function ThoughtToggle({
   expanded,
   durationLabel,
+  marginBottom = 0,
   onToggle,
 }: {
   expanded: boolean
   durationLabel: string | null
+  marginBottom?: number
   onToggle: () => void
 }) {
   const marker = expanded ? '-' : '+'
@@ -218,6 +223,7 @@ function ThoughtToggle({
     <box
       flexDirection="row"
       gap={1}
+      marginBottom={marginBottom}
       onMouseDown={(event) => {
         event.preventDefault()
         onToggle()
@@ -240,19 +246,48 @@ function splitLeadingWord(value: string): { leading: string; rest: string } {
   }
 }
 
-function ToolHeading({ heading }: { heading: string }) {
+type ToolStatus = NonNullable<ConversationMessage['metadata']>['toolStatus']
+
+function getToolStatusColor(status: ToolStatus): string {
+  switch (status) {
+    case 'completed':
+      return theme.successFg
+    case 'failed':
+      return theme.errorFg
+    case 'started':
+      return theme.headerAccent
+    default:
+      return theme.statusFg
+  }
+}
+
+function stripLeadingBullet(value: string): string {
+  return value.replace(/^•\s*/, '')
+}
+
+function ToolHeading({
+  heading,
+  status,
+}: {
+  heading: string
+  status: ToolStatus
+}) {
+  const bulletColor = getToolStatusColor(status)
+  const normalizedHeading = stripLeadingBullet(heading)
+
   if (heading === 'Explored') {
     return (
       <text selectable>
-        <span fg={theme.userFg}>{`• ${heading}`}</span>
+        <span fg={bulletColor}>• </span>
+        <span fg={theme.userFg}>{normalizedHeading}</span>
       </text>
     )
   }
 
-  const { leading, rest } = splitLeadingWord(heading)
+  const { leading, rest } = splitLeadingWord(normalizedHeading)
   return (
     <text selectable>
-      <span fg={theme.userFg}>• </span>
+      <span fg={bulletColor}>• </span>
       <span fg={theme.toolFg}>{leading}</span>
       <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{rest}</span>
     </text>
@@ -326,6 +361,7 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
   const assistantReasoning =
     message.role === 'assistant' ? parseAssistantReasoning(message.content) : null
   const hasAssistantResponse = Boolean(assistantReasoning?.response.trim())
+  const renderTimestamp = shouldRenderMessageTimestamp(message)
   const reasoningDurationLabel = assistantReasoning ? formatDuration(getReasoningDurationMs(message)) : null
 
   if (isToolMessage) {
@@ -352,7 +388,7 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
         >
           <box flexDirection="row" gap={1}>
             {toolLine.indicator ? (
-              <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+              <text selectable fg={getToolStatusColor(message.metadata?.toolStatus)} attributes={TextAttributes.BOLD}>
                 {toolLine.indicator}
               </text>
             ) : null}
@@ -389,11 +425,11 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
       >
         <box flexDirection="row" gap={toolPresentation.indicator ? 1 : 0}>
           {toolPresentation.indicator ? (
-            <text selectable fg={theme.toolFg} attributes={TextAttributes.BOLD}>
+            <text selectable fg={getToolStatusColor(message.metadata?.toolStatus)} attributes={TextAttributes.BOLD}>
               {toolPresentation.indicator}
             </text>
           ) : null}
-          <ToolHeading heading={toolPresentation.heading} />
+          <ToolHeading heading={toolPresentation.heading} status={message.metadata?.toolStatus} />
         </box>
         {toolPresentation.detailLines.map((line, index) => (
           <ToolDetailLine key={`${line.kind}-${index}-${line.text}`} line={line} />
@@ -417,6 +453,7 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
             <ThoughtToggle
               expanded={reasoningExpanded}
               durationLabel={reasoningDurationLabel}
+              marginBottom={!reasoningExpanded && hasAssistantResponse ? 1 : 0}
               onToggle={() => setReasoningExpanded((current) => !current)}
             />
             {reasoningExpanded ? (
@@ -438,11 +475,13 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
           />
         )}
       </box>
-      <box marginTop={1}>
-        <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
-          {formatTimestamp(message.timestamp)}
-        </text>
-      </box>
+      {renderTimestamp ? (
+        <box marginTop={1}>
+          <text selectable fg={theme.statusFg} attributes={TextAttributes.DIM}>
+            {formatTimestamp(message.timestamp)}
+          </text>
+        </box>
+      ) : null}
     </HoverClipboardBox>
   )
 }, areConversationMessageItemPropsEqual)
