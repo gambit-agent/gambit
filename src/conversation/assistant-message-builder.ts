@@ -7,6 +7,8 @@ const STREAM_FLUSH_CHAR_DELTA = 256
 export class AssistantMessageBuilder {
   private streamedText = ''
   private reasoning = ''
+  private reasoningStartedAt: Date | null = null
+  private reasoningFinishedAt: Date | null = null
   private currentAssistantId: string | null = null
   private currentText = ''
   private currentReasoning = ''
@@ -25,6 +27,7 @@ export class AssistantMessageBuilder {
   }
 
   async appendReasoning(text: string): Promise<void> {
+    this.markReasoningStarted()
     this.reasoning += text
     this.currentReasoning += text
     if (this.showReasoning && this.currentReasoning.trim()) {
@@ -33,6 +36,7 @@ export class AssistantMessageBuilder {
   }
 
   async appendText(text: string): Promise<void> {
+    this.markReasoningFinished()
     this.streamedText += text
     this.currentText += text
     await this.flushCurrentAssistantMessage()
@@ -49,6 +53,7 @@ export class AssistantMessageBuilder {
   }
 
   async finish(finalText: string): Promise<string> {
+    this.markReasoningFinished()
     const finalContent = this.composeContent(this.reasoning, finalText)
 
     if (!this.streamedText.trim() && finalText) {
@@ -67,6 +72,7 @@ export class AssistantMessageBuilder {
           role: 'assistant',
           content: finalContent,
           timestamp: new Date().toISOString(),
+          metadata: this.buildReasoningMetadata(),
         },
         { persist: false },
       )
@@ -86,6 +92,35 @@ export class AssistantMessageBuilder {
       return text
     }
     return `Reasoning:\n${reasoning.trim()}\n\n${text}`
+  }
+
+  private markReasoningStarted(): void {
+    if (!this.reasoningStartedAt) {
+      this.reasoningStartedAt = new Date()
+    }
+  }
+
+  private markReasoningFinished(): void {
+    if (this.reasoningStartedAt && !this.reasoningFinishedAt) {
+      this.reasoningFinishedAt = new Date()
+    }
+  }
+
+  private buildReasoningMetadata(): {
+    reasoningStartedAt?: string
+    reasoningFinishedAt?: string
+    reasoningDurationMs?: number
+  } | undefined {
+    if (!this.showReasoning || !this.reasoningStartedAt) {
+      return undefined
+    }
+
+    const finishedAt = this.reasoningFinishedAt ?? new Date()
+    return {
+      reasoningStartedAt: this.reasoningStartedAt.toISOString(),
+      reasoningFinishedAt: this.reasoningFinishedAt?.toISOString(),
+      reasoningDurationMs: Math.max(0, finishedAt.getTime() - this.reasoningStartedAt.getTime()),
+    }
   }
 
   private composeCurrentContent(): string {
@@ -109,7 +144,13 @@ export class AssistantMessageBuilder {
       this.segmentAdded = true
       this.turnAssistantIds.add(this.currentAssistantId)
       await this.store.pushMessage(
-        { id: this.currentAssistantId, role: 'assistant', content, timestamp: new Date().toISOString() },
+        {
+          id: this.currentAssistantId,
+          role: 'assistant',
+          content,
+          timestamp: new Date().toISOString(),
+          metadata: this.buildReasoningMetadata(),
+        },
         { persist: false },
       )
       this.lastFlushedContent = content
@@ -117,7 +158,10 @@ export class AssistantMessageBuilder {
       return
     }
 
-    this.store.updateMessage(this.currentAssistantId, { content })
+    this.store.updateMessage(this.currentAssistantId, {
+      content,
+      metadata: this.buildReasoningMetadata(),
+    })
     this.lastFlushedContent = content
     this.lastFlushAt = Date.now()
   }
