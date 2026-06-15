@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { TextAttributes } from '@opentui/core'
+import { SyntaxStyle, TextAttributes } from '@opentui/core'
 import { marked, type Token, type Tokens } from 'marked'
 
 import { layout, theme } from './theme'
@@ -22,6 +22,11 @@ interface RenderOptions {
 }
 
 const HORIZONTAL_RULE = '─'.repeat(40)
+const markdownTableSyntaxStyle = SyntaxStyle.fromStyles({
+  default: { fg: theme.tableFg },
+  'markup.heading': { fg: theme.tableFg, bold: true },
+  'markup.raw': { fg: theme.codeInlineFg },
+})
 
 const headingSizeToAttributes: Record<number, number> = {
   1: TextAttributes.BOLD,
@@ -142,45 +147,20 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string, options: R
 }
 
 function renderTable(token: Tokens.Table, key: string): ReactNode {
-  const headerRow = token.header.map((cell) => cell.text)
-  const dataRows = token.rows.map((row) => row.map((cell) => cell.text))
-
-  const columnWidths = headerRow.map((cell, index) => {
-    const dataWidth = Math.max(...dataRows.map((row) => row[index]?.length ?? 0))
-    return Math.max(cell.length, dataWidth)
-  })
-
-  const formatRow = (row: string[]) =>
-    row
-      .map((cell, index) => {
-        const width = columnWidths[index] ?? cell.length
-        return cell.padEnd(width, ' ')
-      })
-      .join(' │ ')
-
-  const lines = [
-    formatRow(headerRow),
-    columnWidths.map((width) => '─'.repeat(width)).join('─┼─'),
-    ...dataRows.map(formatRow),
-  ]
-
   return (
-    <box
+    <markdown
       key={key}
-      flexDirection="column"
-      gap={0}
-      style={{
-        border: ['left'],
+      content={token.raw.trimEnd()}
+      syntaxStyle={markdownTableSyntaxStyle}
+      internalBlockMode="top-level"
+      tableOptions={{
+        style: 'grid',
         borderColor: theme.divider,
-        paddingLeft: 1,
-        paddingRight: 1,
-        backgroundColor: theme.tableBg,
+        selectable: true,
       }}
-    >
-      {lines.map((line, index) => (
-        <text selectable key={`${key}-line-${index}`} content={line.length > 0 ? line : ' '} fg={theme.tableFg} />
-      ))}
-    </box>
+      fg={theme.tableFg}
+      bg={theme.tableBg}
+    />
   )
 }
 

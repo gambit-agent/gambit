@@ -348,6 +348,97 @@ interface ConversationMessageItemProps {
   onClipboardError?: (error: Error) => void
 }
 
+interface ToolMessageGroupProps {
+  messages: ConversationMessage[]
+  toolMessageAnimationFrame: number
+}
+
+type ConversationRenderItem =
+  | { type: 'message'; message: ConversationMessage }
+  | { type: 'tool-group'; messages: ConversationMessage[] }
+
+function canGroupToolPresentation(message: ConversationMessage): boolean {
+  if (message.role !== 'tool' || message.metadata?.toolStatus === 'failed') {
+    return false
+  }
+
+  const presentation = formatToolMessagePresentation(message)
+  return presentation.heading === 'Explored' && presentation.detailLines.every((line) => line.kind === 'normal')
+}
+
+function getToolGroupKey(message: ConversationMessage): string | null {
+  if (!canGroupToolPresentation(message)) {
+    return null
+  }
+
+  return formatToolMessagePresentation(message).heading
+}
+
+export function groupConversationRenderItems(
+  messages: readonly ConversationMessage[],
+  transcriptMode: boolean,
+): ConversationRenderItem[] {
+  if (transcriptMode) {
+    return messages.map((message) => ({ type: 'message', message }))
+  }
+
+  const items: ConversationRenderItem[] = []
+
+  for (const message of messages) {
+    const groupKey = getToolGroupKey(message)
+    const previous = items.at(-1)
+
+    if (groupKey && previous?.type === 'tool-group') {
+      const previousMessage = previous.messages.at(-1)
+      if (previousMessage && getToolGroupKey(previousMessage) === groupKey) {
+        previous.messages.push(message)
+        continue
+      }
+    }
+
+    if (groupKey) {
+      items.push({ type: 'tool-group', messages: [message] })
+    } else {
+      items.push({ type: 'message', message })
+    }
+  }
+
+  return items
+}
+
+function ToolMessageGroup({ messages, toolMessageAnimationFrame }: ToolMessageGroupProps) {
+  const latestMessage = messages[messages.length - 1]
+  if (!latestMessage) {
+    return null
+  }
+
+  const latestPresentation = formatToolMessagePresentation(latestMessage, toolMessageAnimationFrame)
+  const detailLines = messages.flatMap((message) =>
+    formatToolMessagePresentation(message, toolMessageAnimationFrame).detailLines,
+  )
+
+  return (
+    <box
+      flexDirection="column"
+      gap={0}
+      paddingX={layout.messagePaddingX}
+      paddingY={0}
+    >
+      <box flexDirection="row" gap={latestPresentation.indicator ? 1 : 0}>
+        {latestPresentation.indicator ? (
+          <text selectable fg={getToolStatusColor(latestMessage.metadata?.toolStatus)} attributes={TextAttributes.BOLD}>
+            {latestPresentation.indicator}
+          </text>
+        ) : null}
+        <ToolHeading heading={latestPresentation.heading} status={latestMessage.metadata?.toolStatus} />
+      </box>
+      {detailLines.map((line, index) => (
+        <ToolDetailLine key={`${line.kind}-${index}-${line.text}`} line={line} />
+      ))}
+    </box>
+  )
+}
+
 const ConversationMessageItem = memo(function ConversationMessageItem({
   message,
   transcriptMode,
@@ -515,6 +606,10 @@ export function ConversationPanel({
 }: ConversationPanelProps) {
   const [toolMessageAnimationFrame, setToolMessageAnimationFrame] = useState(0)
   const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages])
+  const renderItems = useMemo(
+    () => groupConversationRenderItems(visibleMessages, transcriptMode),
+    [transcriptMode, visibleMessages],
+  )
   const hasRunningToolMessage = messages.some(
     (message) => message.role === 'tool' && message.metadata?.toolStatus === 'started',
   )
@@ -556,16 +651,24 @@ export function ConversationPanel({
         },
       }}
     >
-      {visibleMessages.map((message) => (
-        <ConversationMessageItem
-          key={message.id}
-          message={message}
-          isLightTheme={isLightTheme}
-          transcriptMode={transcriptMode}
-          toolMessageAnimationFrame={toolMessageAnimationFrame}
-          onClipboardError={onClipboardError}
-        />
-      ))}
+      {renderItems.map((item) =>
+        item.type === 'tool-group' ? (
+          <ToolMessageGroup
+            key={`tool-group-${item.messages.map((message) => message.id).join('-')}`}
+            messages={item.messages}
+            toolMessageAnimationFrame={toolMessageAnimationFrame}
+          />
+        ) : (
+          <ConversationMessageItem
+            key={item.message.id}
+            message={item.message}
+            isLightTheme={isLightTheme}
+            transcriptMode={transcriptMode}
+            toolMessageAnimationFrame={toolMessageAnimationFrame}
+            onClipboardError={onClipboardError}
+          />
+        ),
+      )}
     </scrollbox>
   )
 }
