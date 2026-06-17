@@ -3,7 +3,7 @@ import { TextAttributes } from '@opentui/core'
 
 import type { TaskRecord, TaskStatus } from '../../tasks/task-types'
 import { readTaskOutput } from '../../tasks/task-output'
-import type { WorkflowSnapshot } from '../../workflows/workflow-display'
+import type { WorkflowAgentStatus, WorkflowSnapshot } from '../../workflows/workflow-display'
 import { PopupOverlay } from '../../ui/components/PopupOverlay'
 import { theme } from '../../ui/theme'
 import { formatDuration, formatTaskTitle, truncateTaskLine } from '../repl-format'
@@ -64,6 +64,21 @@ function getStatusMarker(status: TaskStatus): string {
       return 'run'
     case 'pending':
       return 'new'
+  }
+}
+
+function getWorkflowAgentStatusColor(status: WorkflowAgentStatus): string {
+  switch (status) {
+    case 'done':
+      return theme.successFg
+    case 'error':
+      return theme.errorFg
+    case 'running':
+      return theme.headerAccent
+    case 'queued':
+      return theme.infoFg
+    case 'skipped':
+      return theme.warningFg
   }
 }
 
@@ -225,13 +240,24 @@ function WorkflowDetail({
             const done = agents.filter((agent) => agent.status === 'done').length
             const running = agents.filter((agent) => agent.status === 'running').length
             const errors = agents.filter((agent) => agent.status === 'error').length
-            const marker = running > 0 || snapshot.currentPhase === phase ? 'run' : done + errors === agents.length ? 'ok' : 'new'
+            const skipped = agents.filter((agent) => agent.status === 'skipped').length
+            const complete = done + errors + skipped === agents.length
+            const marker = errors > 0 ? 'err' : running > 0 || snapshot.currentPhase === phase ? 'run' : complete ? 'ok' : 'new'
+            const color = errors > 0
+              ? theme.errorFg
+              : skipped > 0
+                ? theme.warningFg
+              : complete
+                ? theme.successFg
+                : running > 0
+                  ? theme.headerAccent
+                  : theme.infoFg
             return (
               <text
                 key={phase}
-                fg={running > 0 ? theme.headerAccent : theme.statusFg}
+                fg={color}
                 content={truncateTaskLine(
-                  `${marker} ${phase} ${done}/${agents.length}${running ? ` / ${running} running` : ''}${errors ? ` / ${errors} failed` : ''}`,
+                  `${marker} ${phase} ${done}/${agents.length}${running ? ` / ${running} running` : ''}${errors ? ` / ${errors} failed` : ''}${skipped ? ` / ${skipped} skipped` : ''}`,
                   lineWidth,
                 )}
               />
@@ -246,7 +272,7 @@ function WorkflowDetail({
           {snapshot.agents.slice(-12).map((agent) => (
             <text
               key={`${agent.id}-${agent.label}`}
-              fg={agent.status === 'error' ? theme.errorFg : agent.status === 'running' ? theme.headerAccent : theme.statusFg}
+              fg={getWorkflowAgentStatusColor(agent.status)}
               attributes={agent.status === 'running' ? TextAttributes.BOLD : undefined}
               content={truncateTaskLine(
                 `#${agent.id} ${agent.status.padEnd(7)} ${agent.label}${agent.resultPreview ? ` - ${agent.resultPreview}` : ''}`,
