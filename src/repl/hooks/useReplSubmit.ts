@@ -57,6 +57,7 @@ export function useReplSubmit({
   handleModelFilterSubmit,
   modelPickerFetchState,
   setMcpOverlayOpen,
+  openThemesPicker,
 }: {
   runtime: AppRuntime
   conversation: SubmitConversationSnapshot
@@ -74,6 +75,7 @@ export function useReplSubmit({
   handleModelFilterSubmit: (value: string) => void
   modelPickerFetchState: string
   setMcpOverlayOpen: (open: boolean) => void
+  openThemesPicker: () => void
 }) {
   const getRunConfig = useCallback(
     (action: string): RunConfig | null => {
@@ -273,6 +275,12 @@ export function useReplSubmit({
       if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'resume') {
         clearComposer()
         openSessionPicker(routed.argument)
+        return
+      }
+
+      if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'themes') {
+        clearComposer()
+        openThemesPicker()
         return
       }
 
@@ -534,6 +542,7 @@ export function useReplSubmit({
       runUserPrompt,
       runtime,
       setMcpOverlayOpen,
+      openThemesPicker,
       startFreshConversation,
       thinkingEnabled,
     ],

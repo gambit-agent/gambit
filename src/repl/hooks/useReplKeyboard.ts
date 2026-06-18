@@ -47,6 +47,12 @@ interface ReplKeyboardOptions {
   moveSessionSelection: (delta: number) => void
   mcpOverlayOpen: boolean
   setMcpOverlayOpen: Dispatch<SetStateAction<boolean>>
+  themePicker?: {
+    isOpen: boolean
+    moveSelection: (delta: number) => void
+    confirm: () => void
+    cancel: () => void
+  }
   transcriptMode: boolean
   setTranscriptMode: Dispatch<SetStateAction<boolean>>
   toggleTheme: () => void
@@ -182,6 +188,25 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         if (options.mcpOverlayOpen) {
           if (key.name === 'escape') {
             options.setMcpOverlayOpen(false)
+          }
+          return
+        }
+
+        if (options.themePicker?.isOpen) {
+          if (key.name === 'escape') {
+            options.themePicker.cancel()
+            return
+          }
+          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+            options.themePicker.moveSelection(-1)
+            return
+          }
+          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+            options.themePicker.moveSelection(1)
+            return
+          }
+          if (key.name === 'return' || key.name === 'enter') {
+            options.themePicker.confirm()
           }
           return
         }

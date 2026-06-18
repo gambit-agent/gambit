@@ -46,7 +46,7 @@ export function routeCommandInput(value: string): RoutedInput {
     const name = firstSpace === -1 ? commandInput : commandInput.slice(0, firstSpace)
     const argument = firstSpace === -1 ? '' : commandInput.slice(firstSpace + 1).trim()
     return {
-      kind: name === 'model' || name === 'resume' ? 'local-ui' : 'local',
+      kind: name === 'model' || name === 'resume' || name === 'themes' ? 'local-ui' : 'local',
       channel: 'slash',
       name,
       argument,

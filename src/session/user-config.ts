@@ -8,6 +8,7 @@ import { isRecord } from './jsonl'
 export interface UserConfig {
   openRouterApiKey: string | null
   maxDepth: number | null
+  theme: string | null
 }
 
 export function getUserConfigPath(home: string = homedir()): string {
@@ -15,7 +16,7 @@ export function getUserConfigPath(home: string = homedir()): string {
 }
 
 function emptyUserConfig(): UserConfig {
-  return { openRouterApiKey: null, maxDepth: null }
+  return { openRouterApiKey: null, maxDepth: null, theme: null }
 }
 
 function parseUserConfig(value: unknown): UserConfig {
@@ -32,6 +33,9 @@ function parseUserConfig(value: unknown): UserConfig {
     maxDepth: parseOptionalPositiveInteger(
       typeof maxDepth === 'string' || typeof maxDepth === 'number' ? maxDepth : null,
     ),
+    theme: typeof value.theme === 'string' && value.theme.trim()
+      ? value.theme.trim()
+      : null,
   }
 }
 
@@ -66,6 +70,20 @@ export async function writeOpenRouterApiKey(
   const next = {
     ...current,
     openRouterApiKey: openRouterApiKey.trim() || null,
+  }
+
+  await mkdir(path.dirname(configPath), { recursive: true })
+  await Bun.write(configPath, `${JSON.stringify(next, null, 2)}\n`)
+}
+
+export async function writeThemePreference(
+  themeId: string,
+  configPath: string = getUserConfigPath(),
+): Promise<void> {
+  const current = await readUserConfigRecord(configPath)
+  const next = {
+    ...current,
+    theme: themeId.trim() || null,
   }
 
   await mkdir(path.dirname(configPath), { recursive: true })

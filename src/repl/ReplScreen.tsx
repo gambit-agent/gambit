@@ -13,8 +13,9 @@ import {
 } from '../app/providers'
 import type { UIMessage } from '../types/chat'
 import { routeInput } from './input-router'
-import { layout, theme, useTheme } from '../ui/theme'
+import { applyTheme, getActiveThemeId, getThemeList, layout, theme, useTheme } from '../ui/theme'
 import { useAskUserQuestionController } from '../ui/overlays/AskUserQuestionOverlay'
+import { writeThemePreference } from '../session/user-config'
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { generateId } from '../lib/id'
 import { useInteractiveController } from '../lib/interactive/controller'
@@ -128,7 +129,46 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const slashCompletionRequestIdRef = useRef(0)
   const [fileMentionState, setFileMentionState] = useState<FileMentionState>(closedFileMentionState)
   const [slashCompletionState, setSlashCompletionState] = useState<SlashCompletionState>(closedSlashCompletionState)
-  const { isLight, toggleTheme } = useTheme()
+  const { isLight, activeThemeId, themeName, applyTheme, toggleTheme } = useTheme()
+
+  const [themesOverlayOpen, setThemesOverlayOpen] = useState(false)
+  const [themePickerIndex, setThemePickerIndex] = useState(0)
+  const themePickerOriginalIdRef = useRef<string>(getActiveThemeId())
+  const themePickerEntries = useMemo(() => getThemeList(), [])
+
+  const openThemesPicker = useCallback(() => {
+    themePickerOriginalIdRef.current = getActiveThemeId()
+    const idx = themePickerEntries.findIndex((e) => e.id === getActiveThemeId())
+    setThemePickerIndex(idx >= 0 ? idx : 0)
+    setThemesOverlayOpen(true)
+  }, [themePickerEntries])
+
+  const moveThemeSelection = useCallback((delta: number) => {
+    setThemePickerIndex((current) => {
+      const next = (current + delta + themePickerEntries.length) % themePickerEntries.length
+      applyTheme(themePickerEntries[next]!.id)
+      return next
+    })
+  }, [applyTheme, themePickerEntries])
+
+  const confirmThemeSelection = useCallback(() => {
+    void writeThemePreference(getActiveThemeId()).catch((error) => {
+      runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+    })
+    setThemesOverlayOpen(false)
+  }, [runtime.conversationStore])
+
+  const cancelThemePicker = useCallback(() => {
+    applyTheme(themePickerOriginalIdRef.current)
+    setThemesOverlayOpen(false)
+  }, [applyTheme])
+
+  const handleToggleTheme = useCallback(() => {
+    toggleTheme()
+    void writeThemePreference(getActiveThemeId()).catch((error) => {
+      runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+    })
+  }, [runtime.conversationStore, toggleTheme])
 
   const {
     state: sessionPickerState,
@@ -377,7 +417,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setMcpOverlayOpen,
     transcriptMode,
     setTranscriptMode,
-    toggleTheme,
+    toggleTheme: handleToggleTheme,
+    themePicker: {
+      isOpen: themesOverlayOpen,
+      moveSelection: moveThemeSelection,
+      confirm: confirmThemeSelection,
+      cancel: cancelThemePicker,
+    },
     setPermissionExplainOpen,
     taskDrawer: {
       isOpen: tasksOpen,
@@ -417,6 +463,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     handleModelFilterSubmit: handleFilterSubmit,
     modelPickerFetchState: modelPickerState.fetchState,
     setMcpOverlayOpen,
+    openThemesPicker,
   })
 
   const setConversationMessages = useCallback(
@@ -438,6 +485,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     !modelPickerState.isOpen &&
     !sessionPickerState.isOpen &&
     !mcpOverlayOpen &&
+    !themesOverlayOpen &&
     !permissionSnapshot.activeRequest &&
     !questionSnapshot.activeRequest
 
@@ -522,6 +570,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     modelPickerOpen: modelPickerState.isOpen,
     sessionPickerOpen: sessionPickerState.isOpen,
     mcpOverlayOpen,
+    themesOverlayOpen,
     permissionOpen: Boolean(permissionSnapshot.activeRequest),
     questionOpen: Boolean(questionSnapshot.activeRequest),
   })
@@ -529,7 +578,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const { handleTextareaContentChange, handleTextareaSubmit } = useComposerTextarea({
     inputValue,
     textareaRef,
-    isLight,
+    activeThemeId,
     enabled: overlayFocus.mainInput,
     onInput: interactive.handleInput,
     onSubmit: (value) => {
@@ -565,6 +614,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     thinkingEnabled,
     permissionMode: permissionSnapshot.mode,
     isLight,
+    themeName,
     terminalWidth,
     followUpCount,
   })
@@ -586,6 +636,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         messages={conversation.messages}
         scrollboxRef={scrollboxRef}
         isLightTheme={isLight}
+        activeThemeId={activeThemeId}
         transcriptMode={transcriptMode}
         onClipboardError={handleConversationClipboardError}
       />
@@ -605,6 +656,10 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         sessionPickerState={sessionPickerState}
         sessionPickerOptions={sessionPickerOptions}
         mcpOverlayOpen={mcpOverlayOpen}
+        themesOverlayOpen={themesOverlayOpen}
+        themePickerEntries={themePickerEntries}
+        themePickerIndex={themePickerIndex}
+        themePickerActiveId={activeThemeId}
         permissionRequest={permissionSnapshot.activeRequest}
         permissionExplainOpen={permissionExplainOpen}
         activePlanContent={activePlanContent}
@@ -640,6 +695,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         onSessionOptionSelect={(index) => {
           void selectSessionByIndex(index)
         }}
+        onThemeMove={moveThemeSelection}
+        onThemeSelect={confirmThemeSelection}
+        onThemeClose={cancelThemePicker}
       />
 
       <ReplComposer

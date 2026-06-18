@@ -1,4 +1,5 @@
 import type { ModelPickerState } from '../../lib/modelPicker'
+import type { ThemePickerEntry } from '../../ui/overlays/ThemePickerOverlay'
 import type { PermissionRequestRecord } from '../../permissions/permission-types'
 import type { TaskRecord } from '../../tasks/task-types'
 import { MCPServerManagerOverlay } from '../../ui/overlays/MCPServerManagerOverlay'
@@ -12,12 +13,13 @@ import {
   SessionPickerOverlay,
   type SessionPickerOption,
 } from '../../ui/overlays/SessionPickerOverlay'
+import { ThemePickerOverlay } from '../../ui/overlays/ThemePickerOverlay'
 import { ModelPickerOverlay } from '../../ui/model-picker/ModelPickerOverlay'
 import { listMCPServerConfigs } from '../../lib/mcp-config'
 import type { SessionPickerState } from '../hooks/useSessionPicker'
 import { TaskDrawer } from './TaskDrawer'
 
-type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'model' | 'session' | null
+type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'model' | 'session' | null
 
 export interface ReplOverlayManagerProps {
   sessionInitializing: boolean
@@ -26,6 +28,10 @@ export interface ReplOverlayManagerProps {
   sessionPickerState: SessionPickerState
   sessionPickerOptions: SessionPickerOption[]
   mcpOverlayOpen: boolean
+  themesOverlayOpen: boolean
+  themePickerEntries: ThemePickerEntry[]
+  themePickerIndex: number
+  themePickerActiveId: string
   permissionRequest: PermissionRequestRecord | null
   permissionExplainOpen: boolean
   activePlanContent: string | null
@@ -50,6 +56,9 @@ export interface ReplOverlayManagerProps {
   onSessionFilterSubmit: (value: string) => void
   onSessionOptionChange: (index: number) => void
   onSessionOptionSelect: (index: number) => void
+  onThemeMove: (delta: number) => void
+  onThemeSelect: () => void
+  onThemeClose: () => void
 }
 
 export function getReplOverlayFocus(options: {
@@ -57,6 +66,7 @@ export function getReplOverlayFocus(options: {
   modelPickerOpen: boolean
   sessionPickerOpen: boolean
   mcpOverlayOpen: boolean
+  themesOverlayOpen: boolean
   permissionOpen: boolean
   questionOpen: boolean
 }): {
@@ -73,6 +83,8 @@ export function getReplOverlayFocus(options: {
         ? 'question'
         : options.mcpOverlayOpen
           ? 'mcp'
+          : options.themesOverlayOpen
+            ? 'themes'
           : options.modelPickerOpen
             ? 'model'
             : options.sessionPickerOpen
@@ -95,6 +107,10 @@ export function ReplOverlayManager({
   sessionPickerState,
   sessionPickerOptions,
   mcpOverlayOpen,
+  themesOverlayOpen,
+  themePickerEntries,
+  themePickerIndex,
+  themePickerActiveId,
   permissionRequest,
   permissionExplainOpen,
   activePlanContent,
@@ -119,12 +135,16 @@ export function ReplOverlayManager({
   onSessionFilterSubmit,
   onSessionOptionChange,
   onSessionOptionSelect,
+  onThemeMove,
+  onThemeSelect,
+  onThemeClose,
 }: ReplOverlayManagerProps) {
   const focus = getReplOverlayFocus({
     sessionInitializing,
     modelPickerOpen: modelPickerState.isOpen,
     sessionPickerOpen: sessionPickerState.isOpen,
     mcpOverlayOpen,
+    themesOverlayOpen,
     permissionOpen: Boolean(permissionRequest),
     questionOpen,
   })
@@ -163,6 +183,18 @@ export function ReplOverlayManager({
       ) : null}
 
       {mcpOverlayOpen ? <MCPServerManagerOverlay servers={listMCPServerConfigs()} /> : null}
+
+      {themesOverlayOpen ? (
+        <ThemePickerOverlay
+          isOpen={themesOverlayOpen}
+          entries={themePickerEntries}
+          selectedIndex={themePickerIndex}
+          activeThemeId={themePickerActiveId}
+          onMove={onThemeMove}
+          onSelect={onThemeSelect}
+          onClose={onThemeClose}
+        />
+      ) : null}
 
       {permissionRequest ? (
         permissionRequest.metadata?.isPlanApproval ? (

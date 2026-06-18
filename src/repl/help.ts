@@ -13,6 +13,7 @@ const builtInCommands = [
   ['/reset', 'Start a fresh conversation.'],
   ['/mcp', 'Open MCP server management.'],
   ['/compact', 'Compact the current conversation.'],
+  ['/themes', 'Open the color theme picker.'],
   ['/fork [title]', 'Fork the current conversation.'],
   ['/tree', 'Show the conversation tree.'],
   ['!<command>', 'Run a shell command.'],
@@ -79,6 +80,7 @@ export function formatUnknownSlashCommandMessage(
   const suggestions = [
     '/help',
     '/clear',
+    '/themes',
     '/goal',
     '/workflow',
     '/model',

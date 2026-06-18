@@ -47,6 +47,7 @@ export const builtInSlashCommands: BuiltInSlashCommand[] = [
   { name: 'reset', description: 'Start a fresh conversation.' },
   { name: 'mcp', description: 'Open MCP server management.' },
   { name: 'compact', description: 'Compact the current conversation.' },
+  { name: 'themes', description: 'Open the color theme picker.' },
   { name: 'fork', argumentHint: '[title]', description: 'Fork the current conversation.' },
   { name: 'tree', description: 'Show the conversation tree.' },
 ]

@@ -6,14 +6,14 @@ import { theme } from '../../ui/theme'
 export function useComposerTextarea({
   inputValue,
   textareaRef,
-  isLight,
+  activeThemeId,
   enabled,
   onInput,
   onSubmit,
 }: {
   inputValue: string
   textareaRef: RefObject<TextareaRenderable | null>
-  isLight: boolean
+  activeThemeId: string
   enabled: boolean
   onInput: (value: string) => void
   onSubmit: (value: string) => void
@@ -40,7 +40,7 @@ export function useComposerTextarea({
     textarea.focusedBackgroundColor = theme.background
     textarea.textColor = theme.userFg
     textarea.focusedTextColor = theme.userFg
-  }, [isLight, textareaRef])
+  }, [activeThemeId, textareaRef])
 
   const handleTextareaContentChange = useCallback(() => {
     if (!enabled) {

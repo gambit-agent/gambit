@@ -25,6 +25,7 @@ import {
 } from '../session/conversation-sessions'
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
 import { readUserConfig } from '../session/user-config'
+import { applyTheme } from '../ui/theme'
 
 export interface ConversationRuntimeServices {
   baseSystemPrompt: string
@@ -94,6 +95,9 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   const baseSystemPrompt = await loadSystemPrompt()
   const systemMessage = buildSystemMessage(baseSystemPrompt)
   const userConfig = await readUserConfig().catch(() => null)
+  if (userConfig?.theme) {
+    try { applyTheme(userConfig.theme) } catch { /* non-fatal */ }
+  }
   const runtimeMaxDelegationDepth = resolveMaxDelegationDepth(userConfig?.maxDepth)
 
   const memoryStore = new MemoryStore()

@@ -18,6 +18,7 @@ export interface ConversationPanelProps {
   messages: ConversationMessage[]
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
   isLightTheme?: boolean
+  activeThemeId?: string
   transcriptMode?: boolean
   onClipboardError?: (error: Error) => void
 }
@@ -343,6 +344,7 @@ function ToolDetailLine({ line }: { line: ToolMessagePresentationLine }) {
 interface ConversationMessageItemProps {
   message: ConversationMessage
   isLightTheme: boolean
+  activeThemeId: string
   transcriptMode: boolean
   toolMessageAnimationFrame: number
   onClipboardError?: (error: Error) => void
@@ -584,6 +586,7 @@ function areConversationMessageItemPropsEqual(
   if (
     previous.message !== next.message ||
     previous.isLightTheme !== next.isLightTheme ||
+    previous.activeThemeId !== next.activeThemeId ||
     previous.transcriptMode !== next.transcriptMode ||
     previous.onClipboardError !== next.onClipboardError
   ) {
@@ -601,6 +604,7 @@ export function ConversationPanel({
   messages,
   scrollboxRef,
   isLightTheme = false,
+  activeThemeId = "",
   transcriptMode = false,
   onClipboardError,
 }: ConversationPanelProps) {
@@ -663,6 +667,7 @@ export function ConversationPanel({
             key={item.message.id}
             message={item.message}
             isLightTheme={isLightTheme}
+            activeThemeId={activeThemeId}
             transcriptMode={transcriptMode}
             toolMessageAnimationFrame={toolMessageAnimationFrame}
             onClipboardError={onClipboardError}

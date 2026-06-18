@@ -26,6 +26,7 @@ interface UseReplStatusOptions {
   thinkingEnabled: boolean
   permissionMode: PermissionMode
   isLight: boolean
+  themeName: string
   terminalWidth: number
   followUpCount: number
 }
@@ -39,6 +40,7 @@ export function useReplStatus({
   thinkingEnabled,
   permissionMode,
   isLight,
+  themeName,
   terminalWidth,
   followUpCount,
 }: UseReplStatusOptions) {
@@ -127,7 +129,7 @@ export function useReplStatus({
           },
           {
             key: 'theme',
-            content: compactFooter ? (isLight ? 'light' : 'dark') : `${isLight ? 'light' : 'dark'} theme`,
+            content: compactFooter ? themeName : `${themeName} theme`,
             fg: theme.statusFg,
             attributes: TextAttributes.DIM,
           },

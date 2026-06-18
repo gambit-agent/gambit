@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { getUserConfigPath, readOpenRouterApiKey, readUserConfig, writeOpenRouterApiKey } from './user-config'
+import { getUserConfigPath, readOpenRouterApiKey, readUserConfig, writeOpenRouterApiKey, writeThemePreference } from './user-config'
 
 let tempHome: string
 let configPath: string
@@ -36,12 +36,12 @@ test('preserves unrelated user config fields when saving the API key', async () 
 })
 
 test('returns an empty config when the user config file is missing or malformed', async () => {
-  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null, theme: null })
 
   await mkdir(path.dirname(configPath), { recursive: true })
   await writeFile(configPath, '{bad json', 'utf8')
 
-  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ openRouterApiKey: null, maxDepth: null, theme: null })
 })
 
 test('reads max_depth from the user config', async () => {
@@ -51,5 +51,37 @@ test('reads max_depth from the user config', async () => {
   await expect(readUserConfig(configPath)).resolves.toEqual({
     openRouterApiKey: null,
     maxDepth: 7,
+    theme: null,
+  })
+})
+
+test('reads the theme preference from the user config', async () => {
+  await mkdir(path.dirname(configPath), { recursive: true })
+  await writeFile(configPath, JSON.stringify({ theme: 'dracula' }), 'utf8')
+
+  await expect(readUserConfig(configPath)).resolves.toEqual({
+    openRouterApiKey: null,
+    maxDepth: null,
+    theme: 'dracula',
+  })
+})
+
+test('writes and reads the theme preference', async () => {
+  await writeThemePreference('nord', configPath)
+
+  const config = await readUserConfig(configPath)
+  expect(config.theme).toBe('nord')
+})
+
+test('preserves unrelated fields when saving the theme preference', async () => {
+  await mkdir(path.dirname(configPath), { recursive: true })
+  await writeFile(configPath, JSON.stringify({ openRouterApiKey: 'sk-existing', max_depth: 3 }), 'utf8')
+
+  await writeThemePreference('gruvbox-dark', configPath)
+
+  await expect(readUserConfig(configPath)).resolves.toEqual({
+    openRouterApiKey: 'sk-existing',
+    maxDepth: 3,
+    theme: 'gruvbox-dark',
   })
 })
