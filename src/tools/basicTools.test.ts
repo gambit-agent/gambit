@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { setWorkspaceRootForTesting, workspaceRoot } from "../config";
 import { setSkillDirectoriesForTesting } from "../lib/skills";
+import { setRipgrepFallbackForTesting } from "./builtins/utils";
 import { createAgentToolMap, createRuntimeToolSuite, type AgentTools } from "./index";
 
 let workspaceDir: string;
@@ -34,6 +35,7 @@ afterEach(async () => {
   }
   setWorkspaceRootForTesting(originalWorkspaceRootValue);
   setSkillDirectoriesForTesting({ project: null, user: null });
+  setRipgrepFallbackForTesting(false);
 });
 
 test("read rejects missing path", async () => {
@@ -115,6 +117,19 @@ test("glob and grep expose split search primitives", async () => {
   expect(globOutput).toContain("src/app.test.ts");
   expect(grepOutput).toContain("app.ts");
   expect(grepOutput).toContain("needle");
+});
+
+test("glob and grep work without ripgrep", async () => {
+  setRipgrepFallbackForTesting(true);
+  await mkdir(path.join(workspaceDir, "src"), { recursive: true });
+  await writeFile(path.join(workspaceDir, "src", "app.ts"), "export const needle = true\n");
+  await writeFile(path.join(workspaceDir, "src", "app.test.ts"), "expect(needle).toBe(true)\n");
+
+  const globOutput = String(await agentTools.glob.execute({ pattern: "**/*.test.ts" }));
+  const grepOutput = String(await agentTools.grep.execute({ pattern: "needle", path: "src" }));
+
+  expect(globOutput).toContain("src/app.test.ts");
+  expect(grepOutput).toContain("src/app.ts:1:export const needle = true");
 });
 
 test("edit replaces a unique oldString and rejects ambiguous matches", async () => {
