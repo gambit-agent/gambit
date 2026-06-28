@@ -1,29 +1,55 @@
 import { generateId } from '../lib/id'
 
 import { defaultModel } from '../config'
+import {
+  buildGoalRunPrompt,
+  clearConversationGoal,
+  getConversationGoal,
+  parseGoalCommand,
+  setConversationGoal,
+} from '../conversation/goal'
 import { setMCPConfigPathOverride } from '../lib/mcp-config'
 import { modelRequiresApiKey } from '../lib/model'
+import { executePromptTemplate } from '../lib/promptTemplates'
+import { formatSlashCommandMessage } from '../lib/slash-command-format'
+import { executeSlashCommand } from '../lib/slashCommands'
+import { activateSkill } from '../lib/skills'
 import type { PermissionMode } from '../permissions/permission-rules'
+import { expandFileMentions } from '../repl/file-mentions'
+import { routeInput } from '../repl/input-router'
 import { readModelSelection } from '../session/model-selection'
 import { readOpenRouterApiKey } from '../session/user-config'
 import { cleanupAllMCPClients } from '../tools/mcp'
+import {
+  clearWorkflowMessages,
+  findLatestWorkflowScript,
+  formatWorkflowCommandHelp,
+  parseWorkflowCommand,
+} from '../workflows/workflow-command'
+import { buildWorkflowEditPrompt, buildWorkflowRunPrompt } from '../workflows/workflow-prompt'
 import { bootstrapAppRuntime } from './bootstrap'
+import type { AppRuntime } from './bootstrap'
 import type { HeadlessLaunchOptions, HeadlessPermissionMode, LaunchMode, OutputFormat } from './launch-options'
 import type { StreamEvent } from './stream-events'
 
 const TOOL_NAME_ALIASES: Record<string, string> = {
-  read: 'readFile',
+  read: 'read',
   readfile: 'readFile',
-  search: 'searchFiles',
+  glob: 'glob',
+  globfiles: 'globFiles',
+  grep: 'grep',
+  grepfiles: 'grepFiles',
+  search: 'grep',
   searchfiles: 'searchFiles',
-  write: 'writeFile',
+  write: 'write',
   writefile: 'writeFile',
-  edit: 'patchFile',
+  edit: 'edit',
+  editfile: 'editFile',
   patch: 'patchFile',
   patchfile: 'patchFile',
-  bash: 'executeShell',
-  shell: 'executeShell',
-  exec: 'executeShell',
+  bash: 'bash',
+  shell: 'bash',
+  exec: 'bash',
   executeshell: 'executeShell',
   task: 'spawnAgent',
   spawnagent: 'spawnAgent',
@@ -58,6 +84,238 @@ export interface RunHeadlessOptions {
 }
 
 type StreamJsonEvent = StreamEvent
+
+type HeadlessPreparedInput =
+  | { kind: 'run'; prompt: string; hiddenContext?: string }
+  | { kind: 'local'; output: string; isError?: boolean }
+
+export async function prepareHeadlessInput(
+  runtime: AppRuntime,
+  input: string,
+): Promise<HeadlessPreparedInput> {
+  const routed = routeInput(input)
+
+  if (routed.kind === 'prompt' || ('channel' in routed && routed.channel === 'template')) {
+    const expansion = await expandFileMentions(input)
+    if (expansion.files.length > 0) {
+      return { kind: 'run', prompt: expansion.content }
+    }
+  }
+
+  if (routed.kind === 'prompt') {
+    return routed.value
+      ? { kind: 'run', prompt: routed.value }
+      : { kind: 'local', output: '' }
+  }
+
+  if (routed.channel === 'shell') {
+    if (!routed.argument) {
+      return { kind: 'local', output: 'Usage: !<command>', isError: true }
+    }
+    await pushConversationMessage(runtime, 'user', routed.raw)
+    const result = await runtime.runShellCommand(routed.argument, { background: false })
+    await pushConversationMessage(runtime, 'assistant', result.output)
+    return { kind: 'local', output: result.output }
+  }
+
+  if (routed.channel === 'memory') {
+    if (!routed.argument) {
+      return { kind: 'local', output: 'Usage: # <memory entry>', isError: true }
+    }
+    await pushConversationMessage(runtime, 'user', routed.raw)
+    const confirmation = await runtime.saveMemoryEntry(routed.argument)
+    await pushConversationMessage(runtime, 'system', confirmation)
+    return { kind: 'local', output: confirmation }
+  }
+
+  if (routed.kind === 'local-ui') {
+    return {
+      kind: 'local',
+      output: `/${routed.name} is only available in the interactive TUI.`,
+      isError: true,
+    }
+  }
+
+  if (routed.channel === 'template') {
+    const execution = await executePromptTemplate(routed.name, routed.argument)
+    if (!execution) {
+      return { kind: 'local', output: `Unknown prompt template: @${routed.name}`, isError: true }
+    }
+    return { kind: 'run', prompt: execution.content }
+  }
+
+  if (routed.channel !== 'slash') {
+    return { kind: 'run', prompt: input.trim() }
+  }
+
+  if (routed.name === 'clear' || routed.name === 'reset') {
+    await runtime.resetConversation()
+    return { kind: 'local', output: 'Started a new conversation.' }
+  }
+
+  if (routed.name === 'compact') {
+    const result = await runtime.conversationRunner.compact()
+    return {
+      kind: 'local',
+      output: result.compacted
+        ? `Compacted conversation: ${result.summarizedCount} older messages summarized.`
+        : 'No compaction needed; context is within limits.',
+    }
+  }
+
+  if (routed.name === 'fork') {
+    const result = await runtime.forkConversation(routed.argument || undefined)
+    return {
+      kind: 'local',
+      output: `Forked conversation -> ${result.conversationId.slice(0, 8)} (${result.messageCount} messages copied).`,
+    }
+  }
+
+  if (routed.name === 'tree') {
+    const tree = await runtime.getConversationTree()
+    return { kind: 'local', output: `Conversation tree:\n\n${tree}` }
+  }
+
+  if (routed.name === 'goal') {
+    return prepareHeadlessGoalInput(runtime, routed.argument)
+  }
+
+  if (routed.name === 'workflow') {
+    return prepareHeadlessWorkflowInput(runtime, routed.argument)
+  }
+
+  if (routed.name === 'skill') {
+    const [skillName = '', ...taskParts] = routed.argument.split(/\s+/)
+    const task = taskParts.join(' ').trim()
+    if (!skillName) {
+      return { kind: 'local', output: 'Usage: /skill <name> [prompt]', isError: true }
+    }
+    const activation = await activateSkill(skillName)
+    const prompt = [
+      `Use the installed skill "${activation.name}" for this task.`,
+      '',
+      task ? `User task: ${task}` : 'Acknowledge that the skill is ready to use.',
+    ].join('\n')
+    return { kind: 'run', prompt, hiddenContext: activation.content }
+  }
+
+  let execution
+  try {
+    execution = await executeSlashCommand(routed.name, routed.argument, {
+      allowDisabledModelInvocation: true,
+    })
+  } catch (error) {
+    return {
+      kind: 'local',
+      output: `Could not run /${routed.name}: ${error instanceof Error ? error.message : String(error)}`,
+      isError: true,
+    }
+  }
+
+  const rendered = await runtime.hookManager.runCommandBefore({
+    command: execution.command,
+    sessionID: runtime.conversationStore.getSnapshot().conversationId,
+    arguments: execution.arguments,
+    content: formatSlashCommandMessage(execution),
+  })
+  await runtime.hookManager.emit({
+    type: 'command.executed',
+    sessionID: runtime.conversationStore.getSnapshot().conversationId,
+    data: { command: execution.command, arguments: execution.arguments },
+  })
+  return { kind: 'run', prompt: rendered }
+}
+
+async function prepareHeadlessGoalInput(
+  runtime: AppRuntime,
+  argument: string,
+): Promise<HeadlessPreparedInput> {
+  const command = parseGoalCommand(argument)
+  const currentMessages = runtime.conversationStore.getSnapshot().messages
+
+  if (command.action === 'show') {
+    const goal = getConversationGoal(currentMessages)
+    return { kind: 'local', output: goal ? `Current goal: ${goal}` : 'No goal is set. Use /goal <goal> to set one.' }
+  }
+
+  if (command.action === 'clear') {
+    await runtime.conversationStore.replaceMessages(clearConversationGoal(currentMessages))
+    return { kind: 'local', output: 'Cleared the conversation goal.' }
+  }
+
+  if (command.action === 'set') {
+    if (!command.goal) {
+      return { kind: 'local', output: 'Usage: /goal set <goal>', isError: true }
+    }
+    await runtime.conversationStore.replaceMessages(setConversationGoal(currentMessages, command.goal))
+    const goal = getConversationGoal(runtime.conversationStore.getSnapshot().messages) ?? command.goal
+    return { kind: 'local', output: `Goal saved: ${goal}` }
+  }
+
+  const goal = command.goal ?? getConversationGoal(currentMessages)
+  if (!goal) {
+    return { kind: 'local', output: 'No goal is set. Use /goal run <goal> or /goal <goal> first.', isError: true }
+  }
+
+  await runtime.conversationStore.replaceMessages(setConversationGoal(currentMessages, goal))
+  return { kind: 'run', prompt: buildGoalRunPrompt(goal) }
+}
+
+async function prepareHeadlessWorkflowInput(
+  runtime: AppRuntime,
+  argument: string,
+): Promise<HeadlessPreparedInput> {
+  const command = parseWorkflowCommand(argument)
+
+  if (command.action === 'help') {
+    return { kind: 'local', output: formatWorkflowCommandHelp() }
+  }
+
+  if (command.action === 'clear') {
+    const result = clearWorkflowMessages(runtime.conversationStore.getSnapshot().messages)
+    if (result.removedCount === 0) {
+      return { kind: 'local', output: 'No workflow result messages found in this conversation.' }
+    }
+    await runtime.conversationStore.replaceMessages(result.messages)
+    return {
+      kind: 'local',
+      output: `Cleared ${result.removedCount} workflow result message${result.removedCount === 1 ? '' : 's'}.`,
+    }
+  }
+
+  if (command.action === 'stop') {
+    return { kind: 'local', output: 'Active workflows run inside the current generation. Press Ctrl+C to abort the active workflow or model run.' }
+  }
+
+  if (command.action === 'edit') {
+    if (!command.change) {
+      return { kind: 'local', output: 'Usage: /workflow edit <change>', isError: true }
+    }
+    const previousScript = findLatestWorkflowScript(runtime.conversationStore.getSnapshot().messages)
+    if (!previousScript) {
+      return { kind: 'local', output: 'No previous workflow script found to edit.', isError: true }
+    }
+    return { kind: 'run', prompt: buildWorkflowEditPrompt(previousScript, command.change) }
+  }
+
+  if (!command.task) {
+    return { kind: 'local', output: 'Usage: /workflow <task>', isError: true }
+  }
+  return { kind: 'run', prompt: buildWorkflowRunPrompt(command.task) }
+}
+
+async function pushConversationMessage(
+  runtime: AppRuntime,
+  role: 'assistant' | 'system' | 'user',
+  content: string,
+): Promise<void> {
+  await runtime.conversationStore.pushMessage({
+    id: generateId(),
+    role,
+    content,
+    timestamp: new Date().toISOString(),
+  })
+}
 
 export async function runHeadless(options: RunHeadlessOptions): Promise<number> {
   const stdout = options.stdout ?? process.stdout
@@ -99,6 +357,15 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     ? mapPermissionMode(headless.permissionMode)
     : 'Auto-accept'
   runtime.permissionEngine.setMode(permissionMode)
+  const resolvedPermissionRequestIds = new Set<string>()
+  const unsubscribePermissions = runtime.permissionEngine.subscribe(() => {
+    const activeRequest = runtime.permissionEngine.getSnapshot().activeRequest
+    if (!activeRequest || resolvedPermissionRequestIds.has(activeRequest.id)) {
+      return
+    }
+    resolvedPermissionRequestIds.add(activeRequest.id)
+    void runtime.permissionEngine.resolve(activeRequest.id, 'deny')
+  })
 
   const allowedToolIds = headless.allowedTools?.map(normalizeToolName)
 
@@ -113,21 +380,6 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     sessionId = await runtime.resetConversation()
   }
 
-  const selection = await readModelSelection().catch(() => null)
-  const modelId = selection?.modelId ?? defaultModel
-  const reasoningEffort = selection?.reasoningEffort ?? null
-  const providerSlug = selection?.providerSlug ?? null
-
-  if (!modelId) {
-    stderr.write('Error: no model selected. Set GAMBIT_MODEL/OPENROUTER_MODEL or choose one in the TUI with :model <model-id>.\n')
-    return 1
-  }
-
-  if (modelRequiresApiKey(modelId) && !apiKey) {
-    stderr.write('Error: an OpenRouter API key is required for -p mode with OpenRouter models. Set OPENROUTER_API_KEY or save one with :key <token>.\n')
-    return 1
-  }
-
   const format: OutputFormat = headless.outputFormat
   const startTime = Date.now()
 
@@ -135,12 +387,61 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     stdout.write(`${JSON.stringify(event)}\n`)
   }
 
+  const controller = new AbortController()
+  const onSignal = () => controller.abort()
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
+
+  let exitCode = 0
+  let finalAssistant = ''
+  let errorMessage: string | undefined
+  let prepared: HeadlessPreparedInput | null = null
+
+  try {
+    prepared = await prepareHeadlessInput(runtime, trimmedPrompt)
+  } catch (error) {
+    prepared = {
+      kind: 'local',
+      output: error instanceof Error ? error.message : String(error),
+      isError: true,
+    }
+  }
+
+  if (prepared.kind === 'local') {
+    finalAssistant = prepared.output
+    errorMessage = prepared.isError ? prepared.output : undefined
+    exitCode = prepared.isError ? 1 : 0
+  }
+
+  const selection = await readModelSelection().catch(() => null)
+  const modelId = selection?.modelId ?? defaultModel
+  const reasoningEffort = selection?.reasoningEffort ?? null
+  const providerSlug = selection?.providerSlug ?? null
+
+  if (prepared.kind === 'run' && !modelId) {
+    stderr.write('Error: no model selected. Set GAMBIT_MODEL/OPENROUTER_MODEL or choose one in the TUI with :model <model-id>.\n')
+    process.off('SIGINT', onSignal)
+    process.off('SIGTERM', onSignal)
+    unsubscribePermissions()
+    await cleanupAllMCPClients().catch(() => undefined)
+    return 1
+  }
+
+  if (prepared.kind === 'run' && modelRequiresApiKey(modelId!) && !apiKey) {
+    stderr.write('Error: an OpenRouter API key is required for -p mode with OpenRouter models. Set OPENROUTER_API_KEY or save one with :key <token>.\n')
+    process.off('SIGINT', onSignal)
+    process.off('SIGTERM', onSignal)
+    unsubscribePermissions()
+    await cleanupAllMCPClients().catch(() => undefined)
+    return 1
+  }
+
   if (format === 'stream-json') {
     emitJsonLine({
       type: 'system',
       subtype: 'init',
       session_id: sessionId,
-      model: modelId,
+      model: modelId ?? '',
       provider: providerSlug,
       cwd: process.cwd(),
       permission_mode: permissionMode,
@@ -149,7 +450,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     emitJsonLine({
       type: 'user',
       session_id: sessionId,
-      message: { role: 'user', content: trimmedPrompt },
+      message: { role: 'user', content: prepared.kind === 'run' ? prepared.prompt : trimmedPrompt },
     })
   }
 
@@ -224,39 +525,48 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     }
   })
 
-  const controller = new AbortController()
-  const onSignal = () => controller.abort()
-  process.on('SIGINT', onSignal)
-  process.on('SIGTERM', onSignal)
-
-  let exitCode = 0
-  let finalAssistant = ''
-  let errorMessage: string | undefined
-
   try {
-    await runtime.conversationStore.pushMessage({
-      id: generateId(),
-      role: 'user',
-      content: trimmedPrompt,
-      timestamp: new Date().toISOString(),
-    })
+    if (prepared.kind === 'run') {
+      if (prepared.hiddenContext?.trim()) {
+        await runtime.conversationStore.pushMessage({
+          id: generateId(),
+          role: 'system',
+          content: prepared.hiddenContext,
+          hidden: true,
+          timestamp: new Date().toISOString(),
+        })
+      }
 
-    const turn = await runtime.conversationRunner.runTurn({
-      userInput: trimmedPrompt,
-      apiKey,
-      modelId,
-      reasoningEffort,
-      providerSlug,
-      signal: controller.signal,
-      allowedToolIds,
-      systemPromptOverride: headless.systemPromptOverride,
-      appendSystemPrompt: appendSystemPrompt || undefined,
-    })
+      await runtime.conversationStore.pushMessage({
+        id: generateId(),
+        role: 'user',
+        content: prepared.prompt,
+        timestamp: new Date().toISOString(),
+      })
 
-    finalAssistant = turn.assistantOutput ?? ''
+      const turn = await runtime.conversationRunner.runTurn({
+        userInput: prepared.prompt,
+        apiKey,
+        modelId: modelId!,
+        reasoningEffort,
+        providerSlug,
+        signal: controller.signal,
+        allowedToolIds,
+        systemPromptOverride: headless.systemPromptOverride,
+        appendSystemPrompt: appendSystemPrompt || undefined,
+      })
+
+      finalAssistant = turn.assistantOutput ?? ''
+    }
 
     if (format === 'text') {
-      stdout.write('\n')
+      if (prepared.kind === 'local') {
+        if (!prepared.isError) {
+          stdout.write(finalAssistant ? `${finalAssistant}\n` : '')
+        }
+      } else {
+        stdout.write('\n')
+      }
     }
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error)
@@ -265,6 +575,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     process.off('SIGINT', onSignal)
     process.off('SIGTERM', onSignal)
     unsubscribe()
+    unsubscribePermissions()
 
     const durationMs = Date.now() - startTime
 
@@ -284,7 +595,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
         ...(errorMessage ? { error: errorMessage } : {}),
         duration_ms: durationMs,
         num_turns: 1,
-        model: modelId,
+        model: modelId ?? '',
       })
     } else if (format === 'json') {
       emitJsonLine({
@@ -295,7 +606,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
         ...(errorMessage ? { error: errorMessage } : {}),
         duration_ms: durationMs,
         num_turns: 1,
-        model: modelId,
+        model: modelId ?? '',
       })
     } else if (errorMessage) {
       stderr.write(`\nError: ${errorMessage}\n`)

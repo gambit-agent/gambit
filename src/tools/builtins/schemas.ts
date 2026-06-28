@@ -1,7 +1,21 @@
 import { z } from 'zod'
 
 export const readFileSchema = z.object({
-  path: z.string().describe('Workspace-relative file path to read.'),
+  path: z
+    .string()
+    .describe('Workspace-relative file or directory path, or an absolute path inside an installed skill directory.'),
+  offset: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Optional 1-indexed line or directory-entry offset. Defaults to 1.'),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Optional maximum number of lines or directory entries to return. Defaults to 2000.'),
 })
 
 export const writeFileSchema = z.object({
@@ -19,16 +33,30 @@ export const patchFileSchema = z.object({
     .describe('Git-style unified diff. Supports update/create/delete/rename and multiple files; apply_patch format is rejected.'),
 })
 
+export const editFileSchema = z.object({
+  path: z.string().describe('Workspace-relative file path to modify.'),
+  oldString: z.string().describe('Exact text to replace. Must uniquely identify the intended edit unless replaceAll is true.'),
+  newString: z.string().describe('Replacement text. Must be different from oldString.'),
+  replaceAll: z.boolean().optional().describe('Replace all occurrences of oldString. Defaults to false.'),
+})
+
 export const executeShellSchema = z.object({
   command: z.string().describe('Command to execute using bash -lc from the workspace root.'),
   background: z.boolean().optional().describe('Run as a background task and return a task_id. Defaults to false.'),
   timeoutMs: z.number().int().positive().optional().describe('Optional timeout in milliseconds for foreground waits.'),
+  workdir: z.string().optional().describe('Optional workspace-relative working directory. Defaults to the workspace root.'),
+  cwd: z.string().optional().describe('Alias for workdir. Optional workspace-relative working directory.'),
 })
 
 export const searchFilesSchema = z.object({
   pattern: z.string().describe('Text or ripgrep-compatible regex pattern to search for.'),
   path: z.string().optional().describe('Optional workspace-relative directory or file to limit the search.'),
   glob: z.string().optional().describe('Optional ripgrep glob, for example "*.ts" or "src/**/*.tsx".'),
+})
+
+export const globFilesSchema = z.object({
+  pattern: z.string().describe('Glob pattern to match file paths, for example "**/*.ts" or "src/**/*.tsx".'),
+  path: z.string().optional().describe('Optional workspace-relative directory to search. Defaults to the workspace root.'),
 })
 
 export const slashCommandSchema = z.object({

@@ -220,7 +220,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     runShellCommand: async (command: string, options: { background: boolean }) => {
       const { executor } = await createToolSuite({ includeSpawnAgent: false })
       const result = await executor.execute(
-        'executeShell',
+        'bash',
         { command, background: options.background },
         {
           ...createToolContext(),

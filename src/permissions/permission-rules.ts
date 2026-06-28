@@ -16,7 +16,12 @@ export function cyclePermissionMode(mode: PermissionMode): PermissionMode {
 
 /** Tool IDs that are always safe to run (read-only). */
 const READ_ONLY_TOOLS = new Set([
+  'read',
   'readFile',
+  'glob',
+  'globFiles',
+  'grep',
+  'grepFiles',
   'searchFiles',
   'readTaskOutput',
   'listTasks',
@@ -28,8 +33,12 @@ const READ_ONLY_TOOLS = new Set([
 
 /** Tool IDs that perform write or execution operations. */
 const WRITE_TOOLS = new Set([
+  'write',
   'writeFile',
+  'edit',
+  'editFile',
   'patchFile',
+  'bash',
   'executeShell',
   'spawnAgent',
   'runAgents',
@@ -59,7 +68,7 @@ export function evaluatePermissionMode(
 
     // Allow writing to Plan files (detected by metadata)
     if (
-      (input.toolId === 'writeFile' || input.toolId === 'patchFile') &&
+      (input.toolId === 'write' || input.toolId === 'writeFile' || input.toolId === 'patchFile') &&
       input.metadata?.isPlanFileWrite
     ) {
       return 'allow'

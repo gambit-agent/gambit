@@ -203,8 +203,10 @@ Flags:
 
 Default registered tools (see `src/tools/builtins.ts`):
 
-- `readFile`, `searchFiles`, `writeFile`, `patchFile` — workspace file I/O and read-only search.
-- `executeShell` — run shell commands via `bash -lc`, with optional per-call timeout.
+- `read` — read files or directories with line-numbered, paged output (`offset`, `limit`).
+- `glob`, `grep` — find files by glob and search file contents with ripgrep.
+- `edit`, `write`, `patchFile` — exact-string edits, full-file writes, and multi-file unified diffs.
+- `bash` — run shell commands via `bash -lc`, with optional workdir, background mode, and per-call timeout.
 - `slashCommand` — invoke a registered slash command.
 - `activateSkill` — load an Agent Skill's full instructions on demand. Only registered when at least one skill is installed.
 - `listTasks`, `getTaskStatus`, `readTaskOutput`, `cancelTask` — inspect and control background shell/agent tasks.
@@ -229,7 +231,7 @@ Agent Skills follow the [agentskills.io](https://agentskills.io) specification: 
 
 1. **Catalog (~100 tokens per skill)** — discovered skills are listed as `name — description` in the description of the `activateSkill` tool. The model sees the list up front.
 2. **Instructions** — calling `activateSkill({ name })` returns the full `SKILL.md` body wrapped in `<skill_content>` tags, plus the skill's directory path and a `<skill_resources>` listing of bundled files.
-3. **Resources** — files inside the skill directory (scripts, references, assets) are loaded on demand via the existing `readFile` tool.
+3. **Resources** — files inside the skill directory (scripts, references, assets) are loaded on demand via the existing `read` tool.
 
 ### Discovery locations
 

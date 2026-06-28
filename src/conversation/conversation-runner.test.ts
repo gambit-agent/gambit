@@ -46,7 +46,8 @@ test('records turns and tool calls through the tool executor', async () => {
   expect(messages).toHaveLength(1)
   expect(messages[0]?.role).toBe('tool')
   expect(messages[0]?.content).toBe('Read file\nnote.txt · 11 chars · 1 line')
-  expect(messages[0]?.metadata?.toolResult).toBe('hello world')
+  expect(messages[0]?.metadata?.toolResult).toContain('<type>file</type>')
+  expect(messages[0]?.metadata?.toolResult).toContain('1: hello world')
 })
 
 test('appends turns to the conversation store', async () => {

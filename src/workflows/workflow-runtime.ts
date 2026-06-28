@@ -18,6 +18,7 @@ interface RuntimeState {
 }
 
 const MAX_WORKFLOW_CONCURRENCY = 16
+const DEFAULT_WORKFLOW_EXECUTION_TIMEOUT_MS = 1000
 const AGENT_ROLES: readonly AgentRole[] = ['default', 'explorer', 'worker']
 
 export async function runWorkflow<T = unknown>(
@@ -161,7 +162,7 @@ export async function runWorkflow<T = unknown>(
     )
   }
 
-  const context = vm.createContext({
+  const context = createWorkflowContext({
     agent,
     parallel,
     pipeline,
@@ -169,28 +170,13 @@ export async function runWorkflow<T = unknown>(
     phase,
     args: options.args,
     cwd: options.cwd ?? process.cwd(),
-    process: Object.freeze({ cwd: () => options.cwd ?? process.cwd() }),
     budget,
-    console: Object.freeze({
-      log,
-      info: log,
-      warn: (message: unknown) => log(`[warn] ${String(message)}`),
-      error: (message: unknown) => log(`[error] ${String(message)}`),
-    }),
-    JSON,
-    Math: createDeterministicMath(),
-    Array,
-    Object,
-    String,
-    Number,
-    Boolean,
-    Set,
-    Map,
-    Promise,
   })
 
   const wrapped = `(async () => {\n${body}\n})()`
-  const result = await new vm.Script(wrapped, { filename: `${meta.name || 'workflow'}.js` }).runInContext(context)
+  const result = await new vm.Script(wrapped, { filename: `${meta.name || 'workflow'}.js` }).runInContext(context, {
+    timeout: options.executionTimeoutMs ?? DEFAULT_WORKFLOW_EXECUTION_TIMEOUT_MS,
+  })
   await Promise.allSettled([...pendingAgentRuns])
   assertStructuredCloneable(result, 'workflow result')
 
@@ -202,6 +188,90 @@ export async function runWorkflow<T = unknown>(
     agentCount: state.agentCount,
     durationMs: Date.now() - started,
   }
+}
+
+function createWorkflowContext(options: {
+  agent: (prompt: unknown, agentOptions?: unknown) => Promise<unknown>
+  parallel: (thunks: Array<() => Promise<unknown>>) => Promise<unknown[]>
+  pipeline: (items: unknown[], ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>) => Promise<unknown[]>
+  log: (message: unknown) => void
+  phase: (title: unknown) => void
+  args: unknown
+  cwd: string
+  budget: Readonly<{
+    total: number | null
+    spent: () => number
+    remaining: () => number
+  }>
+}): vm.Context {
+  const sandbox = Object.create(null) as Record<string, unknown>
+  Object.assign(sandbox, {
+    agent: safeCallable(options.agent),
+    parallel: safeCallable(options.parallel),
+    pipeline: safeCallable(options.pipeline),
+    log: safeCallable(options.log),
+    phase: safeCallable(options.phase),
+    cwd: options.cwd,
+    process: nullPrototypeObject({
+      cwd: safeCallable(() => options.cwd),
+    }),
+    budget: nullPrototypeObject({
+      total: options.budget.total,
+      spent: safeCallable(options.budget.spent),
+      remaining: safeCallable(options.budget.remaining),
+    }),
+    console: nullPrototypeObject({
+      log: safeCallable(options.log),
+      info: safeCallable(options.log),
+      warn: safeCallable((message: unknown) => options.log(`[warn] ${String(message)}`)),
+      error: safeCallable((message: unknown) => options.log(`[error] ${String(message)}`)),
+    }),
+    __workflowArgsJson: options.args === undefined ? undefined : JSON.stringify(options.args),
+    Date: undefined,
+    Function: undefined,
+    eval: undefined,
+  })
+
+  const context = vm.createContext(sandbox)
+  new vm.Script(
+    [
+      'Date = undefined',
+      'Function = undefined',
+      'eval = undefined',
+      'Math.random = undefined',
+      'Object.freeze(Math)',
+      'globalThis.args = __workflowArgsJson === undefined ? undefined : JSON.parse(__workflowArgsJson)',
+      'delete globalThis.__workflowArgsJson',
+    ].join('\n'),
+    { filename: 'workflow-sandbox-prelude.js' },
+  ).runInContext(context, { timeout: DEFAULT_WORKFLOW_EXECUTION_TIMEOUT_MS })
+  return context
+}
+
+function safeCallable<T extends (...args: any[]) => any>(fn: T): T {
+  return new Proxy(fn, {
+    get(target, property, receiver) {
+      if (
+        property === 'constructor' ||
+        property === 'prototype' ||
+        property === '__proto__' ||
+        property === 'call' ||
+        property === 'apply' ||
+        property === 'bind'
+      ) {
+        return undefined
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? undefined : value
+    },
+    getPrototypeOf() {
+      return null
+    },
+  })
+}
+
+function nullPrototypeObject(properties: Record<string, unknown>): Readonly<Record<string, unknown>> {
+  return Object.freeze(Object.assign(Object.create(null), properties))
 }
 
 function normalizeConcurrency(concurrency: number | undefined): number {
@@ -314,18 +384,4 @@ function buildAgentInstructions(phase: string | undefined, options: WorkflowAgen
 
 function estimateTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value ?? '').length / 4)
-}
-
-function createDeterministicMath(): Math {
-  const deterministicMath = Object.create(null) as Math
-  for (const key of Object.getOwnPropertyNames(Math) as Array<keyof Math>) {
-    if (key === 'random') {
-      continue
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(Math, key)
-    if (descriptor) {
-      Object.defineProperty(deterministicMath, key, descriptor)
-    }
-  }
-  return Object.freeze(deterministicMath)
 }

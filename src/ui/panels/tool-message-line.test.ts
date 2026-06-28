@@ -70,6 +70,27 @@ test('formats read tools as explored tree entries', () => {
   expect(presentation.detailLines).toEqual([{ text: '  └ Read REFERENCE.md', kind: 'normal' }])
 })
 
+test('formats skill activation without dumping the skill body', () => {
+  const presentation = formatToolMessagePresentation(
+    createToolMessage('completed', {
+      toolName: 'activateSkill',
+      toolArgs: { name: 'opentui' },
+      toolResult: [
+        '<skill_content name="opentui" scope="project">',
+        '# OpenTUI Platform Skill',
+        'Very long instructions.',
+        '',
+        'Skill directory: /home/sergio/.agents/skills/opentui',
+        '</skill_content>',
+      ].join('\n'),
+    }),
+  )
+
+  expect(presentation.heading).toBe('Activated skill · opentui')
+  expect(presentation.detailLines).toEqual([{ text: '  └ /home/sergio/.agents/skills/opentui', kind: 'normal' }])
+  expect(JSON.stringify(presentation)).not.toContain('Very long instructions')
+})
+
 test('formats edited file diffs with counts and a compact changed-line preview', () => {
   const presentation = formatToolMessagePresentation(
     createToolMessage('completed', {

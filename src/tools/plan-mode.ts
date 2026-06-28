@@ -14,7 +14,7 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
     'Enter Plan mode for complex tasks requiring exploration and design.',
     'Use this proactively when a task has multiple valid approaches, requires architectural decisions,',
     'or involves multi-file changes. In Plan mode you explore the codebase read-only and write your',
-    'Plan to the Plan file using writeFile only. When ready, call exitPlanMode to request user approval.',
+    'Plan to the Plan file using write only. When ready, call exitPlanMode to request user approval.',
   ].join(' '),
   inputSchema: enterPlanModeSchema,
   execute: async (_input, context) => {
@@ -43,7 +43,7 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
       '1. Thoroughly explore the codebase to understand existing patterns',
       '2. Identify similar features and architectural approaches',
       '3. Consider multiple approaches and their trade-offs',
-      '4. Write your implementation Plan to the Plan file using writeFile',
+      '4. Write your implementation Plan to the Plan file using write',
       '5. When ready, call exitPlanMode to present your Plan for user approval',
       '',
       'IMPORTANT: Do NOT write or edit any files except the Plan file.',

@@ -1,4 +1,5 @@
-import { Client, StdioClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { z, type ZodTypeAny } from 'zod'
 
 import {

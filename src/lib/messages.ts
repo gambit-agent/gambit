@@ -5,7 +5,7 @@ import type { UIMessage } from "../types/chat";
 
 type ToolResultContentPart =
   | { type: "text"; text: string }
-  | { type: "media"; data: string; mediaType: string };
+  | { type: "image-data"; data: string; mediaType: string };
 
 function normalizeJsonValue(value: unknown): JSONValue {
   if (value === null) {
@@ -49,11 +49,11 @@ function normalizeToolResultContent(value: unknown): ToolResultContentPart[] {
     }
 
     if (
-      typedPart.type === "media" &&
+      typedPart.type === "image-data" &&
       typeof typedPart.data === "string" &&
       typeof typedPart.mediaType === "string"
     ) {
-      parts.push({ type: "media", data: typedPart.data, mediaType: typedPart.mediaType });
+      parts.push({ type: "image-data", data: typedPart.data, mediaType: typedPart.mediaType });
     }
   }
 

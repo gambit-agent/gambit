@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import { DEFAULT_AGENT_DEFINITIONS } from '../agents/agent-definitions'
+import { createAiToolMap, createRuntimeToolSuite } from './index'
 import { askUserQuestionTool } from './ask-user-question'
 import { mcpManagementTools } from './mcp'
 import { enterPlanModeTool, exitPlanModeTool } from './plan-mode'
@@ -40,19 +41,41 @@ function description(tools: Map<string, AnyToolDefinition>, id: string): string 
 test('core tool descriptions document behavior-shaping constraints', () => {
   const tools = catalog()
 
-  expect(description(tools, 'readFile')).toContain('truncated')
-  expect(description(tools, 'searchFiles')).toContain('ripgrep')
-  expect(description(tools, 'writeFile')).toContain('complete content')
+  expect(description(tools, 'read')).toContain('offset')
+  expect(description(tools, 'readFile')).toContain('Compatibility alias')
+  expect(description(tools, 'glob')).toContain('glob pattern')
+  expect(description(tools, 'grep')).toContain('regex pattern')
+  expect(description(tools, 'searchFiles')).toContain('Compatibility alias')
+  expect(description(tools, 'edit')).toContain('oldString')
+  expect(description(tools, 'editFile')).toContain('Compatibility alias')
+  expect(description(tools, 'write')).toContain('complete content')
+  expect(description(tools, 'writeFile')).toContain('Compatibility alias')
   expect(description(tools, 'patchFile')).toContain('multi-file')
   expect(description(tools, 'patchFile')).toContain('apply_patch')
-  expect(description(tools, 'executeShell')).toContain('background')
+  expect(description(tools, 'bash')).toContain('terminal commands')
+  expect(description(tools, 'executeShell')).toContain('Compatibility alias')
   expect(description(tools, 'spawnAgent')).toContain('task_id')
   expect(description(tools, 'runAgents')).toContain('concurrently')
   expect(description(tools, 'workflow')).toContain("isolation: 'worktree' is advisory")
   expect(description(tools, 'writeMemory')).toContain('non-derivable')
   expect(description(tools, 'askUserQuestion')).toContain('Ask only when')
-  expect(description(tools, 'enterPlanMode')).toContain('writeFile only')
+  expect(description(tools, 'enterPlanMode')).toContain('write only')
   expect(description(tools, 'exitPlanMode')).toContain('user approval')
+})
+
+test('legacy aliases are registered but hidden from the default model tool map', async () => {
+  const { registry, executor } = await createRuntimeToolSuite({
+    includeMCPTools: false,
+    includeSpawnAgent: false,
+  })
+  const tools = createAiToolMap(registry, executor)
+
+  expect(registry.get('readFile')).toBeTruthy()
+  expect(registry.get('executeShell')).toBeTruthy()
+  expect(Object.keys(tools)).toContain('read')
+  expect(Object.keys(tools)).toContain('bash')
+  expect(Object.keys(tools)).not.toContain('readFile')
+  expect(Object.keys(tools)).not.toContain('executeShell')
 })
 
 test('mcp tool descriptions distinguish discovery, resources, and fallback calls', () => {

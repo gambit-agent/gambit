@@ -207,7 +207,7 @@ function extractChangePreview(message: ConversationMessage): {
   lines: ToolMessagePresentationLine[]
 } | null {
   const toolName = message.metadata?.toolName
-  if (toolName !== 'writeFile' && toolName !== 'patchFile') {
+  if (toolName !== 'write' && toolName !== 'writeFile' && toolName !== 'edit' && toolName !== 'editFile' && toolName !== 'patchFile') {
     return null
   }
 
@@ -244,13 +244,21 @@ function extractChangePreview(message: ConversationMessage): {
 
 function getToolActionVerb(toolName: string): string {
   switch (toolName) {
+    case 'read':
     case 'readFile':
     case 'readTaskOutput':
     case 'read-mcp-resource':
       return 'Explored'
+    case 'glob':
+    case 'globFiles':
+    case 'grep':
+    case 'grepFiles':
     case 'searchFiles':
       return 'Explored'
+    case 'write':
     case 'writeFile':
+    case 'edit':
+    case 'editFile':
     case 'patchFile':
     case 'writeMemory':
     case 'add-mcp-server':
@@ -264,6 +272,7 @@ function getToolActionVerb(toolName: string): string {
     case 'list-mcp-tools':
     case 'list-mcp-servers':
       return 'Explored'
+    case 'bash':
     case 'executeShell':
     case 'slashCommand':
     case 'workflow':
@@ -283,12 +292,18 @@ function getToolActionVerb(toolName: string): string {
 
 function getExploredDetail(toolName: string, args: Record<string, unknown> | null): string | null {
   switch (toolName) {
+    case 'read':
     case 'readFile':
       return `Read ${formatPath(args?.path) ?? 'file'}`
     case 'readTaskOutput':
       return `Read ${asString(args?.taskId) ?? 'task output'}`
     case 'read-mcp-resource':
       return `Read ${asString(args?.uri) ?? 'resource'}`
+    case 'glob':
+    case 'globFiles':
+      return `Matched ${asString(args?.pattern) ?? 'files'}`
+    case 'grep':
+    case 'grepFiles':
     case 'searchFiles':
       return `Searched ${asString(args?.pattern) ?? 'files'}`
     case 'listTasks':
@@ -306,6 +321,15 @@ function getExploredDetail(toolName: string, args: Record<string, unknown> | nul
     default:
       return null
   }
+}
+
+function extractSkillDirectory(output: unknown): string | null {
+  if (typeof output !== 'string') {
+    return null
+  }
+
+  const match = output.match(/^Skill directory:\s*(.+)$/m)
+  return formatPath(match?.[1])
 }
 
 /**
@@ -342,6 +366,15 @@ export function formatToolMessagePresentation(
   const detail = summary.detail ?? summary.headline ?? toolName
   const action = getToolActionVerb(toolName)
   const exploredDetail = action === 'Explored' ? getExploredDetail(toolName, args) : null
+  if (toolName === 'activateSkill') {
+    const skillDirectory = extractSkillDirectory(message.metadata?.toolResult)
+    return {
+      indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
+      heading: summary.headline,
+      detailLines: skillDirectory ? [{ text: `  └ ${skillDirectory}`, kind: 'normal' }] : [],
+    }
+  }
+
   if (toolStatus === 'failed') {
     return {
       indicator: null,

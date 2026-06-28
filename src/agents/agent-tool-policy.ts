@@ -1,10 +1,12 @@
 /** Tool IDs available to child agents when an agent definition does not narrow access further. */
 export const agentToolIds = [
-  'readFile',
-  'searchFiles',
-  'writeFile',
+  'read',
+  'glob',
+  'grep',
+  'edit',
+  'write',
   'patchFile',
-  'executeShell',
+  'bash',
   'slashCommand',
   'readTaskOutput',
   'listTasks',

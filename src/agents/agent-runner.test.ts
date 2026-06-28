@@ -26,3 +26,9 @@ test('default delegated agent uses the scoped child-agent tool policy', async ()
 
   expect(capturedAllowedToolIds).toEqual([...agentToolIds])
 })
+
+test('explorer delegated agent cannot spawn higher-privilege child agents', () => {
+  expect(DEFAULT_AGENT_DEFINITIONS.explorer.allowedToolIds).not.toContain('spawnAgent')
+  expect(DEFAULT_AGENT_DEFINITIONS.explorer.allowedToolIds).not.toContain('runAgents')
+  expect(DEFAULT_AGENT_DEFINITIONS.explorer.allowedToolIds).not.toContain('workflow')
+})

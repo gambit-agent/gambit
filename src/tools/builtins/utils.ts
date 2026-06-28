@@ -43,6 +43,22 @@ export async function runShell(command: string): Promise<{ stdout: string; stder
   return { stdout, stderr, exitCode }
 }
 
+export async function runShellInDirectory(
+  command: string,
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const process = Bun.spawn(['bash', '-lc', command], {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
+  const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+  const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
+  return { stdout, stderr, exitCode }
+}
+
 export async function runRipgrepSearch(input: { pattern: string; path?: string; glob?: string }): Promise<string> {
   const pattern = ensureNonEmptyString(input.pattern, 'pattern')
   const searchPath = input.path?.trim() ? relativeWorkspacePath(resolveWorkspacePath(input.path)) : '.'
@@ -66,6 +82,29 @@ export async function runRipgrepSearch(input: { pattern: string; path?: string; 
   }
   if (exitCode === 1) {
     return 'No matches found.'
+  }
+  throw new Error(stderr.trim() || `rg exited with code ${exitCode}`)
+}
+
+export async function runRipgrepGlob(input: { pattern: string; path?: string }): Promise<string> {
+  const pattern = ensureNonEmptyString(input.pattern, 'pattern')
+  const searchPath = input.path?.trim() ? relativeWorkspacePath(resolveWorkspacePath(input.path)) : '.'
+  const args = ['--files', '--color=never', '--glob', pattern, '--', searchPath]
+
+  const process = Bun.spawn(['rg', ...args], {
+    cwd: workspaceRoot,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
+  const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+  const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
+  if (exitCode === 0) {
+    return truncate(stdout.trimEnd(), MAX_SHELL_OUTPUT) || 'No files found.'
+  }
+  if (exitCode === 1) {
+    return 'No files found.'
   }
   throw new Error(stderr.trim() || `rg exited with code ${exitCode}`)
 }

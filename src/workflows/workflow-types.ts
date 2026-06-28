@@ -62,6 +62,7 @@ export interface WorkflowRunOptions {
   agent: WorkflowAgentRunner
   concurrency?: number
   tokenBudget?: number | null
+  executionTimeoutMs?: number
   signal?: AbortSignal
   onLog?: (message: string) => void
   onPhase?: (title: string) => void

@@ -65,15 +65,15 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@ai-sdk/provider": "^3.0.10",
-    "@ai-sdk/provider-utils": "^4.0.30",
-    "@modelcontextprotocol/client": "^2.0.0-alpha.2",
-    "@openrouter/ai-sdk-provider": "^2.9.1",
-    "@opentui/core": "0.3.3",
-    "@opentui/react": "0.3.3",
-    "@types/node": "^25.9.3",
+    "@ai-sdk/provider": "^4.0.0",
+    "@ai-sdk/provider-utils": "^5.0.1",
+    "@modelcontextprotocol/client": "^2.0.0-alpha.3",
+    "@openrouter/ai-sdk-provider": "^2.10.0",
+    "@opentui/core": "0.4.2",
+    "@opentui/react": "0.4.2",
+    "@types/node": "^26.0.1",
     "acorn": "^8.17.0",
-    "ai": "^6.0.207",
+    "ai": "^7.0.4",
     "marked": "^18.0.5",
     "react": "^19.2.7",
     "zod": "^4.4.3"

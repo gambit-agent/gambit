@@ -21,7 +21,14 @@ afterEach(async () => {
 test('default system prompt concisely covers core orchestration features', async () => {
   const prompt = await loadSystemPrompt()
 
-  expect(prompt.split('\n')).toHaveLength(7)
+  expect(prompt.split('\n').length).toBeLessThanOrEqual(12)
+  expect(prompt).toContain('glob for file names')
+  expect(prompt).toContain('grep for text/symbol search')
+  expect(prompt).toContain('read with offset/limit')
+  expect(prompt).toContain('edit for exact local replacements')
+  expect(prompt).toContain('Reserve bash')
+  expect(prompt).toContain('parallelize independent read-only tool calls')
+  expect(prompt).toContain('Verify meaningful changes')
   expect(prompt).toContain('enterPlanMode')
   expect(prompt).toContain('MCP tools')
   expect(prompt).toContain('spawnAgent/runAgents')

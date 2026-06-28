@@ -117,3 +117,66 @@ return await parallel([agent('already started')])
     ),
   ).rejects.toThrow('parallel() expects an array of functions')
 })
+
+test('runWorkflow shadows nondeterministic and host globals in the VM', async () => {
+  const result = await runWorkflow(
+    `
+export const meta = { name: 'sandboxed_globals', description: 'sandboxed globals' }
+const values = [
+  typeof Date,
+  typeof globalThis.Date,
+  typeof Function,
+  typeof eval,
+  typeof Math.random,
+  typeof agent.constructor,
+  Object.getPrototypeOf(agent),
+]
+return { values, argValue: args.value }
+`,
+    {
+      args: { value: 'from json' },
+      agent: {
+        run: async () => 'unused',
+      },
+    },
+  )
+
+  expect(result.result).toEqual({
+    values: ['undefined', 'undefined', 'undefined', 'undefined', 'undefined', 'undefined', null],
+    argValue: 'from json',
+  })
+})
+
+test('runWorkflow does not leak host process through callback constructors', async () => {
+  await expect(
+    runWorkflow(
+      `
+export const meta = { name: 'constructor_escape', description: 'constructor escape' }
+const processValue = agent.constructor('return process')()
+return { processValue }
+`,
+      {
+        agent: {
+          run: async () => 'unused',
+        },
+      },
+    ),
+  ).rejects.toThrow('agent.constructor is not a function')
+})
+
+test('runWorkflow times out synchronous workflow loops', async () => {
+  await expect(
+    runWorkflow(
+      `
+export const meta = { name: 'sync_loop', description: 'sync loop' }
+while (true) {}
+`,
+      {
+        executionTimeoutMs: 50,
+        agent: {
+          run: async () => 'unused',
+        },
+      },
+    ),
+  ).rejects.toThrow('Script execution timed out')
+})

@@ -97,7 +97,11 @@ export function useReplSubmit({
   )
 
   const runUserPrompt = useCallback(
-    async (prompt: string, signal: AbortSignal) => {
+    async (
+      prompt: string,
+      signal: AbortSignal,
+      options: { hiddenContext?: string } = {},
+    ) => {
       const runConfig = getRunConfig('chatting')
       if (!runConfig) {
         return
@@ -105,6 +109,16 @@ export function useReplSubmit({
 
       if (!conversation.initialized) {
         await runtime.resetConversation()
+      }
+
+      if (options.hiddenContext?.trim()) {
+        await runtime.conversationStore.pushMessage({
+          id: generateId(),
+          role: 'system',
+          content: options.hiddenContext,
+          hidden: true,
+          timestamp: new Date().toISOString(),
+        })
       }
 
       await runtime.conversationStore.pushMessage({
@@ -456,13 +470,12 @@ export function useReplSubmit({
 
           try {
             const activation = await activateSkill(skillName)
-            const prompt = [
-              `Use the installed skill "${activation.name}" for this task.`,
-              '',
-              activation.content,
-              task ? ['User task:', task].join('\n') : 'User task: acknowledge that the skill is ready to use.',
-            ].join('\n')
-            await runUserPrompt(prompt, signal)
+          const prompt = [
+            `Use the installed skill "${activation.name}" for this task.`,
+            '',
+            task ? `User task: ${task}` : 'Acknowledge that the skill is ready to use.',
+          ].join('\n')
+            await runUserPrompt(prompt, signal, { hiddenContext: activation.content })
           } catch (error) {
             runtime.conversationStore.setError(
               error instanceof Error ? error.message : String(error),

@@ -25,7 +25,7 @@ export class ShellTaskRunner {
 
   async run(
     command: string,
-    options: { background: boolean; timeoutMs?: number },
+    options: { background: boolean; timeoutMs?: number; cwd?: string },
   ): Promise<ShellTaskResult> {
     const trimmedCommand = command.trim()
     if (!trimmedCommand) {
@@ -39,7 +39,7 @@ export class ShellTaskRunner {
       status: 'running',
       startedAt: new Date().toISOString(),
       progressSummary: 'Running shell command',
-      metadata: { command: trimmedCommand },
+      metadata: { command: trimmedCommand, cwd: options.cwd ?? workspaceRoot },
     })
 
     const controller = new AbortController()
@@ -51,7 +51,7 @@ export class ShellTaskRunner {
 
     const runProcess = async (): Promise<ShellTaskResult> => {
       const process = Bun.spawn(['bash', '-lc', trimmedCommand], {
-        cwd: workspaceRoot,
+        cwd: options.cwd ?? workspaceRoot,
         stdout: 'pipe',
         stderr: 'pipe',
       })

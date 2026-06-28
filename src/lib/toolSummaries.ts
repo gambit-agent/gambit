@@ -81,6 +81,31 @@ function formatTextStats(value: unknown): string | null {
   return `${charsLabel} · ${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
 }
 
+function extractReadContent(value: unknown): string | null {
+  const text = extractTextOutput(value)
+  if (!text) {
+    return null
+  }
+
+  const content = text.match(/<content>\n?([\s\S]*?)\n?\(End of file - total \d+ lines\)\n?<\/content>/)
+    ?? text.match(/<content>\n?([\s\S]*?)\n?\(Showing lines \d+-\d+ of \d+\. Use offset=\d+ to continue\.\)\n?<\/content>/)
+  if (content?.[1] !== undefined) {
+    return content[1]
+      .replace(/\n+$/, '')
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\d+:\s?/, ''))
+      .join('\n')
+  }
+
+  const entries = text.match(/<entries>\n?([\s\S]*?)\n?\(End of directory - total \d+ entries\)\n?<\/entries>/)
+    ?? text.match(/<entries>\n?([\s\S]*?)\n?\(Showing entries \d+-\d+ of \d+\. Use offset=\d+ to continue\.\)\n?<\/entries>/)
+  if (entries?.[1] !== undefined) {
+    return entries[1].replace(/\n+$/, '')
+  }
+
+  return text
+}
+
 function firstUsefulLine(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null
@@ -147,11 +172,22 @@ function formatSlashCommandName(value: unknown): string | null {
 function summarizeReadFile(input: unknown, output: unknown): ToolSummaryParts {
   const args = asRecord(input)
   const filePath = formatPath(args?.path) ?? 'file'
-  const stats = formatTextStats(extractTextOutput(output))
+  const stats = formatTextStats(extractReadContent(output))
 
   return {
     headline: 'Read file',
     detail: stats ? `${filePath} · ${stats}` : filePath,
+  }
+}
+
+function summarizeSearch(input: unknown, headline: string): ToolSummaryParts {
+  const args = asRecord(input)
+  const pattern = formatInlineText(args?.pattern) ?? 'pattern'
+  const target = formatPath(args?.path)
+
+  return {
+    headline,
+    detail: target ? `${pattern} in ${target}` : pattern,
   }
 }
 
@@ -163,6 +199,16 @@ function summarizeWriteFile(input: unknown): ToolSummaryParts {
   return {
     headline: 'Wrote file',
     detail: stats ? `${filePath} · ${stats}` : filePath,
+  }
+}
+
+function summarizeEditFile(input: unknown): ToolSummaryParts {
+  const args = asRecord(input)
+  const filePath = formatPath(args?.path) ?? 'file'
+
+  return {
+    headline: args?.replaceAll === true ? 'Edited file · replace all' : 'Edited file',
+    detail: filePath,
   }
 }
 
@@ -320,12 +366,25 @@ function summarizeStarted(toolName: string, input: unknown): ToolSummaryParts {
   const args = asRecord(input)
 
   switch (toolName) {
+    case 'read':
     case 'readFile':
       return { headline: 'Reading file', detail: formatPath(args?.path) ?? 'file' }
+    case 'glob':
+    case 'globFiles':
+      return summarizeSearch(input, 'Finding files')
+    case 'grep':
+    case 'grepFiles':
+    case 'searchFiles':
+      return summarizeSearch(input, 'Searching files')
+    case 'edit':
+    case 'editFile':
+      return { headline: 'Editing file', detail: formatPath(args?.path) ?? 'file' }
+    case 'write':
     case 'writeFile':
       return { headline: 'Writing file', detail: formatPath(args?.path) ?? 'file' }
     case 'patchFile':
       return { headline: 'Applying patch', detail: formatPath(args?.path) ?? 'multiple files' }
+    case 'bash':
     case 'executeShell':
       return { headline: 'Running command', detail: formatInlineText(args?.command) ?? 'command' }
     case 'slashCommand':
@@ -398,11 +457,23 @@ export function summarizeToolCompletion(
     return withArtifactNote(summarizeFailure(toolName, input, output), options.artifactPath)
   }
 
-  if (toolName === 'readFile') {
+  if (toolName === 'read' || toolName === 'readFile') {
     return withArtifactNote(summarizeReadFile(input, output), options.artifactPath)
   }
 
-  if (toolName === 'writeFile') {
+  if (toolName === 'glob' || toolName === 'globFiles') {
+    return withArtifactNote(summarizeSearch(input, 'Found files'), options.artifactPath)
+  }
+
+  if (toolName === 'grep' || toolName === 'grepFiles' || toolName === 'searchFiles') {
+    return withArtifactNote(summarizeSearch(input, 'Searched files'), options.artifactPath)
+  }
+
+  if (toolName === 'edit' || toolName === 'editFile') {
+    return withArtifactNote(summarizeEditFile(input), options.artifactPath)
+  }
+
+  if (toolName === 'write' || toolName === 'writeFile') {
     return withArtifactNote(summarizeWriteFile(input), options.artifactPath)
   }
 
@@ -410,7 +481,7 @@ export function summarizeToolCompletion(
     return withArtifactNote(summarizePatchResult(output), options.artifactPath)
   }
 
-  if (toolName === 'executeShell') {
+  if (toolName === 'bash' || toolName === 'executeShell') {
     return withArtifactNote(summarizeShell(input, output), options.artifactPath)
   }
 

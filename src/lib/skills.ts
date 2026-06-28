@@ -67,6 +67,10 @@ function getUserSkillDirs(): string[] {
   ];
 }
 
+export function getSkillDirectories(): string[] {
+  return [...getProjectSkillDirs(), ...getUserSkillDirs()];
+}
+
 export function setSkillDirectoriesForTesting(options: {
   project?: string | string[] | null;
   user?: string | string[] | null;
@@ -371,7 +375,7 @@ function renderSkillContent(skill: SkillDefinition, resources: string[]): string
   parts.push("");
   parts.push(`Skill directory: ${skill.directoryPath}`);
   parts.push(
-    "Files referenced by this skill use paths relative to the skill directory. Use the `readFile` tool with the full absolute path when loading them.",
+    "Files referenced by this skill use paths relative to the skill directory. Use the `read` tool with the full absolute path when loading them. Skill scripts may be run with `bash` by absolute path after inspecting them.",
   );
   if (resources.length > 0) {
     parts.push("");

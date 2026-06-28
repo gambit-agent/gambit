@@ -103,6 +103,9 @@ export function createAiToolMap(
       if (options.allowedToolIds && !options.allowedToolIds.includes(definition.id)) {
         return false
       }
+      if (!options.allowedToolIds && definition.hiddenFromModel) {
+        return false
+      }
       return true
     })
 
