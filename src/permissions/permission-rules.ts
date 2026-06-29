@@ -9,7 +9,7 @@ export interface PermissionEvaluationInput {
 }
 
 export function cyclePermissionMode(mode: PermissionMode): PermissionMode {
-  const order: PermissionMode[] = ['Normal', 'Plan', 'Auto-accept']
+  const order: PermissionMode[] = ['Normal', 'Auto-accept', 'Plan']
   const index = order.indexOf(mode)
   return order[(index + 1) % order.length] ?? 'Normal'
 }
