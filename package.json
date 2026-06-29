@@ -49,6 +49,7 @@
     "typecheck": "bun run tsc --noEmit",
     "build": "bun run typecheck",
     "compile": "bun build --compile --outfile=gambit src/gambit.tsx",
+    "bench:gambit": "bun run bench/gambit-local.ts",
     "test": "bun test",
     "dev": "bun run src/index.tsx",
     "start": "bun run src/gambit.tsx",
