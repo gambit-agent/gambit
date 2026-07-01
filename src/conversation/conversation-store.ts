@@ -22,6 +22,29 @@ export interface ConversationStoreSnapshot {
   initialized: boolean
 }
 
+function serializeMessageForTranscript(message: ConversationMessage): ConversationMessage & { kind: 'message' } {
+  const { metadata, ...rest } = message
+  const persistedMetadata = metadata
+    ? {
+        toolCallId: metadata.toolCallId,
+        toolName: metadata.toolName,
+        toolStatus: metadata.toolStatus,
+        toolArtifactPath: metadata.toolArtifactPath,
+        reasoningStartedAt: metadata.reasoningStartedAt,
+        reasoningFinishedAt: metadata.reasoningFinishedAt,
+        reasoningDurationMs: metadata.reasoningDurationMs,
+      }
+    : undefined
+
+  return {
+    kind: 'message',
+    ...rest,
+    ...(persistedMetadata && Object.values(persistedMetadata).some((value) => value !== undefined)
+      ? { metadata: persistedMetadata }
+      : {}),
+  }
+}
+
 export class ConversationStore {
   readonly rootPath: string
   private currentConversationId: string
@@ -111,10 +134,7 @@ export class ConversationStore {
 
     if (options.persist !== false) {
       await this.ensureReady()
-      await appendJsonlEntry(this.currentTranscriptPath, {
-        kind: 'message',
-        ...message,
-      })
+      await appendJsonlEntry(this.currentTranscriptPath, serializeMessageForTranscript(message))
     }
   }
 
@@ -141,20 +161,12 @@ export class ConversationStore {
     await this.ensureReady()
     await appendJsonlEntries(
       this.currentTranscriptPath,
-      messages.map((message) => ({
-        kind: 'message',
-        ...message,
-      })),
+      messages.map(serializeMessageForTranscript),
     )
   }
 
-  async appendTurn(record: ConversationTurnRecord): Promise<void> {
+  async appendTurn(_record: ConversationTurnRecord): Promise<void> {
     this.initialized = true
-    await this.ensureReady()
-    await appendJsonlEntry(this.currentTranscriptPath, {
-      kind: 'turn',
-      ...record,
-    })
   }
 
   updateMessage(id: string, patch: Partial<ConversationMessage>): void {
@@ -176,13 +188,12 @@ export class ConversationStore {
   }
 
   async replaceMessages(messages: ConversationMessage[]): Promise<void> {
-    const turnRecords = await this.loadTurnRecords()
     this.initialized = true
     this.messages = [...messages]
     this.error = null
     this.status = 'idle'
     this.refreshSnapshot()
-    await this.persistMessageSnapshot(messages, turnRecords)
+    await this.persistMessageSnapshot(messages)
   }
 
   async loadMessages(): Promise<ConversationMessage[]> {
@@ -191,8 +202,7 @@ export class ConversationStore {
   }
 
   async loadTurnRecords(): Promise<ConversationTurnRecord[]> {
-    const entries = await readRawJsonlEntries<ConversationTurnRecord & { kind?: string }>(this.currentTranscriptPath)
-    return entries.filter((entry) => entry.kind === 'turn') as ConversationTurnRecord[]
+    return []
   }
 
   private refreshSnapshot(): void {
@@ -217,23 +227,11 @@ export class ConversationStore {
     this.currentTranscriptPath = path.join(this.currentDirectory, 'transcript.jsonl')
   }
 
-  private async persistMessageSnapshot(
-    messages: ConversationMessage[],
-    turnRecords: ConversationTurnRecord[] = [],
-  ): Promise<void> {
+  private async persistMessageSnapshot(messages: ConversationMessage[]): Promise<void> {
     await this.ensureReady()
     await writeJsonlEntries(
       this.currentTranscriptPath,
-      [
-        ...messages.map((message) => ({
-          kind: 'message',
-          ...message,
-        })),
-        ...turnRecords.map((record) => ({
-          kind: 'turn',
-          ...record,
-        })),
-      ],
+      messages.map(serializeMessageForTranscript),
     )
   }
 }

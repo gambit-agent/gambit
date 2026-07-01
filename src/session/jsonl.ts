@@ -46,6 +46,74 @@ export async function readJsonlEntries<T>(filePath: string, transform: JsonlTran
     throw error
   }
 
+  return parseJsonlLines(raw, transform)
+}
+
+export async function readRawJsonlEntries<T>(filePath: string): Promise<T[]> {
+  return readJsonlEntries<T>(filePath, (value) => {
+    if (!isRecord(value)) {
+      return null
+    }
+    return value as T
+  })
+}
+
+export async function readJsonlTailEntries<T>(
+  filePath: string,
+  maxEntries: number,
+  transform: JsonlTransform<T>,
+): Promise<T[]> {
+  if (maxEntries <= 0) {
+    return []
+  }
+
+  const file = Bun.file(filePath)
+  if (!(await file.exists())) {
+    return []
+  }
+
+  let windowBytes = 64 * 1024
+  const maxWindowBytes = 8 * 1024 * 1024
+  const fileSize = file.size
+
+  while (true) {
+    const start = Math.max(0, fileSize - windowBytes)
+    let raw = await file.slice(start, fileSize).text()
+    if (start > 0) {
+      const newlineIndex = raw.indexOf('\n')
+      raw = newlineIndex >= 0 ? raw.slice(newlineIndex + 1) : ''
+    }
+
+    const entries = parseJsonlLines(raw, transform)
+    if (entries.length >= maxEntries || start === 0 || windowBytes >= maxWindowBytes) {
+      return entries.slice(-maxEntries)
+    }
+    windowBytes *= 2
+  }
+}
+
+export async function readRawJsonlTailEntries<T>(filePath: string, maxEntries: number): Promise<T[]> {
+  return readJsonlTailEntries<T>(filePath, maxEntries, (value) => {
+    if (!isRecord(value)) {
+      return null
+    }
+    return value as T
+  })
+}
+
+export async function writeJsonlEntries(filePath: string, entries: readonly unknown[]): Promise<void> {
+  await ensureParentDirectory(filePath)
+
+  if (entries.length === 0) {
+    await Bun.write(filePath, '')
+    return
+  }
+
+  const content = `${entries.map(serializeJsonlEntry).join('\n')}\n`
+  await Bun.write(filePath, content)
+}
+
+function parseJsonlLines<T>(raw: string, transform: JsonlTransform<T>): T[] {
   const entries: T[] = []
   const lines = raw.split(/\r?\n/)
 
@@ -69,25 +137,4 @@ export async function readJsonlEntries<T>(filePath: string, transform: JsonlTran
   }
 
   return entries
-}
-
-export async function readRawJsonlEntries<T>(filePath: string): Promise<T[]> {
-  return readJsonlEntries<T>(filePath, (value) => {
-    if (!isRecord(value)) {
-      return null
-    }
-    return value as T
-  })
-}
-
-export async function writeJsonlEntries(filePath: string, entries: readonly unknown[]): Promise<void> {
-  await ensureParentDirectory(filePath)
-
-  if (entries.length === 0) {
-    await Bun.write(filePath, '')
-    return
-  }
-
-  const content = `${entries.map(serializeJsonlEntry).join('\n')}\n`
-  await Bun.write(filePath, content)
 }

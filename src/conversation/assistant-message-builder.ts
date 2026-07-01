@@ -1,8 +1,8 @@
 import { generateId } from '../lib/id'
 import { ConversationStore } from './conversation-store'
 
-const STREAM_FLUSH_INTERVAL_MS = 33
-const STREAM_FLUSH_CHAR_DELTA = 256
+const STREAM_FLUSH_INTERVAL_MS = 100
+const STREAM_FLUSH_CHAR_DELTA = 512
 
 export class AssistantMessageBuilder {
   private streamedText = ''

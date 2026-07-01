@@ -5,10 +5,12 @@ import { AgentRunner } from '../agents/agent-runner'
 import { DEFAULT_AGENT_DEFINITIONS } from '../agents/agent-definitions'
 import type { ReasoningEffort } from '../lib/model'
 import type { AgentRole } from '../agents/agent-types'
-import { readTaskOutput } from './task-output'
+import { readTaskOutputTail } from './task-output'
 import { isTerminalTaskStatus, TaskRuntime } from './task-runtime'
 import type { TaskRecord } from './task-types'
 import type { ToolExecutionContext } from '../tools/tool-types'
+
+const MAX_BATCH_RESULT_OUTPUT_BYTES = 64 * 1024
 
 export interface RunAgentTaskInput {
   role: AgentRole
@@ -128,7 +130,7 @@ export class AgentTaskRunner {
     const tasks = await Promise.all(
       latestTasks.map(async (task) => ({
         task,
-        output: await readTaskOutput(task.id),
+        output: await readTaskOutputTail(task.id, MAX_BATCH_RESULT_OUTPUT_BYTES),
       })),
     )
     const result = { tasks }

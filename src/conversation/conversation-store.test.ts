@@ -69,7 +69,7 @@ test('can switch between persisted conversations and rewrite the active transcri
   expect(store.getSnapshot().messages.map((message) => message.content)).toEqual(['rewritten conversation'])
 })
 
-test('appends message batches without rewriting existing turn records', async () => {
+test('appends message batches without writing turn records', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'append-batch-test' })
   await store.initialize()
   await store.appendTurn({
@@ -87,12 +87,12 @@ test('appends message batches without rewriting existing turn records', async ()
     },
   ])
 
-  expect(await store.loadTurnRecords()).toHaveLength(1)
+  expect(await store.loadTurnRecords()).toHaveLength(0)
   expect((await store.loadMessages()).map((message) => message.content)).toEqual(['batched response'])
 })
 
-test('message replacement preserves turn records', async () => {
-  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replace-preserves-turns' })
+test('message replacement only writes compact message records', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replace-writes-messages' })
   await store.initialize()
   await store.appendTurn({
     id: 'turn-1',
@@ -109,6 +109,34 @@ test('message replacement preserves turn records', async () => {
     },
   ])
 
-  expect(await store.loadTurnRecords()).toHaveLength(1)
+  expect(await store.loadTurnRecords()).toHaveLength(0)
   expect((await store.loadMessages()).map((message) => message.content)).toEqual(['compacted'])
+})
+
+test('persists compact tool metadata without raw args or results', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'compact-tool-metadata' })
+  await store.initialize()
+
+  await store.pushMessage({
+    id: 'tool-1',
+    role: 'tool',
+    content: 'Read file\nlarge.txt',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      toolCallId: 'tool-1',
+      toolName: 'readFile',
+      toolArgs: { path: 'large.txt' },
+      toolResult: 'x'.repeat(10_000),
+      toolStatus: 'completed',
+      toolArtifactPath: '.gambit/artifacts/tool-1.txt',
+    },
+  })
+
+  const messages = await store.loadMessages()
+  expect(messages[0]?.metadata).toEqual({
+    toolCallId: 'tool-1',
+    toolName: 'readFile',
+    toolStatus: 'completed',
+    toolArtifactPath: '.gambit/artifacts/tool-1.txt',
+  })
 })

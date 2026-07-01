@@ -1,5 +1,7 @@
 import type { CliRenderer } from '@opentui/core'
 
+import { collectBoundedText } from './process-output'
+
 const COPY_NOTIFICATION_MESSAGE = 'Copied text to clipboard'
 const COPY_NOTIFICATION_TITLE = 'Gambit'
 
@@ -38,7 +40,7 @@ async function runClipboardCommand(command: string[], text: string): Promise<voi
     return
   }
 
-  const stderr = process.stderr ? (await new Response(process.stderr).text()).trim() : ''
+  const stderr = (await collectBoundedText(process.stderr, 4_000)).text.trim()
   throw new Error(stderr || `Clipboard command exited with code ${exitCode}.`)
 }
 

@@ -1,4 +1,4 @@
-import { readTaskOutput } from '../../tasks/task-output'
+import { readTaskOutputTailResult } from '../../tasks/task-output'
 import type { AnyToolDefinition, ToolDefinition } from '../tool-types'
 import {
   cancelTaskSchema,
@@ -12,16 +12,26 @@ import {
   summarizeTask,
 } from './utils'
 
+const DEFAULT_TASK_OUTPUT_READ_BYTES = 64 * 1024
+const MAX_TASK_OUTPUT_READ_BYTES = 256 * 1024
+
 export function createTaskTools(): AnyToolDefinition[] {
   const readTaskOutputTool: ToolDefinition<typeof readTaskOutputSchema, string> = {
     id: 'readTaskOutput',
     displayName: 'Read Task Output',
     description:
-      'Read persisted stdout or agent output for a runtime task by taskId. Use after background shell or agent tasks finish.',
+      'Read the most recent persisted stdout or agent output for a runtime task by taskId. Use after background shell or agent tasks finish.',
     inputSchema: readTaskOutputSchema,
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('readTaskOutput', context.input, result, context.artifactPath),
-    execute: async ({ taskId }) => readTaskOutput(taskId),
+    execute: async ({ taskId, maxBytes }) => {
+      const boundedMaxBytes = Math.min(maxBytes ?? DEFAULT_TASK_OUTPUT_READ_BYTES, MAX_TASK_OUTPUT_READ_BYTES)
+      const result = await readTaskOutputTailResult(taskId, boundedMaxBytes)
+      if (!result.truncated) {
+        return result.text
+      }
+      return `[showing last ${boundedMaxBytes} bytes]\n${result.text}`
+    },
   }
 
   const listTasksTool: ToolDefinition<typeof listTasksSchema, Record<string, unknown>[]> = {

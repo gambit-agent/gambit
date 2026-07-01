@@ -1,4 +1,5 @@
 import { MAX_SHELL_OUTPUT, workspaceRoot } from '../../config'
+import { appendTruncationNotice, collectBoundedText } from '../process-output'
 import { truncate } from '../text'
 import { loadSlashCommands } from './loader'
 import { resolveCommand } from './resolver'
@@ -146,17 +147,19 @@ async function formatCommandOutput(command: string): Promise<string> {
   })
 
   const [stdout, stderr, exitCode] = await Promise.all([
-    process.stdout ? new Response(process.stdout).text() : Promise.resolve(''),
-    process.stderr ? new Response(process.stderr).text() : Promise.resolve(''),
+    collectBoundedText(process.stdout, MAX_SHELL_OUTPUT),
+    collectBoundedText(process.stderr, MAX_SHELL_OUTPUT),
     process.exited,
   ])
+  const boundedStdout = appendTruncationNotice(stdout, 'stdout')
+  const boundedStderr = appendTruncationNotice(stderr, 'stderr')
 
   const formatted = [
     '```text',
     `command: ${command}`,
     `exit_code: ${exitCode}`,
-    stdout ? `stdout:\n${truncate(stdout, MAX_SHELL_OUTPUT)}` : 'stdout: <empty>',
-    stderr ? `stderr:\n${truncate(stderr, MAX_SHELL_OUTPUT)}` : 'stderr: <empty>',
+    boundedStdout ? `stdout:\n${truncate(boundedStdout, MAX_SHELL_OUTPUT)}` : 'stdout: <empty>',
+    boundedStderr ? `stderr:\n${truncate(boundedStderr, MAX_SHELL_OUTPUT)}` : 'stderr: <empty>',
     '```',
   ]
   return `\n${formatted.join('\n')}\n`

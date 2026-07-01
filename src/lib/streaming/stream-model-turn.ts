@@ -1,7 +1,3 @@
-export interface StreamLoggerLike {
-  event: (type: string, metadata?: Record<string, unknown>) => void
-}
-
 export interface StreamToolPart {
   type: string
   toolName?: string
@@ -22,18 +18,12 @@ export interface ModelStreamHandlers {
 
 export async function consumeModelStream(options: {
   stream: AsyncIterable<unknown>
-  streamLog: StreamLoggerLike
   handlers: ModelStreamHandlers
 }): Promise<void> {
   let streamError: unknown = null
 
   for await (const rawPart of options.stream) {
     const part = normalizeStreamPart(rawPart)
-    options.streamLog.event(part.type, {
-      toolName: part.toolName,
-      toolCallId: part.toolCallId,
-      textLen: part.textLength,
-    })
 
     if (part.type === 'error') {
       streamError = part.error

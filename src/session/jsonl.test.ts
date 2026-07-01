@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { appendJsonlEntry, readJsonlEntries, writeJsonlEntries } from './jsonl'
+import { appendJsonlEntry, readJsonlEntries, readJsonlTailEntries, writeJsonlEntries } from './jsonl'
 
 describe('jsonl helpers', () => {
   let root = ''
@@ -34,5 +34,21 @@ describe('jsonl helpers', () => {
     })
 
     expect(entries).toEqual([1, 2, 3])
+  })
+
+  test('reads only the requested JSONL tail entries', async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), 'gambit-jsonl-'))
+    const filePath = path.join(root, 'records.jsonl')
+    await writeJsonlEntries(filePath, Array.from({ length: 20 }, (_, index) => ({ id: index + 1 })))
+
+    const entries = await readJsonlTailEntries(filePath, 3, (value) => {
+      if (typeof value === 'object' && value !== null && 'id' in value) {
+        const candidate = value as { id?: unknown }
+        return typeof candidate.id === 'number' ? candidate.id : null
+      }
+      return null
+    })
+
+    expect(entries).toEqual([18, 19, 20])
   })
 })

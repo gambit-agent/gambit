@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
+import { appendTruncationNotice, collectBoundedText } from '../src/lib/process-output'
+
 type JsonValue =
   | string
   | number
@@ -58,6 +60,7 @@ interface BenchResult {
 
 const repoRoot = path.resolve(import.meta.dir, '..')
 const defaultOutDir = path.join(os.tmpdir(), 'gambit-bench')
+const commandOutputLimitChars = 1_000_000
 
 const taskPrompt = [
   'You are running inside an isolated coding benchmark workspace.',
@@ -315,7 +318,6 @@ async function runGambit(
     task.prompt,
     '--output-format',
     'stream-json',
-    '--verbose',
     '--permission-mode',
     'Auto-accept',
     '--allowed-tools',
@@ -446,16 +448,16 @@ async function runCommand(
   }, options.timeoutMs)
 
   const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
+    collectBoundedText(proc.stdout, commandOutputLimitChars),
+    collectBoundedText(proc.stderr, commandOutputLimitChars),
     proc.exited,
   ])
   clearTimeout(timeout)
 
   return {
     exitCode,
-    stdout,
-    stderr,
+    stdout: appendTruncationNotice(stdout, 'stdout'),
+    stderr: appendTruncationNotice(stderr, 'stderr'),
     durationMs: Date.now() - startedAt,
     timedOut,
   }

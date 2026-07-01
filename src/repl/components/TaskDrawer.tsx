@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { TextAttributes } from '@opentui/core'
 
 import type { TaskRecord, TaskStatus } from '../../tasks/task-types'
-import { readTaskOutput } from '../../tasks/task-output'
+import { readTaskOutputTail } from '../../tasks/task-output'
 import type { WorkflowAgentStatus, WorkflowSnapshot } from '../../workflows/workflow-display'
 import { PopupOverlay } from '../../ui/components/PopupOverlay'
 import { theme } from '../../ui/theme'
+import { readRawJsonlTailEntries } from '../../session/jsonl'
 import { formatDuration, formatTaskTitle, truncateTaskLine } from '../repl-format'
 
 interface TaskPreview {
@@ -147,39 +148,34 @@ function compactValue(value: unknown, maxLength: number): string {
   }
 }
 
-function formatTranscriptLine(line: string, maxWidth: number): string | null {
-  try {
-    const entry = JSON.parse(line) as Record<string, unknown>
-    const type = typeof entry.type === 'string' ? entry.type : 'event'
-    switch (type) {
-      case 'tool-call':
-        return truncateTaskLine(
-          `tool start ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.input, maxWidth)}`,
-          maxWidth,
-        )
-      case 'tool-result':
-        return truncateTaskLine(
-          `tool done ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.output, maxWidth)}`,
-          maxWidth,
-        )
-      case 'tool-error':
-        return truncateTaskLine(
-          `tool error ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.error, maxWidth)}`,
-          maxWidth,
-        )
-      case 'reasoning':
-        return truncateTaskLine(`reasoning: ${compactValue(entry.content, maxWidth)}`, maxWidth)
-      case 'assistant':
-        return truncateTaskLine(`assistant: ${compactValue(entry.content, maxWidth)}`, maxWidth)
-      case 'user':
-        return truncateTaskLine(`prompt: ${compactValue(entry.content, maxWidth)}`, maxWidth)
-      case 'system':
-        return null
-      default:
-        return truncateTaskLine(`${type}: ${compactValue(entry, maxWidth)}`, maxWidth)
-    }
-  } catch {
-    return truncateTaskLine(line, maxWidth)
+function formatTranscriptEntry(entry: Record<string, unknown>, maxWidth: number): string | null {
+  const type = typeof entry.type === 'string' ? entry.type : 'event'
+  switch (type) {
+    case 'tool-call':
+      return truncateTaskLine(
+        `tool start ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.input, maxWidth)}`,
+        maxWidth,
+      )
+    case 'tool-result':
+      return truncateTaskLine(
+        `tool done ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.output, maxWidth)}`,
+        maxWidth,
+      )
+    case 'tool-error':
+      return truncateTaskLine(
+        `tool error ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.error, maxWidth)}`,
+        maxWidth,
+      )
+    case 'reasoning':
+      return truncateTaskLine(`reasoning: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+    case 'assistant':
+      return truncateTaskLine(`assistant: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+    case 'user':
+      return truncateTaskLine(`prompt: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+    case 'system':
+      return null
+    default:
+      return truncateTaskLine(`${type}: ${compactValue(entry, maxWidth)}`, maxWidth)
   }
 }
 
@@ -189,13 +185,9 @@ async function readTranscriptLines(task: TaskRecord, maxLines: number, maxWidth:
   }
 
   try {
-    const text = await Bun.file(task.transcriptPath).text()
-    return text
-      .replace(/\r\n/g, '\n')
-      .split('\n')
-      .filter(Boolean)
-      .slice(-maxLines * 3)
-      .map((line) => formatTranscriptLine(line, maxWidth))
+    const entries = await readRawJsonlTailEntries<Record<string, unknown>>(task.transcriptPath, maxLines * 3)
+    return entries
+      .map((entry) => formatTranscriptEntry(entry, maxWidth))
       .filter((line): line is string => Boolean(line))
       .slice(-maxLines)
   } catch (error) {
@@ -435,7 +427,7 @@ export function TaskDrawer({
     const load = async () => {
       try {
         const [output, transcriptLines] = await Promise.all([
-          readTaskOutput(selectedTask.id),
+          readTaskOutputTail(selectedTask.id, 64 * 1024),
           readTranscriptLines(selectedTask, 12, detailWidth),
         ])
         if (cancelled) {

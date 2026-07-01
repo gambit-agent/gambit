@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { collectBoundedText } from '../../lib/process-output'
+
 export function useGitBranch(): string {
   const [gitBranch, setGitBranch] = useState('')
 
@@ -8,9 +10,9 @@ export function useGitBranch(): string {
       stdout: 'pipe',
       stderr: 'ignore',
     })
-    Promise.all([new Response(proc.stdout).text(), proc.exited])
+    Promise.all([collectBoundedText(proc.stdout, 512), proc.exited])
       .then(([branch, exitCode]) => {
-        setGitBranch(exitCode === 0 ? branch.trim() : '')
+        setGitBranch(exitCode === 0 ? branch.text.trim() : '')
       })
       .catch(() => setGitBranch(''))
   }, [])

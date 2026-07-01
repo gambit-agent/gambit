@@ -17,12 +17,32 @@ const cloneMessages = (messages: UIMessage[]): UIMessage[] => {
   return JSON.parse(JSON.stringify(messages)) as UIMessage[]
 }
 
+const MAX_SNAPSHOTS = 5
+const MAX_SNAPSHOT_CHARS = 500_000
+
+function compactSnapshotMessages(messages: UIMessage[]): UIMessage[] | null {
+  const compacted = messages.map((message) => ({
+    ...message,
+    metadata: message.metadata
+      ? {
+          toolCallId: message.metadata.toolCallId,
+          toolName: message.metadata.toolName,
+        }
+      : undefined,
+  }))
+
+  if (JSON.stringify(compacted).length > MAX_SNAPSHOT_CHARS) {
+    return null
+  }
+  return compacted
+}
+
 export class InteractiveSession {
   private thinking = false
   private permissionMode: PermissionMode = "Normal"
   private abortController: AbortController | null = null
   private readonly snapshots: Snapshot[] = []
-  private readonly maxSnapshots = 20
+  private readonly maxSnapshots = MAX_SNAPSHOTS
 
   get isThinkingEnabled(): boolean {
     return this.thinking
@@ -66,7 +86,11 @@ export class InteractiveSession {
 
   pushSnapshot(messages: UIMessage[]): void {
     try {
-      this.snapshots.push({ messages: cloneMessages(messages) })
+      const compacted = compactSnapshotMessages(messages)
+      if (!compacted) {
+        return
+      }
+      this.snapshots.push({ messages: cloneMessages(compacted) })
       while (this.snapshots.length > this.maxSnapshots) {
         this.snapshots.shift()
       }

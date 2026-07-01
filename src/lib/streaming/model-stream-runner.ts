@@ -2,7 +2,6 @@ import { stepCountIs, streamText, type LanguageModel, type LogWarningsFunction, 
 import type { ModelMessage } from '@ai-sdk/provider-utils'
 
 import { consumeModelStream, type ModelStreamHandlers } from './stream-model-turn'
-import { createStreamLogger } from '../stream-logger'
 
 type NonSystemModelMessage = Exclude<ModelMessage, { role: 'system' }>
 type WarningLoggerOptions = Parameters<LogWarningsFunction>[0]
@@ -113,60 +112,48 @@ async function withFilteredAiSdkWarnings<T>(run: () => Promise<T>): Promise<T> {
 
 export class ModelStreamRunner {
   async run(options: ModelStreamRunOptions): Promise<ModelStreamRunResult> {
-    const streamLog = createStreamLogger(options.streamId, options.logMetadata)
     let streamedText = ''
     let reasoning = ''
     const prompt = splitInstructionsFromMessages(options.messages)
 
-    try {
-      return await withFilteredAiSdkWarnings(async () => {
-        const result = await streamText({
-          model: options.model,
-          instructions: prompt.instructions,
-          messages: prompt.messages,
-          tools: options.tools,
-          stopWhen: stepCountIs(options.maxSteps),
-          abortSignal: options.signal,
-        })
-
-        await consumeModelStream({
-          stream: result.fullStream as AsyncIterable<unknown>,
-          streamLog,
-          handlers: {
-            onReasoningDelta: async (text, part) => {
-              reasoning += text
-              await options.handlers?.onReasoningDelta?.(text, part)
-            },
-            onTextDelta: async (chunk, part) => {
-              streamedText += chunk
-              await options.handlers?.onTextDelta?.(chunk, part)
-            },
-            onToolCall: async (part) => {
-              await options.handlers?.onToolCall?.(part)
-            },
-            onToolResult: async (part) => {
-              await options.handlers?.onToolResult?.(part)
-            },
-            onToolError: async (part, errorMessage) => {
-              await options.handlers?.onToolError?.(part, errorMessage)
-            },
-          },
-        })
-
-        streamLog.finish({ textChars: streamedText.length, reasoningChars: reasoning.length })
-        return {
-          text: ((await result.text) || streamedText).trim(),
-          streamedText,
-          reasoning,
-        }
+    return await withFilteredAiSdkWarnings(async () => {
+      const result = await streamText({
+        model: options.model,
+        instructions: prompt.instructions,
+        messages: prompt.messages,
+        tools: options.tools,
+        stopWhen: stepCountIs(options.maxSteps),
+        abortSignal: options.signal,
       })
-    } catch (error) {
-      if (options.signal?.aborted) {
-        streamLog.aborted({ textChars: streamedText.length })
-      } else {
-        streamLog.error(error, { textChars: streamedText.length })
+
+      await consumeModelStream({
+        stream: result.fullStream as AsyncIterable<unknown>,
+        handlers: {
+          onReasoningDelta: async (text, part) => {
+            reasoning += text
+            await options.handlers?.onReasoningDelta?.(text, part)
+          },
+          onTextDelta: async (chunk, part) => {
+            streamedText += chunk
+            await options.handlers?.onTextDelta?.(chunk, part)
+          },
+          onToolCall: async (part) => {
+            await options.handlers?.onToolCall?.(part)
+          },
+          onToolResult: async (part) => {
+            await options.handlers?.onToolResult?.(part)
+          },
+          onToolError: async (part, errorMessage) => {
+            await options.handlers?.onToolError?.(part, errorMessage)
+          },
+        },
+      })
+
+      return {
+        text: ((await result.text) || streamedText).trim(),
+        streamedText,
+        reasoning,
       }
-      throw error
-    }
+    })
   }
 }

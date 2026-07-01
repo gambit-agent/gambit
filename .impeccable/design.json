@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-28T12:58:57Z",
+  "title": "Design System: Gambit CLI",
+  "extensions": {
+    "colorMeta": {
+      "blossom": {
+        "role": "primary",
+        "displayName": "Blossom",
+        "canonical": "#FFB6C1",
+        "tonalRamp": ["#1A0E0F", "#331C1E", "#4D2A2D", "#66383C", "#80464B", "#B3707D", "#D898A1", "#FFE3E8"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#131313",
+        "tonalRamp": ["#0A0A0A", "#131313", "#1C1C1C", "#262626", "#333333", "#444444", "#5C5C5C", "#7A7A7A"]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "canonical": "#141414",
+        "tonalRamp": ["#0B0B0B", "#141414", "#1D1D1D", "#272727", "#343434", "#454545", "#5D5D5D", "#7B7B7B"]
+      },
+      "header-surface": {
+        "role": "neutral",
+        "displayName": "Header Surface",
+        "canonical": "#181818",
+        "tonalRamp": ["#0C0C0C", "#181818", "#212121", "#2B2B2B", "#383838", "#494949", "#616161", "#7F7F7F"]
+      },
+      "mist": {
+        "role": "neutral",
+        "displayName": "Mist",
+        "canonical": "#C9D1D9",
+        "tonalRamp": ["#1A1D1F", "#33404A", "#4D5E6A", "#667A88", "#809098", "#99A8AF", "#C9D1D9", "#EBF0F4"]
+      },
+      "ash": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "canonical": "#4D4E4E",
+        "tonalRamp": ["#101010", "#262626", "#4D4E4E", "#616262", "#757676", "#898A8A", "#9D9E9E", "#B1B2B2"]
+      },
+      "error": {
+        "role": "semantic",
+        "displayName": "Error",
+        "canonical": "#FF6B6B",
+        "tonalRamp": ["#1A0D0D", "#331A1A", "#4D2626", "#663333", "#804040", "#B35858", "#E08080", "#FFD4D4"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Success",
+        "canonical": "#7EE787",
+        "tonalRamp": ["#0D1A0E", "#1A331C", "#264D29", "#336635", "#408042", "#52B358", "#7EE787", "#D4F5D8"]
+      },
+      "info": {
+        "role": "semantic",
+        "displayName": "Info",
+        "canonical": "#79C0FF",
+        "tonalRamp": ["#0D1A26", "#1A334D", "#264D66", "#336680", "#408099", "#52B3B3", "#79C0FF", "#D4ECFF"]
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default text for assistant messages, tool details, and markdown content."
+      },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "All markdown headings H1-H6. No size variation; BOLD attribute only."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Status text, timestamps, metadata, keyboard hints. Always DIM."
+      }
+    },
+    "shadows": [
+      { "name": "none", "value": "none", "purpose": "No shadows. The terminal is a flat medium; depth comes from tonal layering." },
+      { "name": "backdrop-dim", "value": "rgba(0,0,0,0.588)", "purpose": "Semi-transparent black wash behind overlays. Creates depth separation for modals." }
+    ],
+    "motion": [
+      { "name": "none", "value": "0ms", "purpose": "No transitions. The terminal updates synchronously; no motion choreography." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Header",
+      "kind": "nav",
+      "refersTo": "header",
+      "description": "Top bar with bold pink GAMBIT logo, version, timestamp, and workspace path.",
+      "html": "<div class=\"ds-header\"><span class=\"ds-header-logo\">GAMBIT | v0.11.5</span> <span class=\"ds-header-time\">2026-06-28 12:58</span><span class=\"ds-header-path\">~/DEV/opentui/gambit</span></div>",
+      "css": ".ds-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: #181818; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-header-logo { color: #FFB6C1; font-weight: 700; } .ds-header-time { color: #4D4E4E; opacity: 0.6; } .ds-header-path { color: #4D4E4E; opacity: 0.6; }"
+    },
+    {
+      "name": "Composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "Rounded-border input box with pink › prompt. The primary interaction surface.",
+      "html": "<div class=\"ds-composer\"><span class=\"ds-composer-prompt\">›</span><span class=\"ds-composer-placeholder\">Ask anything or @ tag files/folders</span></div>",
+      "css": ".ds-composer { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: #131313; border: 1px solid #222222; border-radius: 6px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-composer-prompt { color: #FFB6C1; font-weight: 700; } .ds-composer-placeholder { color: #4D4E4E; } .ds-composer:focus-within { border-color: #FFB6C1; }"
+    },
+    {
+      "name": "Message - Assistant",
+      "kind": "card",
+      "refersTo": "message-assistant",
+      "description": "Assistant response on the canvas background. Cool silver text recedes into the dark.",
+      "html": "<div class=\"ds-msg-assistant\"><span class=\"ds-msg-label\">Assistant</span><p class=\"ds-msg-body\">Let me look at the theme system to understand the full color palette.</p></div>",
+      "css": ".ds-msg-assistant { padding: 4px 16px; background: #131313; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-msg-label { color: #4D4E4E; opacity: 0.6; font-size: 11px; } .ds-msg-body { margin: 4px 0 0; color: #C9D1D9; line-height: 1.5; }"
+    },
+    {
+      "name": "Message - User",
+      "kind": "card",
+      "refersTo": "message-user",
+      "description": "User input on a slightly raised background. White text for clarity.",
+      "html": "<div class=\"ds-msg-user\"><span class=\"ds-msg-label\">You</span><p class=\"ds-msg-body\">document the design system</p></div>",
+      "css": ".ds-msg-user { padding: 4px 16px; background: #1B1B1B; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-msg-label { color: #4D4E4E; opacity: 0.6; font-size: 11px; } .ds-msg-body { margin: 4px 0 0; color: #FFFFFF; line-height: 1.5; }"
+    },
+    {
+      "name": "Message - Tool",
+      "kind": "card",
+      "refersTo": "message-tool",
+      "description": "Tool call with purple-tinted background. Pink text and bullet signal a tool action.",
+      "html": "<div class=\"ds-msg-tool\"><span class=\"ds-msg-bullet\">•</span><span class=\"ds-msg-tool-name\">read</span> <span class=\"ds-msg-tool-detail">src/ui/theme.ts</span></div>",
+      "css": ".ds-msg-tool { padding: 2px 16px; background: #321F33; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; display: flex; align-items: center; gap: 4px; } .ds-msg-bullet { color: #7EE787; font-weight: 700; } .ds-msg-tool-name { color: #FFB6C1; font-weight: 700; } .ds-msg-tool-detail { color: #4D4E4E; opacity: 0.6; }"
+    },
+    {
+      "name": "Reasoning Block",
+      "kind": "custom",
+      "refersTo": "reasoning-block",
+      "description": "Collapsible internal monologue. Solid left bar in pink. The signature visual pattern.",
+      "html": "<div class=\"ds-reasoning\"><div class=\"ds-reasoning-toggle\"><span class=\"ds-reasoning-marker\">+</span><span class=\"ds-reasoning-label\">Thought</span><span class=\"ds-reasoning-duration\">: 2.3s</span></div><p class=\"ds-reasoning-body\">Analyzing the theme tokens to extract the color palette and spacing system...</p></div>",
+      "css": ".ds-reasoning { border-left: 3px solid #FFB6C1; padding: 4px 12px; background: #1C1C1C; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-reasoning-toggle { display: flex; align-items: center; gap: 4px; } .ds-reasoning-marker { color: #FFB6C1; font-weight: 700; } .ds-reasoning-label { color: #FFB6C1; font-weight: 700; } .ds-reasoning-duration { color: #4D4E4E; opacity: 0.6; } .ds-reasoning-body { margin: 4px 0 0; color: #FFB6C1; line-height: 1.5; }"
+    },
+    {
+      "name": "Permission Prompt",
+      "kind": "custom",
+      "refersTo": "permission-prompt",
+      "description": "High-stakes modal with heavy left border. Pink title, white subject, dim hints.",
+      "html": "<div class=\"ds-permission-backdrop\"><div class=\"ds-permission\"><span class=\"ds-permission-title\">Permission Required</span><p class=\"ds-permission-subject\">bash: bun run src/index.tsx</p><span class=\"ds-permission-hints\">Y/Enter to allow · N/Esc to deny · Shift+Tab to change mode</span></div></div>",
+      "css": ".ds-permission-backdrop { display: flex; align-items: center; justify-content: center; padding: 32px 16px; background: rgba(0,0,0,0.588); font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; } .ds-permission { border-left: 4px solid #808080; padding: 8px 16px; background: #181818; max-width: 420px; display: flex; flex-direction: column; gap: 8px; } .ds-permission-title { color: #FFB6C1; font-weight: 700; } .ds-permission-subject { margin: 0; color: #FFFFFF; } .ds-permission-hints { color: #4D4E4E; opacity: 0.6; font-size: 11px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Warm Instrument",
+    "overview": "Gambit is a confident, opinionated tool that's not afraid to be itself. The pink accent (#FFB6C1) is a signature, not a decoration — it says \"this tool has personality\" without shouting. Like a well-themed editor that feels alive. The terminal is the medium; Gambit embraces its constraints rather than fighting them.\n\nThis is a product register: design serves the developer's workflow. Every visual element earns its pixels by carrying signal — status, state, role, focus. The system rejects three things explicitly: generic terminal drab (dense monochrome walls with no visual hierarchy), web-app mimicry (fake shadows, pseudo-windows, rounded boxes fighting the character grid), and over-designed SaaS-in-terminal (too many colors, bloated chrome wasting terminal rows on decoration).\n\nThe system ships 13 themes, but only two are Gambit's own: gambit-dark (the default) and gambit-light. The remaining 11 are familiar editor themes offered as user-selectable alternatives. The brand identity lives in the Gambit themes; the others are courtesy.",
+    "keyCharacteristics": [
+      "Monospace-native: every element aligns to the character grid; no fractional positioning",
+      "Single-accent discipline: Blossom (#FFB6C1) is the only brand color, used for focus, prompts, borders, and active states",
+      "Tonal depth: background → panel → header creates hierarchy through 1-2 step luminance shifts, not shadows",
+      "Attribute-driven hierarchy: BOLD for emphasis, DIM for de-emphasis; no font-size variation (terminal cells are uniform)",
+      "Tactile components: rounded borders, accent-colored prompts (›), visible state indicators"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Blossom (#FFB6C1) is the only brand color. It appears on focus, prompts, active selection, reasoning, and the logo — never as a background fill, never as decoration. If a new surface needs color, ask whether it's signaling state. If not, it doesn't get Blossom.", "section": "colors" },
+      { "name": "The Warm Warning Rule", "body": "In gambit-dark, warning uses Blossom rather than a separate yellow/amber. This is intentional — Gambit's warnings are warm, not alarming. Do not introduce a separate warning hue unless the theme explicitly defines one.", "section": "colors" },
+      { "name": "The Ash Floor Rule", "body": "Ash (#4D4E4E) is the quietest text that remains readable. Any text dimmer than Ash is invisible against Ink and is prohibited. If something needs to be de-emphasized further, remove it — don't dim it into nothing.", "section": "colors" },
+      { "name": "The Attribute-Only Hierarchy Rule", "body": "Never introduce a second font family. Hierarchy is BOLD > regular > DIM, in that order. If something needs more emphasis than BOLD, add color (Blossom). If it needs less than regular, add DIM. There is no fourth tier.", "section": "typography" },
+      { "name": "The Monospace Alignment Rule", "body": "Every element must align to the character grid. Tables, code blocks, diff views, and message padding all respect cell boundaries. Never use proportional spacing, fractional positions, or sub-cell rendering.", "section": "typography" },
+      { "name": "The No-Shadow Rule", "body": "Never use CSS box-shadow, text-shadow, or any shadow-like effect. The terminal is a flat medium. Depth comes from background color and border weight, never from simulated light.", "section": "elevation" },
+      { "name": "The Border-Weight Ladder Rule", "body": "Border styles encode importance: rounded for the composer, heavy for permission prompts, single-line for standard containers, and custom ▌ left-border for reasoning blocks. Never use the same border style for two different importance levels.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Blossom (#FFB6C1) only for focus, prompts, active selection, reasoning, and the logo. Its rarity is its power.",
+      "Do convey hierarchy through background tonal shifts (Ink → Panel → Header Surface) — never through shadows.",
+      "Do use BOLD for emphasis and DIM for de-emphasis. These are the only two attribute tiers besides regular.",
+      "Do pair every color with a text label, icon, or position cue. Never rely on color alone to convey meaning.",
+      "Do use the › character as the universal focus/selection marker in pickers and the composer prompt.",
+      "Do use the ▌ left-border character for reasoning blocks — it's the signature visual pattern.",
+      "Do maintain the 3-step tonal ladder: Ink (#131313) → Panel (#141414) → Header Surface (#181818).",
+      "Do color-code context usage by threshold: Ash <60%, Warning 60-85%, Error >85%.",
+      "Do keep the Ash floor (#4D4E4E) as the minimum readable text color.",
+      "Do embrace the character grid — every element aligns to terminal cells."
+    ],
+    "donts": [
+      "Don't introduce a second brand color. Blossom is the only accent.",
+      "Don't use CSS box-shadow, text-shadow, or any shadow simulation.",
+      "Don't create generic terminal drab — dense monochrome walls with no visual hierarchy.",
+      "Don't mimic web-app layouts — pseudo-windows, fake shadows, rounded boxes fighting the character grid.",
+      "Don't over-design with SaaS-in-terminal patterns — too many colors, bloated chrome wasting terminal rows.",
+      "Don't use Blossom as a background fill. It is always foreground, border, or accent.",
+      "Don't introduce a second font family. Monospace is the only family.",
+      "Don't use border-left greater than 1px as a colored stripe — the ▌ reasoning border is a custom character pattern.",
+      "Don't dim text below Ash (#4D4E4E). If it needs to be quieter, remove it.",
+      "Don't add the same border style to two different importance levels."
+    ]
+  }
+}

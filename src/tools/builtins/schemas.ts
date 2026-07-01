@@ -126,6 +126,13 @@ export const workflowSchema = z.object({
 
 export const readTaskOutputSchema = z.object({
   taskId: z.string().describe('Task id to inspect.'),
+  maxBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(256 * 1024)
+    .optional()
+    .describe('Maximum recent output bytes to return. Defaults to 65536 and is capped at 262144.'),
 })
 
 export const listTasksSchema = z.object({})

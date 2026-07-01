@@ -1,5 +1,5 @@
 import { MAX_SHELL_OUTPUT, workspaceRoot } from '../config'
-import { truncate } from '../lib/text'
+import { appendTruncationNotice, collectBoundedText } from '../lib/process-output'
 import { appendTaskOutput, writeTaskOutput } from './task-output'
 import type { TaskRecord } from './task-types'
 import { TaskRuntime } from './task-runtime'
@@ -15,8 +15,8 @@ export interface ShellTaskResult {
 function formatShellResult(exitCode: number | null, stdout: string, stderr: string): string {
   return [
     `exit_code: ${exitCode ?? 0}`,
-    stdout ? `stdout:\n${truncate(stdout, MAX_SHELL_OUTPUT)}` : 'stdout: <empty>',
-    stderr ? `stderr:\n${truncate(stderr, MAX_SHELL_OUTPUT)}` : 'stderr: <empty>',
+    stdout ? `stdout:\n${stdout}` : 'stdout: <empty>',
+    stderr ? `stderr:\n${stderr}` : 'stderr: <empty>',
   ].join('\n\n')
 }
 
@@ -62,18 +62,20 @@ export class ShellTaskRunner {
       controller.signal.addEventListener('abort', onAbort, { once: true })
 
       try {
-        const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
-        const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+        const stdoutPromise = collectBoundedText(process.stdout, MAX_SHELL_OUTPUT)
+        const stderrPromise = collectBoundedText(process.stderr, MAX_SHELL_OUTPUT)
         const [stdout, stderr, exitCode] = await Promise.all([
           stdoutPromise,
           stderrPromise,
           process.exited,
         ])
+        const boundedStdout = appendTruncationNotice(stdout, 'stdout')
+        const boundedStderr = appendTruncationNotice(stderr, 'stderr')
 
         const wasCancelled = controller.signal.aborted
         const formattedOutput = wasCancelled
-          ? `${formatShellResult(exitCode, stdout, stderr)}\n\ncancelled: true`
-          : formatShellResult(exitCode, stdout, stderr)
+          ? `${formatShellResult(exitCode, boundedStdout, boundedStderr)}\n\ncancelled: true`
+          : formatShellResult(exitCode, boundedStdout, boundedStderr)
         await writeTaskOutput(createdTask.id, formattedOutput)
 
         const updatedTask = await this.taskRuntime.updateTask(createdTask.id, {
@@ -89,8 +91,8 @@ export class ShellTaskRunner {
 
         return {
           task: updatedTask ?? createdTask,
-          stdout,
-          stderr,
+          stdout: boundedStdout,
+          stderr: boundedStderr,
           exitCode,
           formattedOutput,
         }

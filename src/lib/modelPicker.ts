@@ -70,6 +70,7 @@ export interface UseModelPickerResult {
 }
 
 const DEFAULT_REASONING: ReasoningEffort = "medium"
+const modelSearchTextCache = new WeakMap<ModelListItem, string>()
 
 export function isFreeModel(model: ModelListItem): boolean {
   const prices = [model.promptPrice, model.completionPrice, model.requestPrice].filter((price): price is string => price !== null)
@@ -95,13 +96,23 @@ export function buildModelSearchText(model: ModelListItem): string {
   return tags.filter(Boolean).join(' ').toLowerCase()
 }
 
+function getCachedModelSearchText(model: ModelListItem): string {
+  const cached = modelSearchTextCache.get(model)
+  if (cached !== undefined) {
+    return cached
+  }
+  const searchText = buildModelSearchText(model)
+  modelSearchTextCache.set(model, searchText)
+  return searchText
+}
+
 export function filterModels(models: readonly ModelListItem[], filterValue: string): ModelListItem[] {
   const terms = filterValue.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (terms.length === 0) {
     return [...models]
   }
   return models.filter((model) => {
-    const searchText = buildModelSearchText(model)
+    const searchText = getCachedModelSearchText(model)
     return terms.every((term) => searchText.includes(term))
   })
 }

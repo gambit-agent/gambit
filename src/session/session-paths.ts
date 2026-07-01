@@ -61,11 +61,3 @@ export function getWorkboardDirectory(root: string = workspaceRoot): string {
 export function getWorkItemStorePath(root: string = workspaceRoot): string {
   return path.join(getWorkboardDirectory(root), 'work-items.jsonl')
 }
-
-function getLogsDirectory(root: string = workspaceRoot): string {
-  return path.join(getGambitDirectory(root), 'logs')
-}
-
-export function getStreamLogPath(root: string = workspaceRoot): string {
-  return path.join(getLogsDirectory(root), 'stream.jsonl')
-}

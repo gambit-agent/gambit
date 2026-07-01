@@ -46,11 +46,12 @@ test('records turns and tool calls through the tool executor', async () => {
   expect(messages).toHaveLength(1)
   expect(messages[0]?.role).toBe('tool')
   expect(messages[0]?.content).toBe('Read file\nnote.txt · 11 chars · 1 line')
-  expect(messages[0]?.metadata?.toolResult).toContain('<type>file</type>')
-  expect(messages[0]?.metadata?.toolResult).toContain('1: hello world')
+  expect(messages[0]?.metadata?.toolResult).toBeUndefined()
+  expect(messages[0]?.metadata?.toolArgs).toBeUndefined()
+  expect(messages[0]?.metadata?.toolName).toBe('readFile')
 })
 
-test('appends turns to the conversation store', async () => {
+test('does not persist turn records to the conversation store', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'turn-test-append' })
   const runner = new ConversationRunner({
     store,
@@ -69,8 +70,7 @@ test('appends turns to the conversation store', async () => {
   await runner.appendTurn(turn)
 
   const turns = await store.loadTurnRecords()
-  expect(turns).toHaveLength(1)
-  expect(turns[0]?.userInput).toBe('hello')
+  expect(turns).toHaveLength(0)
 })
 
 test('delegated agent base prompt includes the active conversation goal', () => {

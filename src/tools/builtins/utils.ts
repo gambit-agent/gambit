@@ -1,8 +1,9 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import { Glob } from 'bun'
 
 import { MAX_AGENT_BATCH_INLINE_OUTPUT_CHARS, MAX_SHELL_OUTPUT, workspaceRoot } from '../../config'
+import { appendTruncationNotice, collectBoundedText } from '../../lib/process-output'
 import type { TaskRecord } from '../../tasks/task-types'
 import { formatToolSummary, summarizeToolCompletion } from '../../lib/toolSummaries'
 import { relativeWorkspacePath, resolveWorkspacePath } from '../../lib/workspace'
@@ -26,6 +27,7 @@ const FALLBACK_SEARCH_IGNORED_DIRECTORIES = new Set([
   '.next',
   '.turbo',
 ])
+const FALLBACK_SEARCH_MAX_FILE_BYTES = 2_000_000
 
 let forceRipgrepFallbackForTesting = false
 
@@ -66,10 +68,14 @@ async function runProcess(command: string, cwd: string): Promise<ProcessResult> 
     stderr: 'pipe',
   })
 
-  const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
-  const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+  const stdoutPromise = collectBoundedText(process.stdout, MAX_SHELL_OUTPUT)
+  const stderrPromise = collectBoundedText(process.stderr, MAX_SHELL_OUTPUT)
   const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
-  return { stdout, stderr, exitCode }
+  return {
+    stdout: appendTruncationNotice(stdout, 'stdout'),
+    stderr: appendTruncationNotice(stderr, 'stderr'),
+    exitCode,
+  }
 }
 
 async function runExecutable(command: string, args: string[], cwd: string): Promise<ProcessResult | null> {
@@ -80,13 +86,15 @@ async function runExecutable(command: string, args: string[], cwd: string): Prom
       stderr: 'pipe',
     })
 
-    const stdoutPromise = process.stdout ? new Response(process.stdout).text() : Promise.resolve('')
-    const stderrPromise = process.stderr ? new Response(process.stderr).text() : Promise.resolve('')
+    const stdoutPromise = collectBoundedText(process.stdout, MAX_SHELL_OUTPUT)
+    const stderrPromise = collectBoundedText(process.stderr, MAX_SHELL_OUTPUT)
     const [stdout, stderr, exitCode] = await Promise.all([stdoutPromise, stderrPromise, process.exited])
-    if (exitCode === 127 && /not found|no such file|ENOENT/i.test(stderr)) {
+    const boundedStdout = appendTruncationNotice(stdout, 'stdout')
+    const boundedStderr = appendTruncationNotice(stderr, 'stderr')
+    if (exitCode === 127 && /not found|no such file|ENOENT/i.test(boundedStderr)) {
       return null
     }
-    return { stdout, stderr, exitCode }
+    return { stdout: boundedStdout, stderr: boundedStderr, exitCode }
   } catch (error) {
     if (isMissingExecutableError(error)) {
       return null
@@ -138,27 +146,22 @@ async function collectFallbackSearchFiles(searchPath: string): Promise<string[]>
   }
 
   const files: string[] = []
-  await collectFallbackSearchFilesFromDirectory(absoluteSearchPath, files)
-  return files.sort((left, right) => left.localeCompare(right))
-}
-
-async function collectFallbackSearchFilesFromDirectory(directory: string, files: string[]): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
-  entries.sort((left, right) => left.name.localeCompare(right.name))
-
-  for (const entry of entries) {
-    const absolutePath = path.join(directory, entry.name)
-    if (entry.isDirectory()) {
-      if (FALLBACK_SEARCH_IGNORED_DIRECTORIES.has(entry.name)) {
-        continue
-      }
-      await collectFallbackSearchFilesFromDirectory(absolutePath, files)
+  const glob = new Glob('**/*')
+  for await (const filePath of glob.scan({
+    cwd: absoluteSearchPath,
+    dot: true,
+    absolute: true,
+    onlyFiles: true,
+    followSymlinks: false,
+  })) {
+    const relativeFromSearch = toPosixPath(path.relative(absoluteSearchPath, filePath))
+    const segments = relativeFromSearch.split('/')
+    if (segments.some((segment) => FALLBACK_SEARCH_IGNORED_DIRECTORIES.has(segment))) {
       continue
     }
-    if (entry.isFile()) {
-      files.push(toPosixPath(relativeWorkspacePath(absolutePath)))
-    }
+    files.push(toPosixPath(relativeWorkspacePath(filePath)))
   }
+  return files.sort((left, right) => left.localeCompare(right))
 }
 
 function compileFallbackSearchPattern(pattern: string): RegExp {
@@ -182,7 +185,11 @@ async function runFallbackSearch(input: { pattern: string; searchPath: string; g
     }
 
     const absolutePath = path.resolve(workspaceRoot, filePath)
-    const content = await readFile(absolutePath, 'utf8').catch(() => null)
+    const file = Bun.file(absolutePath)
+    if (file.size > FALLBACK_SEARCH_MAX_FILE_BYTES) {
+      continue
+    }
+    const content = await file.text().catch(() => null)
     if (content === null || content.includes('\0')) {
       continue
     }

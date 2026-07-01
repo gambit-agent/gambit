@@ -376,6 +376,12 @@ function getToolGroupKey(message: ConversationMessage): string | null {
   return formatToolMessagePresentation(message).heading
 }
 
+function getToolGroupRenderKey(messages: readonly ConversationMessage[]): string {
+  const first = messages[0]?.id ?? 'empty'
+  const last = messages.at(-1)?.id ?? first
+  return `tool-group-${messages.length}-${first}-${last}`
+}
+
 export function groupConversationRenderItems(
   messages: readonly ConversationMessage[],
   transcriptMode: boolean,
@@ -658,7 +664,7 @@ export function ConversationPanel({
       {renderItems.map((item) =>
         item.type === 'tool-group' ? (
           <ToolMessageGroup
-            key={`tool-group-${item.messages.map((message) => message.id).join('-')}`}
+            key={getToolGroupRenderKey(item.messages)}
             messages={item.messages}
             toolMessageAnimationFrame={toolMessageAnimationFrame}
           />

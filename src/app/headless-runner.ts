@@ -499,7 +499,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
           continue
         }
 
-        if (format === 'stream-json') {
+        if (format === 'stream-json' && headless.verbose) {
           if (stage < 1) {
             emitJsonLine({
               type: 'tool_use',

@@ -3,7 +3,7 @@
 This directory contains a small deterministic benchmark for Gambit's headless
 coding-agent mode. It creates isolated fixture workspaces under `/tmp`, runs
 Gambit against each task, validates with the task's test command, and writes
-JSONL traces, diffs, validator output, and a summary JSON file.
+bounded run output, diffs, validator output, and a summary JSON file.
 
 Run the default smoke task:
 
@@ -32,7 +32,7 @@ make sure the required provider credentials are available.
 Each run writes a directory like `/tmp/gambit-bench/run-XXXXXX` with:
 
 - `summary.json` - aggregate score and per-task metrics.
-- `<task>/agent.stdout.jsonl` - Gambit's stream JSON trace.
+- `<task>/agent.stdout.jsonl` - Gambit's compact stream JSON result output.
 - `<task>/agent.stderr.txt` - model/provider/runtime errors.
 - `<task>/validation.stdout.txt` and `<task>/validation.stderr.txt` - validator output.
 - `<task>/diff.patch` - the patch Gambit produced in the fixture workspace.
