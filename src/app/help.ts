@@ -29,13 +29,17 @@ HEADLESS
   --mcp-config <path>                       Path to an MCP server config JSON
 
 ENVIRONMENT
-  OPENROUTER_API_KEY                        API key override; otherwise ~/.gambit/config.json is used
+  OPENROUTER_API_KEY                        OpenRouter key override for /connect
   GAMBIT_MODEL                              Optional default model id
   OPENROUTER_MODEL                          Back-compat default model id override
   OPENAI_CODEX_ACCESS_TOKEN                 Optional Codex subscription access token
   CODEX_AUTH_FILE                           Optional path to Codex auth.json (default ~/.codex/auth.json)
   OPENROUTER_REFERRER                       HTTP-Referer header sent to OpenRouter
   OPENROUTER_TITLE                          X-Title header sent to OpenRouter
+  OPENAI_API_KEY                            OpenAI key override for /connect (otherwise ~/.gambit/config.json)
+  ANTHROPIC_API_KEY                         Anthropic key override for /connect (otherwise ~/.gambit/config.json)
+  ZAI_API_KEY                               Z.AI Coding Plan key override for /connect
+  LMSTUDIO_BASE_URL                         LM Studio server URL override (default http://localhost:1234/v1)
   GAMBIT_MAX_DELEGATION_DEPTH               Nested delegated-agent launch depth (default: 5)
   WORKSPACE_ROOT                            Override the workspace root directory
 `

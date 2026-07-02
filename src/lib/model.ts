@@ -1,9 +1,21 @@
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider'
 import type { LanguageModel } from 'ai'
 
 import { refererHeader, titleHeader } from '../config'
 import { isCodexModel, modelRequiresApiKey } from './codex-auth'
 import { createCodexLanguageModel } from './codex-model'
+import { resolveChatGptAuthToken } from './chatgpt-oauth'
+import { getProviderCredential, setProviderCredential } from './provider-credentials'
+import {
+  getDirectProviderDefinition,
+  isDirectProviderModelId,
+  parseDirectProviderModelId,
+  type DirectProviderId,
+} from './providers'
+import { writeProviderCredential } from '../session/user-config'
 
 export const reasoningEfforts = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'] as const
 export type ReasoningEffort = (typeof reasoningEfforts)[number]
@@ -54,6 +66,15 @@ export function buildOpenRouterModelSettings(options: ModelRuntimeOptions): Open
 
 export { modelRequiresApiKey }
 
+/**
+ * Whether running `modelId` requires an OpenRouter API key. Codex models use a
+ * subscription token instead, and direct-provider models (`openai:`, `chatgpt:`,
+ * `anthropic:`, `lmstudio:`, `zai:`) use their own connected credential (see `/connect`).
+ */
+export function modelNeedsOpenRouterApiKey(modelId: string): boolean {
+  return modelRequiresApiKey(modelId) && !isDirectProviderModelId(modelId)
+}
+
 export interface ModelProvider {
   getModel(modelId: string, settings?: OpenRouterChatSettings): LanguageModel
 }
@@ -81,7 +102,57 @@ class RuntimeModelProvider implements ModelProvider {
       })
     }
 
+    const directProviderRef = parseDirectProviderModelId(modelId)
+    if (directProviderRef) {
+      return buildDirectProviderModel(directProviderRef.providerId, directProviderRef.rawModelId)
+    }
+
     return this.openrouter(modelId, settings)
+  }
+}
+
+function buildDirectProviderModel(providerId: DirectProviderId, rawModelId: string): LanguageModel {
+  const definition = getDirectProviderDefinition(providerId)
+  const credential = getProviderCredential(providerId)
+  if (!credential) {
+    throw new Error(`${definition.name} is not connected. Run /connect to add it.`)
+  }
+
+  switch (providerId) {
+    case 'openai': {
+      const openai = createOpenAI({ apiKey: credential.apiKey ?? undefined, baseURL: credential.baseURL ?? undefined })
+      return openai(rawModelId)
+    }
+    case 'chatgpt':
+      return createCodexLanguageModel({
+        modelId: rawModelId,
+        authToken: async () => resolveChatGptAuthToken(
+          getProviderCredential('chatgpt') ?? credential,
+          async (refreshed) => {
+            setProviderCredential('chatgpt', refreshed)
+            await writeProviderCredential('chatgpt', refreshed)
+          },
+        ),
+      })
+    case 'anthropic': {
+      const anthropic = createAnthropic({ apiKey: credential.apiKey ?? undefined, baseURL: credential.baseURL ?? undefined })
+      return anthropic(rawModelId)
+    }
+    case 'lmstudio':
+    case 'zai': {
+      const baseURL = credential.baseURL ?? definition.defaultBaseURL
+      if (!baseURL) {
+        throw new Error(`${definition.name} has no base URL configured. Run /connect to add it.`)
+      }
+      const compatible = createOpenAICompatible({
+        name: providerId,
+        baseURL,
+        apiKey: credential.apiKey ?? 'placeholder',
+      })
+      return compatible(rawModelId)
+    }
+    default:
+      throw new Error(`Unsupported provider: ${providerId}`)
   }
 }
 

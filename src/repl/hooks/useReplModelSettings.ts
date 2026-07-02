@@ -7,8 +7,8 @@ import { generateId } from '../../lib/id'
 import type { ReasoningEffort } from '../../lib/model'
 import { getModelContextLength } from '../../lib/model-info'
 import { useModelPicker } from '../../lib/modelPicker'
+import { getProviderCredential } from '../../lib/provider-credentials'
 import { readModelSelection, writeModelSelection } from '../../session/model-selection'
-import { readOpenRouterApiKey, writeOpenRouterApiKey } from '../../session/user-config'
 import type { ConversationMessage } from '../../conversation/conversation-types'
 
 interface UseReplModelSettingsOptions {
@@ -18,12 +18,11 @@ interface UseReplModelSettingsOptions {
 
 export function useReplModelSettings({ runtime, messages }: UseReplModelSettingsOptions) {
   const [modelId, setModelId] = useState<string | null>(defaultModel)
-  const [apiKey, setApiKey] = useState<string>(Bun.env.OPENROUTER_API_KEY ?? '')
+  const [apiKey, setApiKey] = useState<string>(() => getProviderCredential('openrouter')?.apiKey ?? '')
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
   const [providerSlug, setProviderSlug] = useState<string | null>(null)
   const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | null>(null)
   const modelSelectionDirtyRef = useRef(false)
-  const apiKeyDirtyRef = useRef(false)
 
   const persistModelSelection = useCallback(
     (nextModelId: string, nextReasoningEffort: ReasoningEffort | null) => {
@@ -43,18 +42,9 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
     [runtime.conversationStore],
   )
 
-  const persistApiKey = useCallback(
-    (nextApiKey: string) => {
-      const trimmedKey = nextApiKey.trim()
-      apiKeyDirtyRef.current = true
-      setApiKey(trimmedKey)
-
-      void writeOpenRouterApiKey(trimmedKey).catch((error) => {
-        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-      })
-    },
-    [runtime.conversationStore],
-  )
+  const refreshOpenRouterCredential = useCallback(() => {
+    setApiKey(getProviderCredential('openrouter')?.apiKey ?? '')
+  }, [])
 
   const modelPicker = useModelPicker({
     apiKey: apiKey.trim().length > 0 ? apiKey.trim() : null,
@@ -114,33 +104,6 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
   }, [runtime.conversationStore])
 
   useEffect(() => {
-    if (Bun.env.OPENROUTER_API_KEY?.trim()) {
-      return
-    }
-
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const persistedApiKey = await readOpenRouterApiKey()
-        if (!persistedApiKey || cancelled || apiKeyDirtyRef.current) {
-          return
-        }
-
-        setApiKey(persistedApiKey)
-      } catch (error) {
-        if (!cancelled) {
-          runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [runtime.conversationStore])
-
-  useEffect(() => {
     let cancelled = false
     const used = estimateContextTokens(messages)
     const selectedModelId = modelId?.trim()
@@ -169,7 +132,7 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
     providerSlug,
     contextUsage,
     persistModelSelection,
-    persistApiKey,
+    refreshOpenRouterCredential,
     modelPicker,
   }
 }

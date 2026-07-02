@@ -20,10 +20,12 @@ type ResponsesEvent = Record<string, unknown>
 interface CodexLanguageModelOptions {
   modelId: string
   reasoningEffort?: 'low' | 'medium' | 'high' | null
+  authToken?: typeof getCodexAuthToken
 }
 
 export function createCodexLanguageModel(options: CodexLanguageModelOptions): LanguageModelV2 {
   const modelId = normalizeCodexModelId(options.modelId)
+  const getAuthToken = options.authToken ?? getCodexAuthToken
   return {
     specificationVersion: 'v2',
     provider: 'openai-codex',
@@ -52,7 +54,7 @@ export function createCodexLanguageModel(options: CodexLanguageModelOptions): La
     },
     async doStream(callOptions) {
       const requestBody = buildRequestBody(modelId, callOptions, options.reasoningEffort)
-      const { accessToken, accountId } = await getCodexAuthToken()
+      const { accessToken, accountId } = await getAuthToken()
       const response = await fetch(CODEX_BASE_URL, {
         method: 'POST',
         headers: {

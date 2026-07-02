@@ -4,13 +4,14 @@ import { useMemo } from 'react'
 
 import {
   codexReasoningEfforts,
-  modelRequiresApiKey,
   reasoningEfforts,
   type ReasoningEffort,
 } from '../../lib/model'
+import { isOpenRouterRoutedModel } from '../../lib/modelPicker'
 import type { ModelPickerState } from '../../lib/modelPicker'
 import type { ModelListItem, ModelProviderOption } from '../../lib/openrouterModels'
 import { isGpt5Model } from '../../lib/openrouterModels'
+import { getProviderDefinition, parseDirectProviderModelId } from '../../lib/providers'
 import { PopupOverlay } from '../components/PopupOverlay'
 import { theme } from '../theme'
 
@@ -27,21 +28,97 @@ export interface ModelPickerOverlayProps {
   onClose?: () => void
 }
 
+interface ModelSourceDetails {
+  badge: string
+  label: string
+  route: string
+}
+
+function formatTokenPricePerMillion(price: string | null): string | null {
+  if (!price) {
+    return null
+  }
+  const value = Number.parseFloat(price)
+  if (!Number.isFinite(value)) {
+    return price
+  }
+  const perMillion = value * 1_000_000
+  if (perMillion === 0) {
+    return '$0/M'
+  }
+  const fractionDigits = perMillion < 1
+    ? { minimumFractionDigits: 2, maximumFractionDigits: perMillion < 0.01 ? 6 : 4 }
+    : { minimumFractionDigits: 0, maximumFractionDigits: 2 }
+  return `$${perMillion.toLocaleString('en-US', fractionDigits)}/M`
+}
+
+function formatRequestPrice(price: string | null): string | null {
+  if (!price || price === '0') {
+    return null
+  }
+  const value = Number.parseFloat(price)
+  if (!Number.isFinite(value)) {
+    return price
+  }
+  return `$${value.toLocaleString('en-US', { maximumFractionDigits: 6 })}/request`
+}
+
 function describePricing(model: ModelListItem): string | null {
   const parts: string[] = []
-  if (model.promptPrice) {
-    parts.push(`in ${model.promptPrice}`)
+  const promptPrice = formatTokenPricePerMillion(model.promptPrice)
+  const completionPrice = formatTokenPricePerMillion(model.completionPrice)
+  const requestPrice = formatRequestPrice(model.requestPrice)
+  if (promptPrice) {
+    parts.push(`input ${promptPrice}`)
   }
-  if (model.completionPrice) {
-    parts.push(`out ${model.completionPrice}`)
+  if (completionPrice) {
+    parts.push(`output ${completionPrice}`)
   }
-  if (model.requestPrice && model.requestPrice !== '0') {
-    parts.push(`request ${model.requestPrice}`)
+  if (requestPrice) {
+    parts.push(`request ${requestPrice}`)
   }
   if (parts.length === 0) {
     return null
   }
   return parts.join(' · ')
+}
+
+function getModelSourceDetails(model: ModelListItem): ModelSourceDetails {
+  const directRef = parseDirectProviderModelId(model.id)
+  if (directRef) {
+    const provider = getProviderDefinition(directRef.providerId)
+    return {
+      badge: provider.id.toUpperCase(),
+      label: provider.name,
+      route: 'direct connector',
+    }
+  }
+
+  if (model.id.startsWith('codex/') || model.id.startsWith('openai-codex/')) {
+    return {
+      badge: 'CODEX',
+      label: 'Codex',
+      route: 'local CLI connector',
+    }
+  }
+
+  if (isOpenRouterRoutedModel(model)) {
+    return {
+      badge: 'OR',
+      label: 'OpenRouter',
+      route: 'routed catalog',
+    }
+  }
+
+  return {
+    badge: 'PRESET',
+    label: model.provider ?? 'Preset',
+    route: 'saved preset',
+  }
+}
+
+function formatTags(tags: readonly string[]): string | null {
+  return tags.length > 0 ? tags.join(', ') : null
 }
 
 function buildOption(
@@ -51,38 +128,43 @@ function buildOption(
   providerSlug: string | null,
 ): SelectOption {
   const name = model.name || model.id
-  const tags: string[] = []
+  const statusTags: string[] = []
+  const featureTags: string[] = []
+  const source = getModelSourceDetails(model)
   if (model.id === currentModelId) {
-    tags.push('current')
+    statusTags.push('current')
     if (reasoningEffort) {
-      tags.push(`effort:${reasoningEffort}`)
+      statusTags.push(`effort ${reasoningEffort}`)
     }
     if (providerSlug) {
-      tags.push(`provider:${providerSlug}`)
+      statusTags.push(`provider ${providerSlug}`)
     }
   }
   if (isGpt5Model(model)) {
-    tags.push('gpt-5')
+    featureTags.push('GPT-5')
   }
   if (model.supportsReasoning) {
-    tags.push('reasoning')
+    featureTags.push('reasoning')
   }
   const pricing = describePricing(model)
   const details: string[] = []
-  if (model.id !== name) {
-    details.push(model.id)
-  }
-  if (model.provider) {
-    details.push(model.provider)
-  }
+  details.push(`${source.label} ${source.route}`)
   if (pricing) {
-    details.push(pricing)
+    details.push(`pricing ${pricing}`)
   }
-  if (tags.length) {
-    details.push(tags.join(', '))
+  const features = formatTags(featureTags)
+  if (features) {
+    details.push(`features ${features}`)
+  }
+  const status = formatTags(statusTags)
+  if (status) {
+    details.push(status)
+  }
+  if (model.id !== name) {
+    details.push(`id ${model.id}`)
   }
   return {
-    name,
+    name: `[${source.badge}] ${name}`,
     description: details.join(' · ') || model.id,
     value: model.id,
   }
@@ -92,7 +174,7 @@ function getEffortOptions(model: ModelListItem | null): readonly ReasoningEffort
   if (!model?.supportsReasoning) {
     return []
   }
-  return modelRequiresApiKey(model.id) ? reasoningEfforts : codexReasoningEfforts
+  return isOpenRouterRoutedModel(model) ? reasoningEfforts : codexReasoningEfforts
 }
 
 function describeProviderOption(provider: ModelProviderOption): string {
@@ -115,14 +197,17 @@ function describeProviderOption(provider: ModelProviderOption): string {
 
 function describeProviderPricing(provider: ModelProviderOption): string | null {
   const parts: string[] = []
-  if (provider.promptPrice) {
-    parts.push(`in ${provider.promptPrice}`)
+  const promptPrice = formatTokenPricePerMillion(provider.promptPrice)
+  const completionPrice = formatTokenPricePerMillion(provider.completionPrice)
+  const requestPrice = formatRequestPrice(provider.requestPrice)
+  if (promptPrice) {
+    parts.push(`input ${promptPrice}`)
   }
-  if (provider.completionPrice) {
-    parts.push(`out ${provider.completionPrice}`)
+  if (completionPrice) {
+    parts.push(`output ${completionPrice}`)
   }
-  if (provider.requestPrice && provider.requestPrice !== '0') {
-    parts.push(`request ${provider.requestPrice}`)
+  if (requestPrice) {
+    parts.push(`request ${requestPrice}`)
   }
   return parts.length > 0 ? parts.join(' · ') : null
 }
@@ -131,7 +216,7 @@ function buildProviderOptions(providers: readonly ModelProviderOption[]): Select
   return [
     {
       name: 'Auto routing',
-      description: 'Use OpenRouter default load balancing',
+      description: 'Let OpenRouter choose the best available provider',
       value: '',
     },
     ...providers.map((provider) => ({
@@ -170,7 +255,7 @@ export function ModelPickerOverlay({
   const providerSelectOptions = useMemo(() => buildProviderOptions(state.providerOptions), [state.providerOptions])
   const listHeight = Math.max(5, Math.min(14, terminalHeight - 13))
   const effortOptions = getEffortOptions(state.pendingModel)
-  const showProviderOptions = Boolean(state.pendingModel && modelRequiresApiKey(state.pendingModel.id))
+  const showProviderOptions = Boolean(state.pendingModel && isOpenRouterRoutedModel(state.pendingModel))
 
   function handleFilterSubmit(value: string): void
   function handleFilterSubmit(event: SubmitEvent): void
@@ -303,7 +388,7 @@ export function ModelPickerOverlay({
             textColor={theme.userFg}
             focusedBackgroundColor={theme.panel}
             cursorColor={theme.headerAccent}
-            placeholder="Search models"
+            placeholder="Search by model, provider, feature, or connector"
             placeholderColor={theme.statusFg}
           />
         </box>
@@ -327,6 +412,13 @@ export function ModelPickerOverlay({
         {state.fetchState === 'success' && options.length === 0 ? (
           <box paddingLeft={3} paddingRight={3}>
             <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No models match the current filter." />
+          </box>
+        ) : null}
+        {options.length > 0 ? (
+          <box paddingLeft={3} paddingRight={3}>
+            <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
+              <span fg={theme.headerAccent}>[OR]</span><span> OpenRouter  </span><span fg={theme.headerAccent}>[OPENAI]</span><span> direct connectors  </span><span fg={theme.headerAccent}>[CODEX]</span><span> local/preset</span>
+            </text>
           </box>
         ) : null}
         {options.length > 0 ? (

@@ -9,7 +9,9 @@ import {
   setConversationGoal,
 } from '../conversation/goal'
 import { setMCPConfigPathOverride } from '../lib/mcp-config'
-import { modelRequiresApiKey } from '../lib/model'
+import { modelNeedsOpenRouterApiKey } from '../lib/model'
+import { getProviderCredential, isProviderConnected } from '../lib/provider-credentials'
+import { getDirectProviderDefinition, parseDirectProviderModelId } from '../lib/providers'
 import { executePromptTemplate } from '../lib/promptTemplates'
 import { formatSlashCommandMessage } from '../lib/slash-command-format'
 import { executeSlashCommand } from '../lib/slashCommands'
@@ -18,7 +20,6 @@ import type { PermissionMode } from '../permissions/permission-rules'
 import { expandFileMentions } from '../repl/file-mentions'
 import { routeInput } from '../repl/input-router'
 import { readModelSelection } from '../session/model-selection'
-import { readOpenRouterApiKey } from '../session/user-config'
 import { cleanupAllMCPClients } from '../tools/mcp'
 import {
   clearWorkflowMessages,
@@ -322,10 +323,6 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const stderr = options.stderr ?? process.stderr
   const { headless } = options
 
-  const apiKey = Bun.env.OPENROUTER_API_KEY?.trim()
-    || await readOpenRouterApiKey().catch(() => null)
-    || ''
-
   const trimmedPrompt = headless.prompt.trim()
   if (!trimmedPrompt) {
     stderr.write('Error: --prompt/-p requires a non-empty prompt.\n')
@@ -352,6 +349,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
 
   const deferInit = options.sessionMode === 'continue' || options.sessionMode === 'resume-id'
   const runtime = await bootstrapAppRuntime({ deferConversationInitialization: deferInit })
+  const apiKey = getProviderCredential('openrouter')?.apiKey ?? ''
 
   const permissionMode: PermissionMode = headless.permissionMode
     ? mapPermissionMode(headless.permissionMode)
@@ -427,13 +425,26 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
     return 1
   }
 
-  if (prepared.kind === 'run' && modelRequiresApiKey(modelId!) && !apiKey) {
-    stderr.write('Error: an OpenRouter API key is required for -p mode with OpenRouter models. Set OPENROUTER_API_KEY or save one with :key <token>.\n')
-    process.off('SIGINT', onSignal)
-    process.off('SIGTERM', onSignal)
-    unsubscribePermissions()
-    await cleanupAllMCPClients().catch(() => undefined)
-    return 1
+  if (prepared.kind === 'run') {
+    const directProviderRef = parseDirectProviderModelId(modelId!)
+    if (directProviderRef && !isProviderConnected(directProviderRef.providerId)) {
+      const name = getDirectProviderDefinition(directProviderRef.providerId).name
+      stderr.write(`Error: ${name} is not connected. Run /connect ${directProviderRef.providerId} in the TUI first.\n`)
+      process.off('SIGINT', onSignal)
+      process.off('SIGTERM', onSignal)
+      unsubscribePermissions()
+      await cleanupAllMCPClients().catch(() => undefined)
+      return 1
+    }
+
+    if (!directProviderRef && modelNeedsOpenRouterApiKey(modelId!) && !apiKey) {
+      stderr.write('Error: an OpenRouter API key is required for -p mode with OpenRouter models. Run /connect openrouter in the TUI first.\n')
+      process.off('SIGINT', onSignal)
+      process.off('SIGTERM', onSignal)
+      unsubscribePermissions()
+      await cleanupAllMCPClients().catch(() => undefined)
+      return 1
+    }
   }
 
   if (format === 'stream-json') {

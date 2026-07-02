@@ -26,6 +26,7 @@ import {
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
 import { readUserConfig } from '../session/user-config'
 import { applyTheme } from '../ui/theme'
+import { primeProviderCredentials } from '../lib/provider-credentials'
 
 export interface ConversationRuntimeServices {
   baseSystemPrompt: string
@@ -98,6 +99,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   if (userConfig?.theme) {
     try { applyTheme(userConfig.theme) } catch { /* non-fatal */ }
   }
+  primeProviderCredentials(userConfig?.providers ?? {})
   const runtimeMaxDelegationDepth = resolveMaxDelegationDepth(userConfig?.maxDepth)
 
   const memoryStore = new MemoryStore()

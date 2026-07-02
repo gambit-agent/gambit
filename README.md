@@ -13,7 +13,7 @@
 
 ## Overview
 
-Gambit CLI is a terminal-based UI for creating, managing, and interacting with AI agents. It runs on [OpenTUI](https://github.com/opentui/opentui), uses the [Vercel AI SDK](https://sdk.vercel.ai/) with OpenRouter, and ships a growing set of built-in tools plus MCP (Model Context Protocol) support for connecting external tool servers.
+Gambit CLI is a terminal-based UI for creating, managing, and interacting with AI agents. It runs on [OpenTUI](https://github.com/opentui/opentui), uses the [Vercel AI SDK](https://sdk.vercel.ai/), and connects model providers through `/connect`, including OpenRouter, OpenAI, ChatGPT Plus/Pro, Anthropic, LM Studio, and Z.AI Coding Plan.
 
 Features:
 
@@ -132,13 +132,17 @@ gambit -r <conversation-id>  # resume a specific conversation
 Inside the REPL, colon commands drive the shell itself:
 
 - `:model` — switch the active model
-- `:key` — set or update the OpenRouter API key
+- `:connect` — connect OpenAI, ChatGPT Plus/Pro, Anthropic, LM Studio, or Z.AI
 - `:mcp` — manage MCP servers
 - `:resume` — open the resume picker
 - `:goal <goal>` — set and run a Codex-style autonomous conversation goal
 - `:reset` — clear the current session state
 
 Slash commands (`/name [args]`) are loaded from markdown files in `~/.gambit/commands/` (user scope) and `./.gambit/commands/` (project scope). They support frontmatter for `description`, `allowed-tools`, `model`, and `disable-model-invocation`. Built-ins include `/model`, `/resume`, `/clear`, `/goal <goal>`, and `/workflow <task>`; `/goal <goal>` starts a Codex-style autonomous run immediately, `/goal set <goal>` stores without running, `/goal run` resumes the stored goal, and `/goal clear` removes it. `/workflow <task>` asks Gambit to create and run a dynamic multi-agent workflow for the task. `/workflow edit <change>` revises and reruns the most recent workflow script, `/workflow clear` removes completed workflow result messages from the conversation, and `/workflow stop` shows the abort shortcut. Active workflows run inside the current generation; press `Ctrl+C` to stop the active workflow/model run.
+
+### Providers
+
+Run `/connect` to configure **OpenRouter**, **OpenAI**, **ChatGPT Plus/Pro**, **Anthropic**, **LM Studio** (local, no API key required), or **Z.AI Coding Plan**. API-key providers ask for a key, LM Studio accepts a base URL, and ChatGPT Plus/Pro starts an OAuth device-code login. OpenRouter remains the default routing path for bare model IDs like `anthropic/claude-sonnet-4`; direct providers show up in `/model` as `<provider>:<model>` entries such as `openai:gpt-4o` or `chatgpt:gpt-5.5`. Re-run `/connect <provider>` on an already-connected provider to disconnect it. API-key credentials can also be supplied via `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ZAI_API_KEY`, or `LMSTUDIO_BASE_URL`.
 
 Dynamic workflows are useful for decomposable work such as fan-out research, adversarial review, tournament-style comparisons, large migrations, and loop-until-done investigations. The model can also trigger a workflow from a plain prompt such as “use a workflow to verify every claim in this draft.”
 

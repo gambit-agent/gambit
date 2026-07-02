@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { buildModelSearchText, filterModels, isFreeModel } from './modelPicker'
+import { buildModelSearchText, filterModels, isFreeModel, isOpenRouterRoutedModel } from './modelPicker'
 import type { ModelListItem } from './openrouterModels'
 
 function model(overrides: Partial<ModelListItem> & Pick<ModelListItem, 'id'>): ModelListItem {
@@ -47,4 +47,12 @@ test('filters models by free tag, provider, description, and multiple terms', ()
     'deepseek/deepseek-chat-v3-0324:free',
   ])
   expect(filterModels(models, 'reasoning gpt5').map((entry) => entry.id)).toEqual(['openai/gpt-5'])
+})
+
+test('isOpenRouterRoutedModel is true for OpenRouter ids, false for codex and direct-provider ids', () => {
+  expect(isOpenRouterRoutedModel({ id: 'openai/gpt-5' })).toBe(true)
+  expect(isOpenRouterRoutedModel({ id: 'codex/gpt-5.1-codex' })).toBe(false)
+  expect(isOpenRouterRoutedModel({ id: 'openai:gpt-4o' })).toBe(false)
+  expect(isOpenRouterRoutedModel({ id: 'chatgpt:gpt-5.5' })).toBe(false)
+  expect(isOpenRouterRoutedModel({ id: 'lmstudio:qwen2.5-coder-32b' })).toBe(false)
 })

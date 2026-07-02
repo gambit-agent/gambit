@@ -53,6 +53,15 @@ interface ReplKeyboardOptions {
     confirm: () => void
     cancel: () => void
   }
+  connectPicker?: {
+    isOpen: boolean
+    step: 'list' | 'input' | 'oauth' | 'disconnect-confirm'
+    moveSelection: (delta: number) => void
+    enterSelected: () => void
+    confirmDisconnect: () => void
+    back: () => void
+    close: () => void
+  }
   transcriptMode: boolean
   setTranscriptMode: Dispatch<SetStateAction<boolean>>
   toggleTheme: () => void
@@ -207,6 +216,60 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
           }
           if (key.name === 'return' || key.name === 'enter') {
             options.themePicker.confirm()
+          }
+          return
+        }
+
+        if (options.connectPicker?.isOpen) {
+          if (options.connectPicker.step === 'list') {
+            if (key.name === 'escape') {
+              options.connectPicker.close()
+              return
+            }
+            if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
+              options.connectPicker.moveSelection(-1)
+              return
+            }
+            if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
+              options.connectPicker.moveSelection(1)
+              return
+            }
+            if (key.name === 'return' || key.name === 'enter') {
+              options.connectPicker.enterSelected()
+              return
+            }
+            return
+          }
+
+          if (options.connectPicker.step === 'disconnect-confirm') {
+            if (key.name === 'escape') {
+              options.connectPicker.back()
+              return
+            }
+            if (key.name === 'return' || key.name === 'enter') {
+              options.connectPicker.confirmDisconnect()
+              return
+            }
+            return
+          }
+
+          if (options.connectPicker.step === 'oauth') {
+            if (key.name === 'escape') {
+              options.connectPicker.back()
+              return
+            }
+            if (key.name === 'return' || key.name === 'enter') {
+              options.connectPicker.enterSelected()
+              return
+            }
+            return
+          }
+
+          // step === 'input': the focused <input> handles typing and Enter via
+          // onSubmit; only Esc needs global handling to step back to the list.
+          if (key.name === 'escape') {
+            options.connectPicker.back()
+            return
           }
           return
         }

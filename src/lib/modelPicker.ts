@@ -8,6 +8,9 @@ import {
   reasoningEfforts,
   type ReasoningEffort,
 } from "./model"
+import { fetchDirectProviderModels, getDefaultDirectProviderModels } from "./directProviderModels"
+import { getProviderCredential, listConnectedDirectProviderIds } from "./provider-credentials"
+import { buildDirectProviderModelId, isDirectProviderModelId, type DirectProviderId } from "./providers"
 import {
   fetchOpenRouterModelProviders,
   fetchOpenRouterModels,
@@ -80,6 +83,48 @@ export function isFreeModel(model: ModelListItem): boolean {
   return prices.every((price) => Number.parseFloat(price) === 0)
 }
 
+/**
+ * Whether `model` should go through the OpenRouter-specific "options" screen
+ * (reasoning effort + provider routing). Codex models and directly-connected
+ * provider models (see `/connect`) select immediately instead.
+ */
+export function isOpenRouterRoutedModel(model: Pick<ModelListItem, "id">): boolean {
+  return modelRequiresApiKey(model.id) && !isDirectProviderModelId(model.id)
+}
+
+function directProviderModelToListItem(providerId: DirectProviderId, rawModelId: string, name: string): ModelListItem {
+  return {
+    id: buildDirectProviderModelId(providerId, rawModelId),
+    name,
+    description: null,
+    provider: providerId,
+    promptPrice: null,
+    completionPrice: null,
+    requestPrice: null,
+    supportsReasoning: providerId === 'chatgpt',
+  }
+}
+
+/** Synchronous curated entries for every currently-connected direct provider. */
+function buildConnectedProviderModels(): ModelListItem[] {
+  return listConnectedDirectProviderIds().flatMap((providerId) =>
+    getDefaultDirectProviderModels(providerId).map((model) => directProviderModelToListItem(providerId, model.id, model.name)),
+  )
+}
+
+/** Merges connected-provider entries into `models`, without duplicating ids. */
+function mergeConnectedProviderModels(models: readonly ModelListItem[]): ModelListItem[] {
+  const existingIds = new Set(models.map((model) => model.id))
+  const additions = buildConnectedProviderModels().filter((model) => !existingIds.has(model.id))
+  return additions.length > 0 ? [...models, ...additions] : [...models]
+}
+
+/** Replaces any existing entries for `providerId` with a freshly-fetched list. */
+function replaceProviderModels(models: readonly ModelListItem[], providerId: DirectProviderId, replacement: ModelListItem[]): ModelListItem[] {
+  const kept = models.filter((model) => model.provider !== providerId)
+  return [...kept, ...replacement]
+}
+
 export function buildModelSearchText(model: ModelListItem): string {
   const tags = [
     model.id,
@@ -122,7 +167,7 @@ function buildFallbackModels(): ModelListItem[] {
     [defaultModel, ...freeModelPresets, ...codexModelPresets]
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   )
-  return Array.from(candidates).map((id) => {
+  const presets = Array.from(candidates).map((id) => {
     const provider = id.includes("/") ? id.split("/")[0] ?? null : null
     return {
       id,
@@ -135,14 +180,15 @@ function buildFallbackModels(): ModelListItem[] {
       supportsReasoning: id.startsWith('codex/') || id.startsWith('openai-codex/'),
     }
   })
+  return mergeConnectedProviderModels(presets)
 }
 
 function shouldConfigureModel(model: ModelListItem): boolean {
-  return model.supportsReasoning || modelRequiresApiKey(model.id)
+  return model.supportsReasoning || isOpenRouterRoutedModel(model)
 }
 
 function getAllowedReasoningEfforts(model: ModelListItem): readonly ReasoningEffort[] {
-  return modelRequiresApiKey(model.id) ? reasoningEfforts : codexReasoningEfforts
+  return isOpenRouterRoutedModel(model) ? reasoningEfforts : codexReasoningEfforts
 }
 
 function getInitialReasoningEffort(
@@ -225,7 +271,7 @@ export function useModelPicker({
       if (fallback.length > 0) {
         setAvailableModels(fallback)
       }
-      setHint("Set an OpenRouter API key with /key <token> to load the full OpenRouter catalog.")
+      setHint("Connect OpenRouter with /connect openrouter to load the full OpenRouter catalog.")
       return
     }
 
@@ -243,7 +289,7 @@ export function useModelPicker({
         if (cancelled) {
           return
         }
-        setAvailableModels(models)
+        setAvailableModels(mergeConnectedProviderModels(models))
         setFetchState("success")
         setFetchKey(targetKey)
         setHint(null)
@@ -280,7 +326,32 @@ export function useModelPicker({
   }, [currentReasoning, isOpen, pendingModel])
 
   useEffect(() => {
-    if (!isOpen || mode !== "options" || !pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+    if (!isOpen) {
+      return
+    }
+
+    let cancelled = false
+    for (const providerId of listConnectedDirectProviderIds()) {
+      const credential = getProviderCredential(providerId)
+      if (!credential) {
+        continue
+      }
+      void fetchDirectProviderModels(providerId, credential).then((models) => {
+        if (cancelled) {
+          return
+        }
+        const items = models.map((model) => directProviderModelToListItem(providerId, model.id, model.name))
+        setAvailableModels((current) => replaceProviderModels(current, providerId, items))
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || mode !== "options" || !pendingModel || !isOpenRouterRoutedModel(pendingModel)) {
       setProviderOptions([])
       setProviderFetchState("idle")
       setProviderFetchError(null)
@@ -527,7 +598,7 @@ export function useModelPicker({
 
   const moveProviderSelection = useCallback(
     (delta: number) => {
-      if (!pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+      if (!pendingModel || !isOpenRouterRoutedModel(pendingModel)) {
         return
       }
       setSelectedProviderIndex((previous) => clampProviderIndex(previous + delta, providerOptions))
@@ -538,7 +609,7 @@ export function useModelPicker({
 
   const setProviderSelection = useCallback(
     (index: number) => {
-      if (!pendingModel || !modelRequiresApiKey(pendingModel.id)) {
+      if (!pendingModel || !isOpenRouterRoutedModel(pendingModel)) {
         return
       }
       setSelectedProviderIndex(clampProviderIndex(index, providerOptions))
@@ -554,7 +625,7 @@ export function useModelPicker({
     }
 
     const effort = pendingModel.supportsReasoning ? reasoningInput as ReasoningEffort : null
-    const providerSlug = modelRequiresApiKey(pendingModel.id)
+    const providerSlug = isOpenRouterRoutedModel(pendingModel)
       ? getProviderSlugAtIndex(providerOptions, clampProviderIndex(providerIndex, providerOptions))
       : null
     setReasoningError(null)

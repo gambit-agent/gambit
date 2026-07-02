@@ -43,6 +43,7 @@ import {
 import { useClipboardSelection } from './hooks/useClipboardSelection'
 import { useComposerTextarea } from './hooks/useComposerTextarea'
 import { useConversationAutoScroll } from './hooks/useConversationAutoScroll'
+import { useConnectProvider } from './hooks/useConnectProvider'
 import { usePlanApprovalPreview } from './hooks/usePlanApprovalPreview'
 import { useReplKeyboard } from './hooks/useReplKeyboard'
 import { useReplModelSettings } from './hooks/useReplModelSettings'
@@ -204,11 +205,20 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     providerSlug,
     contextUsage,
     persistModelSelection,
-    persistApiKey,
+    refreshOpenRouterCredential,
     modelPicker,
   } = useReplModelSettings({
     runtime,
     messages: conversation.messages,
+  })
+
+  const connectProvider = useConnectProvider({
+    runtime,
+    onProviderCredentialChange: (providerId) => {
+      if (providerId === 'openrouter') {
+        refreshOpenRouterCredential()
+      }
+    },
   })
 
   const {
@@ -424,6 +434,15 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       confirm: confirmThemeSelection,
       cancel: cancelThemePicker,
     },
+    connectPicker: {
+      isOpen: connectProvider.state.isOpen,
+      step: connectProvider.state.step,
+      moveSelection: connectProvider.moveSelection,
+      enterSelected: connectProvider.enterSelected,
+      confirmDisconnect: connectProvider.confirmDisconnect,
+      back: connectProvider.back,
+      close: connectProvider.close,
+    },
     setPermissionExplainOpen,
     taskDrawer: {
       isOpen: tasksOpen,
@@ -458,12 +477,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     openModelPicker,
     openSessionPicker,
     startFreshConversation,
-    persistApiKey,
     persistModelSelection,
     handleModelFilterSubmit: handleFilterSubmit,
     modelPickerFetchState: modelPickerState.fetchState,
     setMcpOverlayOpen,
     openThemesPicker,
+    openConnectPicker: connectProvider.open,
   })
 
   const setConversationMessages = useCallback(
@@ -486,6 +505,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     !sessionPickerState.isOpen &&
     !mcpOverlayOpen &&
     !themesOverlayOpen &&
+    !connectProvider.state.isOpen &&
     !permissionSnapshot.activeRequest &&
     !questionSnapshot.activeRequest
 
@@ -571,6 +591,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     sessionPickerOpen: sessionPickerState.isOpen,
     mcpOverlayOpen,
     themesOverlayOpen,
+    connectPickerOpen: connectProvider.state.isOpen,
     permissionOpen: Boolean(permissionSnapshot.activeRequest),
     questionOpen: Boolean(questionSnapshot.activeRequest),
   })
@@ -660,6 +681,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         themePickerEntries={themePickerEntries}
         themePickerIndex={themePickerIndex}
         themePickerActiveId={activeThemeId}
+        connectPickerState={connectProvider.state}
         permissionRequest={permissionSnapshot.activeRequest}
         permissionExplainOpen={permissionExplainOpen}
         activePlanContent={activePlanContent}
@@ -698,6 +720,13 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         onThemeMove={moveThemeSelection}
         onThemeSelect={confirmThemeSelection}
         onThemeClose={cancelThemePicker}
+        onConnectMove={connectProvider.moveSelection}
+        onConnectEnter={connectProvider.enterSelected}
+        onConnectInputChange={connectProvider.handleInputChange}
+        onConnectSubmitInput={connectProvider.submitInput}
+        onConnectConfirmDisconnect={connectProvider.confirmDisconnect}
+        onConnectBack={connectProvider.back}
+        onConnectClose={connectProvider.close}
       />
 
       <ReplComposer

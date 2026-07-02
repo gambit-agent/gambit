@@ -9,7 +9,9 @@ import {
   setConversationGoal,
 } from '../../conversation/goal'
 import { generateId } from '../../lib/id'
-import { modelRequiresApiKey, type ReasoningEffort } from '../../lib/model'
+import { modelNeedsOpenRouterApiKey, type ReasoningEffort } from '../../lib/model'
+import { isProviderConnected } from '../../lib/provider-credentials'
+import { getDirectProviderDefinition, parseDirectProviderModelId } from '../../lib/providers'
 import {
   buildPromptTemplateListDescription,
   executePromptTemplate,
@@ -52,12 +54,12 @@ export function useReplSubmit({
   openModelPicker,
   openSessionPicker,
   startFreshConversation,
-  persistApiKey,
   persistModelSelection,
   handleModelFilterSubmit,
   modelPickerFetchState,
   setMcpOverlayOpen,
   openThemesPicker,
+  openConnectPicker,
 }: {
   runtime: AppRuntime
   conversation: SubmitConversationSnapshot
@@ -70,12 +72,12 @@ export function useReplSubmit({
   openModelPicker: (query?: string) => void
   openSessionPicker: (query?: string) => void
   startFreshConversation: () => Promise<void>
-  persistApiKey: (nextApiKey: string) => void
   persistModelSelection: (nextModelId: string, nextReasoningEffort: ReasoningEffort | null) => void
   handleModelFilterSubmit: (value: string) => void
   modelPickerFetchState: string
   setMcpOverlayOpen: (open: boolean) => void
   openThemesPicker: () => void
+  openConnectPicker: (providerId?: string) => void
 }) {
   const getRunConfig = useCallback(
     (action: string): RunConfig | null => {
@@ -86,8 +88,18 @@ export function useReplSubmit({
       }
 
       const trimmedKey = apiKey.trim()
-      if (modelRequiresApiKey(selectedModelId) && !trimmedKey) {
-        runtime.conversationStore.setError(`Set an OpenRouter API key before ${action} (/key <token>).`)
+      const directProviderRef = parseDirectProviderModelId(selectedModelId)
+      if (directProviderRef) {
+        if (!isProviderConnected(directProviderRef.providerId)) {
+          const name = getDirectProviderDefinition(directProviderRef.providerId).name
+          runtime.conversationStore.setError(`${name} is not connected before ${action} (/connect ${directProviderRef.providerId}).`)
+          return null
+        }
+        return { modelId: selectedModelId, apiKey: trimmedKey }
+      }
+
+      if (modelNeedsOpenRouterApiKey(selectedModelId) && !trimmedKey) {
+        runtime.conversationStore.setError(`Connect OpenRouter before ${action} (/connect openrouter).`)
         return null
       }
 
@@ -298,6 +310,12 @@ export function useReplSubmit({
         return
       }
 
+      if (routed.kind === 'local-ui' && routed.channel === 'slash' && routed.name === 'connect') {
+        clearComposer()
+        openConnectPicker(routed.argument || undefined)
+        return
+      }
+
       if (routed.channel === 'template') {
         const execution = await executePromptTemplate(routed.name, routed.argument)
         if (!execution) {
@@ -331,19 +349,6 @@ export function useReplSubmit({
 
         if (routed.name === 'reset') {
           await startFreshConversation()
-          return
-        }
-
-        if (routed.name === 'key') {
-          if (!routed.argument) {
-            runtime.conversationStore.setError('Usage: /key <OPENROUTER_API_KEY>')
-            return
-          }
-          persistApiKey(routed.argument)
-          await pushSystemMessage(
-            runtime,
-            `Saved OpenRouter API key to user config (${routed.argument.trim().length} characters provided).`,
-          )
           return
         }
 
@@ -549,13 +554,13 @@ export function useReplSubmit({
       modelId,
       openModelPicker,
       openSessionPicker,
-      persistApiKey,
       providerSlug,
       reasoningEffort,
       runUserPrompt,
       runtime,
       setMcpOverlayOpen,
       openThemesPicker,
+      openConnectPicker,
       startFreshConversation,
       thinkingEnabled,
     ],

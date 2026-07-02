@@ -1,4 +1,5 @@
 import type { ModelPickerState } from '../../lib/modelPicker'
+import type { ConnectProviderState } from '../hooks/useConnectProvider'
 import type { ThemePickerEntry } from '../../ui/overlays/ThemePickerOverlay'
 import type { PermissionRequestRecord } from '../../permissions/permission-types'
 import type { TaskRecord } from '../../tasks/task-types'
@@ -14,12 +15,13 @@ import {
   type SessionPickerOption,
 } from '../../ui/overlays/SessionPickerOverlay'
 import { ThemePickerOverlay } from '../../ui/overlays/ThemePickerOverlay'
+import { ConnectProviderOverlay } from '../../ui/overlays/ConnectProviderOverlay'
 import { ModelPickerOverlay } from '../../ui/model-picker/ModelPickerOverlay'
 import { listMCPServerConfigs } from '../../lib/mcp-config'
 import type { SessionPickerState } from '../hooks/useSessionPicker'
 import { TaskDrawer } from './TaskDrawer'
 
-type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'model' | 'session' | null
+type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'connect' | 'model' | 'session' | null
 
 export interface ReplOverlayManagerProps {
   sessionInitializing: boolean
@@ -32,6 +34,7 @@ export interface ReplOverlayManagerProps {
   themePickerEntries: ThemePickerEntry[]
   themePickerIndex: number
   themePickerActiveId: string
+  connectPickerState: ConnectProviderState
   permissionRequest: PermissionRequestRecord | null
   permissionExplainOpen: boolean
   activePlanContent: string | null
@@ -59,6 +62,13 @@ export interface ReplOverlayManagerProps {
   onThemeMove: (delta: number) => void
   onThemeSelect: () => void
   onThemeClose: () => void
+  onConnectMove: (delta: number) => void
+  onConnectEnter: () => void
+  onConnectInputChange: (value: string) => void
+  onConnectSubmitInput: () => void
+  onConnectConfirmDisconnect: () => void
+  onConnectBack: () => void
+  onConnectClose: () => void
 }
 
 export function getReplOverlayFocus(options: {
@@ -67,6 +77,7 @@ export function getReplOverlayFocus(options: {
   sessionPickerOpen: boolean
   mcpOverlayOpen: boolean
   themesOverlayOpen: boolean
+  connectPickerOpen: boolean
   permissionOpen: boolean
   questionOpen: boolean
 }): {
@@ -85,6 +96,8 @@ export function getReplOverlayFocus(options: {
           ? 'mcp'
           : options.themesOverlayOpen
             ? 'themes'
+          : options.connectPickerOpen
+            ? 'connect'
           : options.modelPickerOpen
             ? 'model'
             : options.sessionPickerOpen
@@ -111,6 +124,7 @@ export function ReplOverlayManager({
   themePickerEntries,
   themePickerIndex,
   themePickerActiveId,
+  connectPickerState,
   permissionRequest,
   permissionExplainOpen,
   activePlanContent,
@@ -138,6 +152,13 @@ export function ReplOverlayManager({
   onThemeMove,
   onThemeSelect,
   onThemeClose,
+  onConnectMove,
+  onConnectEnter,
+  onConnectInputChange,
+  onConnectSubmitInput,
+  onConnectConfirmDisconnect,
+  onConnectBack,
+  onConnectClose,
 }: ReplOverlayManagerProps) {
   const focus = getReplOverlayFocus({
     sessionInitializing,
@@ -145,6 +166,7 @@ export function ReplOverlayManager({
     sessionPickerOpen: sessionPickerState.isOpen,
     mcpOverlayOpen,
     themesOverlayOpen,
+    connectPickerOpen: connectPickerState.isOpen,
     permissionOpen: Boolean(permissionRequest),
     questionOpen,
   })
@@ -193,6 +215,19 @@ export function ReplOverlayManager({
           onMove={onThemeMove}
           onSelect={onThemeSelect}
           onClose={onThemeClose}
+        />
+      ) : null}
+
+      {connectPickerState.isOpen ? (
+        <ConnectProviderOverlay
+          state={connectPickerState}
+          onMove={onConnectMove}
+          onEnter={onConnectEnter}
+          onInputChange={onConnectInputChange}
+          onSubmitInput={onConnectSubmitInput}
+          onConfirmDisconnect={onConnectConfirmDisconnect}
+          onBack={onConnectBack}
+          onClose={onConnectClose}
         />
       ) : null}
 
