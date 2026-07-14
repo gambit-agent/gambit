@@ -10,6 +10,7 @@ import type {
 } from '@ai-sdk/provider'
 
 import { getCodexAuthToken, normalizeCodexModelId } from './codex-auth'
+import type { ReasoningEffort } from './model'
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses'
 const OPENAI_BETA = 'responses=experimental'
@@ -19,7 +20,7 @@ type ResponsesEvent = Record<string, unknown>
 
 interface CodexLanguageModelOptions {
   modelId: string
-  reasoningEffort?: 'low' | 'medium' | 'high' | null
+  reasoningEffort?: ReasoningEffort | null
   authToken?: typeof getCodexAuthToken
 }
 
@@ -87,7 +88,7 @@ export function createCodexLanguageModel(options: CodexLanguageModelOptions): La
 function buildRequestBody(
   modelId: string,
   options: LanguageModelV2CallOptions,
-  reasoningEffort?: 'low' | 'medium' | 'high' | null,
+  reasoningEffort?: ReasoningEffort | null,
 ): Record<string, unknown> {
   const { instructions, input } = convertPrompt(options.prompt)
   const body: Record<string, unknown> = {

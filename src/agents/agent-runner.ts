@@ -2,7 +2,7 @@ import { type ToolSet } from 'ai'
 
 import { generateId } from '../lib/id'
 import { toCoreMessages } from '../lib/messages'
-import { buildOpenRouterModelSettings, createModelSelector, type ReasoningEffort } from '../lib/model'
+import { buildModelRuntimeSettings, createModelSelector, type ReasoningEffort } from '../lib/model'
 import { ModelStreamRunner } from '../lib/streaming/model-stream-runner'
 import { formatToolEvent } from '../lib/toolSummaries'
 import { getMemoryPrompt } from '../memory/memory-prompt'
@@ -63,7 +63,7 @@ export class AgentRunner {
       ...(options.extraTools ?? {}),
     }
     const selectModel = createModelSelector(options.apiKey)
-    const modelSettings = buildOpenRouterModelSettings({
+    const modelSettings = buildModelRuntimeSettings({
       reasoningEffort: options.reasoningEffort,
       providerSlug: options.providerSlug,
     })

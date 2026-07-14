@@ -5,10 +5,15 @@ import {
   codexReasoningEfforts,
   modelRequiresApiKey,
   normalizeProviderSlug,
-  reasoningEfforts,
+  openRouterReasoningEfforts,
   type ReasoningEffort,
 } from "./model"
-import { fetchDirectProviderModels, getDefaultDirectProviderModels } from "./directProviderModels"
+import {
+  fetchCodexSubscriptionModels,
+  fetchDirectProviderModels,
+  getDefaultDirectProviderModels,
+  type DirectProviderModel,
+} from "./directProviderModels"
 import { getProviderCredential, listConnectedDirectProviderIds } from "./provider-credentials"
 import { buildDirectProviderModelId, isDirectProviderModelId, type DirectProviderId } from "./providers"
 import {
@@ -92,23 +97,33 @@ export function isOpenRouterRoutedModel(model: Pick<ModelListItem, "id">): boole
   return modelRequiresApiKey(model.id) && !isDirectProviderModelId(model.id)
 }
 
-function directProviderModelToListItem(providerId: DirectProviderId, rawModelId: string, name: string): ModelListItem {
+function directProviderModelToListItem(providerId: DirectProviderId, model: DirectProviderModel): ModelListItem {
   return {
-    id: buildDirectProviderModelId(providerId, rawModelId),
-    name,
-    description: null,
+    id: buildDirectProviderModelId(providerId, model.id),
+    name: model.name,
+    description: model.description,
     provider: providerId,
     promptPrice: null,
     completionPrice: null,
     requestPrice: null,
-    supportsReasoning: providerId === 'chatgpt',
+    supportsReasoning: Boolean(model.reasoningEfforts?.length),
+    reasoningEfforts: model.reasoningEfforts,
+    defaultReasoningEffort: model.defaultReasoningEffort,
+  }
+}
+
+function codexSubscriptionModelToListItem(model: DirectProviderModel): ModelListItem {
+  return {
+    ...directProviderModelToListItem('chatgpt', model),
+    id: `codex/${model.id}`,
+    provider: 'codex',
   }
 }
 
 /** Synchronous curated entries for every currently-connected direct provider. */
 function buildConnectedProviderModels(): ModelListItem[] {
   return listConnectedDirectProviderIds().flatMap((providerId) =>
-    getDefaultDirectProviderModels(providerId).map((model) => directProviderModelToListItem(providerId, model.id, model.name)),
+    getDefaultDirectProviderModels(providerId).map((model) => directProviderModelToListItem(providerId, model)),
   )
 }
 
@@ -120,7 +135,7 @@ function mergeConnectedProviderModels(models: readonly ModelListItem[]): ModelLi
 }
 
 /** Replaces any existing entries for `providerId` with a freshly-fetched list. */
-function replaceProviderModels(models: readonly ModelListItem[], providerId: DirectProviderId, replacement: ModelListItem[]): ModelListItem[] {
+function replaceProviderModels(models: readonly ModelListItem[], providerId: string, replacement: ModelListItem[]): ModelListItem[] {
   const kept = models.filter((model) => model.provider !== providerId)
   return [...kept, ...replacement]
 }
@@ -178,6 +193,8 @@ function buildFallbackModels(): ModelListItem[] {
       completionPrice: null,
       requestPrice: null,
       supportsReasoning: id.startsWith('codex/') || id.startsWith('openai-codex/'),
+      reasoningEfforts: null,
+      defaultReasoningEffort: null,
     }
   })
   return mergeConnectedProviderModels(presets)
@@ -187,8 +204,11 @@ function shouldConfigureModel(model: ModelListItem): boolean {
   return model.supportsReasoning || isOpenRouterRoutedModel(model)
 }
 
-function getAllowedReasoningEfforts(model: ModelListItem): readonly ReasoningEffort[] {
-  return isOpenRouterRoutedModel(model) ? reasoningEfforts : codexReasoningEfforts
+export function getAllowedReasoningEfforts(model: ModelListItem): readonly ReasoningEffort[] {
+  if (model.reasoningEfforts?.length) {
+    return model.reasoningEfforts
+  }
+  return isOpenRouterRoutedModel(model) ? openRouterReasoningEfforts : codexReasoningEfforts
 }
 
 function getInitialReasoningEffort(
@@ -198,6 +218,9 @@ function getInitialReasoningEffort(
   const allowed = getAllowedReasoningEfforts(model)
   if (currentReasoning && allowed.includes(currentReasoning)) {
     return currentReasoning
+  }
+  if (model.defaultReasoningEffort && allowed.includes(model.defaultReasoningEffort)) {
+    return model.defaultReasoningEffort
   }
   return allowed.includes(DEFAULT_REASONING) ? DEFAULT_REASONING : allowed[0] ?? DEFAULT_REASONING
 }
@@ -340,10 +363,21 @@ export function useModelPicker({
         if (cancelled) {
           return
         }
-        const items = models.map((model) => directProviderModelToListItem(providerId, model.id, model.name))
+        const items = models.map((model) => directProviderModelToListItem(providerId, model))
         setAvailableModels((current) => replaceProviderModels(current, providerId, items))
       })
     }
+
+    void fetchCodexSubscriptionModels().then((models) => {
+      if (cancelled) {
+        return
+      }
+      setAvailableModels((current) => replaceProviderModels(
+        current,
+        'codex',
+        models.map(codexSubscriptionModelToListItem),
+      ))
+    }).catch(() => undefined)
 
     return () => {
       cancelled = true

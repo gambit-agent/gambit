@@ -1,4 +1,5 @@
 import type { z, ZodTypeAny } from 'zod'
+import type { ReasoningEffort } from '../lib/model'
 import type { AgentTaskRunner } from '../tasks/agent-task-runner'
 import type { MemoryStore } from '../memory/memory-store'
 import type { PermissionEngine } from '../permissions/permission-engine'
@@ -29,7 +30,7 @@ export interface ToolExecutionContext {
   agentExecutionOptions?: {
     apiKey: string
     modelId: string
-    reasoningEffort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none' | null
+    reasoningEffort?: ReasoningEffort | null
     providerSlug?: string | null
     baseSystemPrompt: string
     delegationDepth?: number

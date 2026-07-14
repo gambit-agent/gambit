@@ -28,18 +28,24 @@ test('getDefaultDirectProviderModels is empty for LM Studio (no curated list)', 
   expect(getDefaultDirectProviderModels('lmstudio')).toEqual([])
 })
 
-test('fetchDirectProviderModels returns live OpenAI models on success', async () => {
+test('fetchDirectProviderModels returns live OpenAI models with current reasoning metadata', async () => {
   const captured: { url: string | null } = { url: null }
   globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
     captured.url = url.toString()
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer sk-test' })
-    return jsonResponse({ data: [{ id: 'gpt-4o' }, { id: 'text-embedding-3-small' }] })
+    return jsonResponse({ data: [{ id: 'gpt-5.6' }, { id: 'text-embedding-3-small' }] })
   }) as unknown as typeof fetch
 
   const models = await fetchDirectProviderModels('openai', { apiKey: 'sk-test', baseURL: null })
 
   expect(captured.url).toBe('https://api.openai.com/v1/models')
-  expect(models).toEqual([{ id: 'gpt-4o', name: 'gpt-4o' }])
+  expect(models).toEqual([{
+    id: 'gpt-5.6',
+    name: 'gpt-5.6',
+    description: null,
+    reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+    defaultReasoningEffort: 'medium',
+  }])
 })
 
 test('fetchDirectProviderModels falls back to the curated list on failure', async () => {
@@ -63,17 +69,51 @@ test('fetchDirectProviderModels for Z.AI always uses the curated list', async ()
   expect(models.map((model) => model.id)).toEqual(['glm-4.6', 'glm-4.5', 'glm-4.5-air'])
 })
 
-test('fetchDirectProviderModels for ChatGPT Plus/Pro always uses the curated list', async () => {
-  const captured: { called: boolean } = { called: false }
-  globalThis.fetch = (async () => {
-    captured.called = true
-    return jsonResponse({ data: [] })
+test('fetchDirectProviderModels uses the live ChatGPT catalog and its effort levels', async () => {
+  const captured: { url: string | null } = { url: null }
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    captured.url = url.toString()
+    expect(init?.headers).toMatchObject({
+      Authorization: 'Bearer access-token',
+      'chatgpt-account-id': 'account-id',
+    })
+    return jsonResponse({
+      models: [
+        {
+          slug: 'gpt-5.6',
+          display_name: 'GPT-5.6',
+          description: 'Latest model',
+          visibility: 'list',
+          priority: 20,
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [
+            { effort: 'low' },
+            { effort: 'medium' },
+            { effort: 'high' },
+            { effort: 'xhigh' },
+            { effort: 'max' },
+          ],
+        },
+        { slug: 'hidden-model', visibility: 'hide', priority: 100 },
+      ],
+    })
   }) as unknown as typeof fetch
 
-  const models = await fetchDirectProviderModels('chatgpt', { apiKey: null, baseURL: null, refreshToken: 'refresh-token' })
+  const models = await fetchDirectProviderModels('chatgpt', {
+    apiKey: null,
+    baseURL: null,
+    accessToken: 'access-token',
+    accountId: 'account-id',
+  })
 
-  expect(captured.called).toBe(false)
-  expect(models.map((model) => model.id)).toEqual(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'])
+  expect(captured.url).toContain('https://chatgpt.com/backend-api/codex/models?client_version=')
+  expect(models).toEqual([{
+    id: 'gpt-5.6',
+    name: 'GPT-5.6',
+    description: 'Latest model',
+    reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    defaultReasoningEffort: 'medium',
+  }])
 })
 
 test('testProviderConnection reports success for a valid credential', async () => {
@@ -118,12 +158,15 @@ test('testProviderConnection treats Z.AI as unverifiable-but-trusted', async () 
   expect(result).toEqual({ ok: true, unverifiable: true, error: null })
 })
 
-test('testProviderConnection treats ChatGPT Plus/Pro as unverifiable-but-trusted', async () => {
+test('testProviderConnection verifies ChatGPT Plus/Pro through the model catalog', async () => {
+  globalThis.fetch = (async () => jsonResponse({ models: [{ slug: 'gpt-5.6', visibility: 'list' }] })) as unknown as typeof fetch
+
   const result = await testProviderConnection('chatgpt', {
     apiKey: null,
     baseURL: null,
-    refreshToken: 'refresh-token',
+    accessToken: 'access-token',
+    accountId: 'account-id',
   })
 
-  expect(result).toEqual({ ok: true, unverifiable: true, error: null })
+  expect(result).toEqual({ ok: true, unverifiable: false, error: null })
 })

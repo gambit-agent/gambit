@@ -17,23 +17,28 @@ import {
 } from './providers'
 import { writeProviderCredential } from '../session/user-config'
 
-export const reasoningEfforts = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'] as const
-export type ReasoningEffort = (typeof reasoningEfforts)[number]
+export const reasoningEfforts = ['ultra', 'max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none'] as const
+export type KnownReasoningEffort = (typeof reasoningEfforts)[number]
+export type ReasoningEffort = KnownReasoningEffort | (string & {})
 
-export const codexReasoningEfforts = ['low', 'medium', 'high'] as const
-export type CodexReasoningEffort = (typeof codexReasoningEfforts)[number]
+export const openRouterReasoningEfforts = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'] as const
+export type OpenRouterReasoningEffort = (typeof openRouterReasoningEfforts)[number]
+
+export const codexReasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 export interface ModelRuntimeOptions {
   reasoningEffort?: ReasoningEffort | null
   providerSlug?: string | null
 }
 
+export type ModelRuntimeSettings = ModelRuntimeOptions
+
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {
-  return typeof value === 'string' && reasoningEfforts.includes(value as ReasoningEffort)
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
 }
 
-export function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
-  return typeof value === 'string' && codexReasoningEfforts.includes(value as CodexReasoningEffort)
+export function isOpenRouterReasoningEffort(value: unknown): value is OpenRouterReasoningEffort {
+  return typeof value === 'string' && openRouterReasoningEfforts.includes(value as OpenRouterReasoningEffort)
 }
 
 export function normalizeProviderSlug(value: unknown): string | null {
@@ -50,9 +55,13 @@ export function normalizeProviderSlug(value: unknown): string | null {
   return trimmed
 }
 
+export function buildModelRuntimeSettings(options: ModelRuntimeOptions): ModelRuntimeSettings | undefined {
+  return options.reasoningEffort || options.providerSlug ? options : undefined
+}
+
 export function buildOpenRouterModelSettings(options: ModelRuntimeOptions): OpenRouterChatSettings | undefined {
   const settings: OpenRouterChatSettings = {}
-  if (options.reasoningEffort) {
+  if (isOpenRouterReasoningEffort(options.reasoningEffort)) {
     settings.reasoning = { enabled: true, effort: options.reasoningEffort }
   }
   if (options.providerSlug) {
@@ -76,7 +85,7 @@ export function modelNeedsOpenRouterApiKey(modelId: string): boolean {
 }
 
 export interface ModelProvider {
-  getModel(modelId: string, settings?: OpenRouterChatSettings): LanguageModel
+  getModel(modelId: string, settings?: ModelRuntimeSettings): LanguageModel
 }
 
 class RuntimeModelProvider implements ModelProvider {
@@ -93,25 +102,29 @@ class RuntimeModelProvider implements ModelProvider {
     })
   }
 
-  getModel(modelId: string, settings?: OpenRouterChatSettings): LanguageModel {
+  getModel(modelId: string, settings?: ModelRuntimeSettings): LanguageModel {
+    const reasoningEffort = settings?.reasoningEffort ?? null
     if (isCodexModel(modelId)) {
-      const effort = settings?.reasoning?.enabled && 'effort' in settings.reasoning ? settings.reasoning.effort : null
       return createCodexLanguageModel({
         modelId,
-        reasoningEffort: isCodexReasoningEffort(effort) ? effort : null,
+        reasoningEffort,
       })
     }
 
     const directProviderRef = parseDirectProviderModelId(modelId)
     if (directProviderRef) {
-      return buildDirectProviderModel(directProviderRef.providerId, directProviderRef.rawModelId)
+      return buildDirectProviderModel(directProviderRef.providerId, directProviderRef.rawModelId, reasoningEffort)
     }
 
-    return this.openrouter(modelId, settings)
+    return this.openrouter(modelId, buildOpenRouterModelSettings(settings ?? {}))
   }
 }
 
-function buildDirectProviderModel(providerId: DirectProviderId, rawModelId: string): LanguageModel {
+function buildDirectProviderModel(
+  providerId: DirectProviderId,
+  rawModelId: string,
+  reasoningEffort: ReasoningEffort | null,
+): LanguageModel {
   const definition = getDirectProviderDefinition(providerId)
   const credential = getProviderCredential(providerId)
   if (!credential) {
@@ -121,11 +134,12 @@ function buildDirectProviderModel(providerId: DirectProviderId, rawModelId: stri
   switch (providerId) {
     case 'openai': {
       const openai = createOpenAI({ apiKey: credential.apiKey ?? undefined, baseURL: credential.baseURL ?? undefined })
-      return openai(rawModelId)
+      return withOpenAIReasoning(openai.responses(rawModelId), reasoningEffort)
     }
     case 'chatgpt':
       return createCodexLanguageModel({
         modelId: rawModelId,
+        reasoningEffort,
         authToken: async () => resolveChatGptAuthToken(
           getProviderCredential('chatgpt') ?? credential,
           async (refreshed) => {
@@ -154,6 +168,32 @@ function buildDirectProviderModel(providerId: DirectProviderId, rawModelId: stri
     default:
       throw new Error(`Unsupported provider: ${providerId}`)
   }
+}
+
+function withOpenAIReasoning(model: LanguageModel, reasoningEffort: ReasoningEffort | null): LanguageModel {
+  if (!reasoningEffort) {
+    return model
+  }
+
+  return new Proxy(model as object, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if ((property !== 'doGenerate' && property !== 'doStream') || typeof value !== 'function') {
+        return value
+      }
+      return (options: { providerOptions?: Record<string, Record<string, unknown>> }) => value.call(target, {
+        ...options,
+        providerOptions: {
+          ...options.providerOptions,
+          openai: {
+            ...options.providerOptions?.openai,
+            forceReasoning: true,
+            reasoningEffort,
+          },
+        },
+      })
+    },
+  }) as LanguageModel
 }
 
 export function createModelSelector(apiKey: string): ModelProvider['getModel'] {

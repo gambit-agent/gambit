@@ -1,7 +1,21 @@
-import { expect, test } from 'bun:test'
+import { afterEach, expect, test } from 'bun:test'
 
-import { buildOpenRouterModelSettings, createModelSelector, modelNeedsOpenRouterApiKey, normalizeProviderSlug } from './model'
+import {
+  buildModelRuntimeSettings,
+  buildOpenRouterModelSettings,
+  createModelSelector,
+  modelNeedsOpenRouterApiKey,
+  normalizeProviderSlug,
+} from './model'
 import { clearProviderCredential, primeProviderCredentials, setProviderCredential } from './provider-credentials'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+  clearProviderCredential('openai')
+  clearProviderCredential('chatgpt')
+})
 
 test('buildOpenRouterModelSettings includes reasoning and exclusive provider routing', () => {
   expect(
@@ -52,6 +66,52 @@ test('createModelSelector builds a ChatGPT subscription model once connected', (
   expect(() => getModel('chatgpt:gpt-5.5')).not.toThrow()
 
   clearProviderCredential('chatgpt')
+})
+
+test('ChatGPT subscription requests include the selected live-catalog effort', async () => {
+  setProviderCredential('chatgpt', {
+    apiKey: null,
+    baseURL: null,
+    accessToken: 'access-token',
+    accountId: 'account-id',
+  })
+  let requestBody: Record<string, unknown> | null = null
+  globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({ error: { message: 'stop after capture' } }), { status: 400 })
+  }) as unknown as typeof fetch
+
+  const getModel = createModelSelector('')
+  const model = getModel('chatgpt:gpt-5.6', buildModelRuntimeSettings({ reasoningEffort: 'max' }))
+  await expect(Promise.resolve(
+    (model as unknown as { doStream(options: unknown): PromiseLike<unknown> }).doStream({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+    }),
+  )).rejects.toThrow('stop after capture')
+
+  expect(requestBody).toMatchObject({ reasoning: { effort: 'max', summary: 'auto' } })
+})
+
+test('direct OpenAI requests include the selected reasoning effort', async () => {
+  setProviderCredential('openai', { apiKey: 'sk-test', baseURL: null })
+  let requestBody: Record<string, unknown> | null = null
+  globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({ error: { message: 'stop after capture', type: 'invalid_request_error' } }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as unknown as typeof fetch
+
+  const getModel = createModelSelector('')
+  const model = getModel('openai:gpt-5.6', buildModelRuntimeSettings({ reasoningEffort: 'max' }))
+  await Promise.resolve(
+    (model as unknown as { doStream(options: unknown): PromiseLike<unknown> }).doStream({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+    }),
+  ).catch(() => undefined)
+
+  expect(requestBody).toMatchObject({ reasoning: { effort: 'max' } })
 })
 
 test('createModelSelector builds an Anthropic model once connected', () => {

@@ -1,5 +1,7 @@
 import { refererHeader, titleHeader } from "../config";
 
+import type { ReasoningEffort } from "./model";
+
 const MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 const MODELS_RETRY_DELAY_MS = 300;
 const MODELS_MAX_ATTEMPTS = 3;
@@ -48,6 +50,8 @@ export interface ModelListItem {
   completionPrice: string | null;
   requestPrice: string | null;
   supportsReasoning: boolean;
+  reasoningEfforts?: readonly ReasoningEffort[] | null;
+  defaultReasoningEffort?: ReasoningEffort | null;
 }
 
 export interface ModelProviderOption {
@@ -76,6 +80,8 @@ export function normalizeOpenRouterModel(entry: OpenRouterModelEntry): ModelList
         return normalized === "reasoning" || normalized === "include_reasoning";
       }),
     ),
+    reasoningEfforts: null,
+    defaultReasoningEffort: null,
   };
 }
 

@@ -43,7 +43,7 @@ test('returns null when the selection file is missing or malformed', async () =>
   await expect(readModelSelection(tempRoot)).resolves.toBeNull()
 })
 
-test('treats unknown reasoning effort values as null', async () => {
+test('reads newly supported max reasoning effort', async () => {
   const filePath = getModelSelectionPath(tempRoot)
   await mkdir(path.dirname(filePath), { recursive: true })
   await writeFile(
@@ -51,6 +51,25 @@ test('treats unknown reasoning effort values as null', async () => {
     JSON.stringify({
       modelId: 'anthropic/claude-sonnet-4',
       reasoningEffort: 'max',
+    }),
+    'utf8',
+  )
+
+  await expect(readModelSelection(tempRoot)).resolves.toEqual({
+    modelId: 'anthropic/claude-sonnet-4',
+    reasoningEffort: 'max',
+    providerSlug: null,
+  })
+})
+
+test('treats unknown reasoning effort values as null', async () => {
+  const filePath = getModelSelectionPath(tempRoot)
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await writeFile(
+    filePath,
+    JSON.stringify({
+      modelId: 'anthropic/claude-sonnet-4',
+      reasoningEffort: 'not valid!',
     }),
     'utf8',
   )

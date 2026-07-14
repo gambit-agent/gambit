@@ -4,8 +4,13 @@
  * fetching fails or a provider has no listing endpoint.
  */
 
-import type { ProviderCredential } from './provider-credentials'
+import { appVersion } from '../app/version'
+import { writeProviderCredential } from '../session/user-config'
+import { getCodexAuthToken, type CodexAuthToken } from './codex-auth'
+import { resolveChatGptAuthToken } from './chatgpt-oauth'
+import { isReasoningEffort, type ReasoningEffort } from './model'
 import { fetchOpenRouterModels } from './openrouterModels'
+import { setProviderCredential, type ProviderCredential } from './provider-credentials'
 import { type DirectProviderId, type ProviderId, getProviderDefinition } from './providers'
 
 const MODELS_TIMEOUT_MS = 8_000
@@ -13,6 +18,9 @@ const MODELS_TIMEOUT_MS = 8_000
 export interface DirectProviderModel {
   id: string
   name: string
+  description: string | null
+  reasoningEfforts: readonly ReasoningEffort[] | null
+  defaultReasoningEffort: ReasoningEffort | null
 }
 
 interface OpenAIModelsResponse {
@@ -21,6 +29,64 @@ interface OpenAIModelsResponse {
 
 interface AnthropicModelsResponse {
   data?: Array<{ id?: string; display_name?: string }>
+}
+
+interface ChatGptModelEntry {
+  slug?: string
+  display_name?: string
+  description?: string | null
+  visibility?: string
+  priority?: number
+  default_reasoning_level?: string | null
+  supported_reasoning_levels?: Array<{ effort?: string }>
+}
+
+interface ChatGptModelsResponse {
+  models?: ChatGptModelEntry[]
+}
+
+const OPENAI_GPT_56_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+const OPENAI_FRONTIER_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'] as const
+const OPENAI_PRO_EFFORTS = ['medium', 'high', 'xhigh'] as const
+const OPENAI_GPT_5_PRO_EFFORTS = ['high'] as const
+const OPENAI_GPT_5_EFFORTS = ['minimal', 'low', 'medium', 'high'] as const
+const OPENAI_O_SERIES_EFFORTS = ['low', 'medium', 'high'] as const
+
+function getOpenAIReasoningEfforts(modelId: string): readonly ReasoningEffort[] | null {
+  const normalized = modelId.toLowerCase()
+  if (/^gpt-5\.6(?:-|$)/.test(normalized)) return OPENAI_GPT_56_EFFORTS
+  if (/^gpt-5-pro(?:-|$)/.test(normalized)) return OPENAI_GPT_5_PRO_EFFORTS
+  if (/^gpt-5\.(?:[2-5])-pro(?:-|$)/.test(normalized)) return OPENAI_PRO_EFFORTS
+  if (/^gpt-5\.(?:[2-5])(?:-|$)/.test(normalized)) return OPENAI_FRONTIER_EFFORTS
+  if (/^gpt-5(?:-|$)/.test(normalized) && !normalized.includes('-chat-')) return OPENAI_GPT_5_EFFORTS
+  if (/^o[1-9](?:-|$)/.test(normalized)) return OPENAI_O_SERIES_EFFORTS
+  return null
+}
+
+function getOpenAIDefaultReasoningEffort(
+  modelId: string,
+  reasoningEfforts: readonly ReasoningEffort[] | null,
+): ReasoningEffort | null {
+  if (/^gpt-5(?:\.5)?-pro(?:-|$)/i.test(modelId)) return 'high'
+  return reasoningEfforts?.includes('medium') ? 'medium' : reasoningEfforts?.[0] ?? null
+}
+
+function buildModel(
+  id: string,
+  name: string = id,
+  options: {
+    description?: string | null
+    reasoningEfforts?: readonly ReasoningEffort[] | null
+    defaultReasoningEffort?: ReasoningEffort | null
+  } = {},
+): DirectProviderModel {
+  return {
+    id,
+    name,
+    description: options.description ?? null,
+    reasoningEfforts: options.reasoningEfforts ?? null,
+    defaultReasoningEffort: options.defaultReasoningEffort ?? null,
+  }
 }
 
 async function fetchOpenAIModels(baseURL: string, apiKey: string): Promise<DirectProviderModel[]> {
@@ -35,7 +101,13 @@ async function fetchOpenAIModels(baseURL: string, apiKey: string): Promise<Direc
   return (payload.data ?? [])
     .filter((entry): entry is { id: string } => typeof entry.id === 'string' && entry.id.length > 0)
     .filter((entry) => !/embedding|whisper|tts|dall-e|davinci|babbage|moderation/i.test(entry.id))
-    .map((entry) => ({ id: entry.id, name: entry.id }))
+    .map((entry) => {
+      const reasoningEfforts = getOpenAIReasoningEfforts(entry.id)
+      return buildModel(entry.id, entry.id, {
+        reasoningEfforts,
+        defaultReasoningEffort: getOpenAIDefaultReasoningEffort(entry.id, reasoningEfforts),
+      })
+    })
 }
 
 async function fetchAnthropicModels(baseURL: string, apiKey: string): Promise<DirectProviderModel[]> {
@@ -52,7 +124,7 @@ async function fetchAnthropicModels(baseURL: string, apiKey: string): Promise<Di
   const payload = (await response.json()) as AnthropicModelsResponse
   return (payload.data ?? [])
     .filter((entry): entry is { id: string; display_name?: string } => typeof entry.id === 'string' && entry.id.length > 0)
-    .map((entry) => ({ id: entry.id, name: entry.display_name ?? entry.id }))
+    .map((entry) => buildModel(entry.id, entry.display_name ?? entry.id))
 }
 
 async function fetchOpenAICompatibleModels(baseURL: string, apiKey: string | null): Promise<DirectProviderModel[]> {
@@ -70,11 +142,69 @@ async function fetchOpenAICompatibleModels(baseURL: string, apiKey: string | nul
   const payload = (await response.json()) as OpenAIModelsResponse
   return (payload.data ?? [])
     .filter((entry): entry is { id: string } => typeof entry.id === 'string' && entry.id.length > 0)
-    .map((entry) => ({ id: entry.id, name: entry.id }))
+    .map((entry) => buildModel(entry.id))
+}
+
+async function fetchChatGptModels(token: CodexAuthToken): Promise<DirectProviderModel[]> {
+  const response = await fetch(
+    `https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent(appVersion)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'chatgpt-account-id': token.accountId,
+        originator: 'gambit',
+        'User-Agent': `gambit/${appVersion}`,
+      },
+      signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) {
+    throw new Error(`Failed to list ChatGPT models (status ${response.status}).`)
+  }
+
+  const payload = (await response.json()) as ChatGptModelsResponse
+  return (payload.models ?? [])
+    .filter((entry): entry is ChatGptModelEntry & { slug: string } =>
+      typeof entry.slug === 'string'
+      && entry.slug.length > 0
+      && (entry.visibility === undefined || entry.visibility === 'list'),
+    )
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+    .map((entry) => {
+      const reasoningEfforts = Array.from(new Set(
+        (entry.supported_reasoning_levels ?? [])
+          .map((level) => level.effort)
+          .filter(isReasoningEffort),
+      ))
+      const defaultReasoningEffort = isReasoningEffort(entry.default_reasoning_level)
+        ? entry.default_reasoning_level
+        : null
+      return buildModel(entry.slug, entry.display_name ?? entry.slug, {
+        description: entry.description,
+        reasoningEfforts: reasoningEfforts.length > 0 ? reasoningEfforts : null,
+        defaultReasoningEffort,
+      })
+    })
 }
 
 function fallbackModels(providerId: DirectProviderId): DirectProviderModel[] {
-  return getProviderDefinition(providerId).defaultModels.map((id) => ({ id, name: id }))
+  return getProviderDefinition(providerId).defaultModels.map((id) => {
+    if (providerId === 'openai') {
+      const reasoningEfforts = getOpenAIReasoningEfforts(id)
+      return buildModel(id, id, {
+        reasoningEfforts,
+        defaultReasoningEffort: getOpenAIDefaultReasoningEffort(id, reasoningEfforts),
+      })
+    }
+    if (providerId === 'chatgpt') {
+      const reasoningEfforts = getOpenAIReasoningEfforts(id) ?? OPENAI_FRONTIER_EFFORTS
+      return buildModel(id, id, {
+        reasoningEfforts,
+        defaultReasoningEffort: getOpenAIDefaultReasoningEffort(id, reasoningEfforts),
+      })
+    }
+    return buildModel(id)
+  })
 }
 
 /**
@@ -89,12 +219,17 @@ async function fetchLiveModels(providerId: ProviderId, credential: ProviderCrede
   switch (providerId) {
     case 'openrouter':
       if (!credential.apiKey) throw new Error('OpenRouter requires an API key.')
-      return (await fetchOpenRouterModels(credential.apiKey)).map((model) => ({ id: model.id, name: model.name }))
+      return (await fetchOpenRouterModels(credential.apiKey)).map((model) => buildModel(model.id, model.name, {
+        description: model.description,
+      }))
     case 'openai':
       if (!credential.apiKey) throw new Error('OpenAI requires an API key.')
       return fetchOpenAIModels(baseURL ?? 'https://api.openai.com/v1', credential.apiKey)
     case 'chatgpt':
-      throw new Error('ChatGPT subscription auth has no model-listing endpoint.')
+      return fetchChatGptModels(await resolveChatGptAuthToken(credential, async (refreshed) => {
+        setProviderCredential('chatgpt', refreshed)
+        await writeProviderCredential('chatgpt', refreshed)
+      }))
     case 'anthropic':
       if (!credential.apiKey) throw new Error('Anthropic requires an API key.')
       return fetchAnthropicModels(baseURL ?? 'https://api.anthropic.com/v1', credential.apiKey)
@@ -124,6 +259,11 @@ export async function fetchDirectProviderModels(
   }
 }
 
+/** Fetches the live catalog for the subscription token managed by `codex login`. */
+export async function fetchCodexSubscriptionModels(): Promise<DirectProviderModel[]> {
+  return fetchChatGptModels(await getCodexAuthToken())
+}
+
 export interface ProviderConnectionTestResult {
   ok: boolean
   /** Set when the provider has no reliable way to verify a credential (e.g. Z.AI). */
@@ -141,7 +281,7 @@ export async function testProviderConnection(
   providerId: ProviderId,
   credential: ProviderCredential,
 ): Promise<ProviderConnectionTestResult> {
-  if (providerId === 'zai' || providerId === 'chatgpt') {
+  if (providerId === 'zai') {
     return { ok: true, unverifiable: true, error: null }
   }
 

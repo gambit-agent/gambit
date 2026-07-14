@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test'
 
-import { buildModelSearchText, filterModels, isFreeModel, isOpenRouterRoutedModel } from './modelPicker'
+import {
+  buildModelSearchText,
+  filterModels,
+  getAllowedReasoningEfforts,
+  isFreeModel,
+  isOpenRouterRoutedModel,
+} from './modelPicker'
 import type { ModelListItem } from './openrouterModels'
 
 function model(overrides: Partial<ModelListItem> & Pick<ModelListItem, 'id'>): ModelListItem {
@@ -13,6 +19,8 @@ function model(overrides: Partial<ModelListItem> & Pick<ModelListItem, 'id'>): M
     completionPrice: overrides.completionPrice ?? null,
     requestPrice: overrides.requestPrice ?? null,
     supportsReasoning: overrides.supportsReasoning ?? false,
+    reasoningEfforts: overrides.reasoningEfforts ?? null,
+    defaultReasoningEffort: overrides.defaultReasoningEffort ?? null,
   }
 }
 
@@ -55,4 +63,16 @@ test('isOpenRouterRoutedModel is true for OpenRouter ids, false for codex and di
   expect(isOpenRouterRoutedModel({ id: 'openai:gpt-4o' })).toBe(false)
   expect(isOpenRouterRoutedModel({ id: 'chatgpt:gpt-5.5' })).toBe(false)
   expect(isOpenRouterRoutedModel({ id: 'lmstudio:qwen2.5-coder-32b' })).toBe(false)
+})
+
+test('uses model-specific effort levels from a live provider catalog', () => {
+  const directModel = model({
+    id: 'chatgpt:gpt-5.6',
+    provider: 'chatgpt',
+    supportsReasoning: true,
+    reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    defaultReasoningEffort: 'medium',
+  })
+
+  expect(getAllowedReasoningEfforts(directModel)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 })

@@ -2,12 +2,8 @@ import { TextAttributes, type SelectOption, type SubmitEvent } from '@opentui/co
 import { useTerminalDimensions } from '@opentui/react'
 import { useMemo } from 'react'
 
-import {
-  codexReasoningEfforts,
-  reasoningEfforts,
-  type ReasoningEffort,
-} from '../../lib/model'
-import { isOpenRouterRoutedModel } from '../../lib/modelPicker'
+import type { ReasoningEffort } from '../../lib/model'
+import { getAllowedReasoningEfforts, isOpenRouterRoutedModel } from '../../lib/modelPicker'
 import type { ModelPickerState } from '../../lib/modelPicker'
 import type { ModelListItem, ModelProviderOption } from '../../lib/openrouterModels'
 import { isGpt5Model } from '../../lib/openrouterModels'
@@ -174,7 +170,7 @@ function getEffortOptions(model: ModelListItem | null): readonly ReasoningEffort
   if (!model?.supportsReasoning) {
     return []
   }
-  return isOpenRouterRoutedModel(model) ? reasoningEfforts : codexReasoningEfforts
+  return getAllowedReasoningEfforts(model)
 }
 
 function describeProviderOption(provider: ModelProviderOption): string {

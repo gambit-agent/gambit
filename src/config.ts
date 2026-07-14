@@ -30,7 +30,7 @@ export const titleHeader = Bun.env.OPENROUTER_TITLE ?? "Gambit TUI Agent";
 export const freeModelPresets = ["qwen/qwen3.6-plus"] as const;
 
 /** Presets shown when the user wants a Codex subscription model. */
-export const codexModelPresets = ["codex/gpt-5.1-codex", "codex/gpt-5-codex"] as const;
+export const codexModelPresets = ["codex/gpt-5.6", "codex/gpt-5.5", "codex/gpt-5.4"] as const;
 
 /** Maximum characters to read from a single file before truncation. */
 export const MAX_FILE_CHARS = 60_000;
