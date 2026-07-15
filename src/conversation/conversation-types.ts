@@ -17,6 +17,7 @@ export interface ConversationMessage {
     reasoningStartedAt?: string
     reasoningFinishedAt?: string
     reasoningDurationMs?: number
+    memoryContext?: boolean
   }
 }
 

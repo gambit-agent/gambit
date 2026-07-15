@@ -33,6 +33,7 @@ function serializeMessageForTranscript(message: ConversationMessage): Conversati
         reasoningStartedAt: metadata.reasoningStartedAt,
         reasoningFinishedAt: metadata.reasoningFinishedAt,
         reasoningDurationMs: metadata.reasoningDurationMs,
+        memoryContext: metadata.memoryContext,
       }
     : undefined
 

@@ -85,7 +85,7 @@ export function createCodexLanguageModel(options: CodexLanguageModelOptions): La
   }
 }
 
-function buildRequestBody(
+export function buildRequestBody(
   modelId: string,
   options: LanguageModelV2CallOptions,
   reasoningEffort?: ReasoningEffort | null,
@@ -107,6 +107,11 @@ function buildRequestBody(
   if (typeof options.maxOutputTokens === 'number') body.max_output_tokens = options.maxOutputTokens
   if (reasoningEffort) body.reasoning = { effort: reasoningEffort, summary: 'auto' }
   if (options.tools?.length) body.tools = options.tools.filter(isFunctionTool).map(convertTool)
+
+  // Stable per-conversation key improves prompt cache routing on the backend
+  // (same mechanism as the official Codex CLI's session-scoped cache key).
+  const promptCacheKey = options.providerOptions?.openai?.promptCacheKey
+  if (typeof promptCacheKey === 'string' && promptCacheKey) body.prompt_cache_key = promptCacheKey
 
   return body
 }
@@ -329,14 +334,19 @@ async function* parseSSE(response: Response): AsyncGenerator<ResponsesEvent> {
   }
 }
 
-function extractUsage(value: unknown): LanguageModelV2Usage {
+export function extractUsage(value: unknown): LanguageModelV2Usage {
   const usage = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const input = numberValue(usage.input_tokens)
   const output = numberValue(usage.output_tokens)
+  const inputDetails =
+    usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+      ? (usage.input_tokens_details as Record<string, unknown>)
+      : {}
   return {
     inputTokens: input,
     outputTokens: output,
     totalTokens: numberValue(usage.total_tokens) ?? (input !== undefined && output !== undefined ? input + output : undefined),
+    cachedInputTokens: numberValue(inputDetails.cached_tokens),
   }
 }
 

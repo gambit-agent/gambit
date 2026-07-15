@@ -15,6 +15,11 @@ export interface ModelStreamRunOptions {
   signal?: AbortSignal
   logMetadata?: Record<string, unknown>
   handlers?: ModelStreamHandlers
+  /**
+   * Stable identifier for the conversation, used to improve prompt cache
+   * routing (OpenAI `prompt_cache_key`, including the ChatGPT connector).
+   */
+  promptCacheKey?: string
 }
 
 export interface ModelStreamRunResult {
@@ -45,6 +50,33 @@ export function splitInstructionsFromMessages(messages: readonly ModelMessage[])
     instructions: instructions.length > 0 ? instructions.join('\n\n') : undefined,
     messages: nonSystemMessages,
   }
+}
+
+const CACHE_BREAKPOINT_COUNT = 2
+const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
+
+/**
+ * Mark the trailing messages as prompt-cache breakpoints. Anthropic (and
+ * OpenRouter-routed Anthropic models) only cache prompt prefixes that end at
+ * an explicit `cache_control` breakpoint; a breakpoint on the last message
+ * caches everything before it (tools + system + history). Other providers
+ * ignore the `anthropic` provider-options namespace.
+ */
+export function withCacheBreakpoints(messages: NonSystemModelMessage[]): NonSystemModelMessage[] {
+  if (messages.length === 0) {
+    return messages
+  }
+
+  const firstBreakpointIndex = Math.max(0, messages.length - CACHE_BREAKPOINT_COUNT)
+  return messages.map((message, index) => {
+    if (index < firstBreakpointIndex) {
+      return message
+    }
+    return {
+      ...message,
+      providerOptions: { ...message.providerOptions, ...ANTHROPIC_CACHE_CONTROL },
+    } as NonSystemModelMessage
+  })
 }
 
 export function filterKnownAiSdkWarnings(warnings: readonly Warning[]): Warning[] {
@@ -120,10 +152,13 @@ export class ModelStreamRunner {
       const result = await streamText({
         model: options.model,
         instructions: prompt.instructions,
-        messages: prompt.messages,
+        messages: withCacheBreakpoints(prompt.messages),
         tools: options.tools,
         stopWhen: stepCountIs(options.maxSteps),
         abortSignal: options.signal,
+        providerOptions: options.promptCacheKey
+          ? { openai: { promptCacheKey: options.promptCacheKey } }
+          : undefined,
       })
 
       await consumeModelStream({
