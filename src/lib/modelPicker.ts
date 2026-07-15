@@ -15,7 +15,12 @@ import {
   type DirectProviderModel,
 } from "./directProviderModels"
 import { getProviderCredential, listConnectedDirectProviderIds } from "./provider-credentials"
-import { buildDirectProviderModelId, isDirectProviderModelId, type DirectProviderId } from "./providers"
+import {
+  buildDirectProviderModelId,
+  isDirectProviderModelId,
+  parseDirectProviderModelId,
+  type DirectProviderId,
+} from "./providers"
 import {
   fetchOpenRouterModelProviders,
   fetchOpenRouterModels,
@@ -134,10 +139,34 @@ function mergeConnectedProviderModels(models: readonly ModelListItem[]): ModelLi
   return additions.length > 0 ? [...models, ...additions] : [...models]
 }
 
+/**
+ * Whether `model` is an entry owned by a provider-specific live fetch: a
+ * `<providerId>:<modelId>` direct entry or a `codex/` subscription entry.
+ * Matching on the id namespace (not `model.provider`) matters because OpenRouter
+ * catalog entries reuse vendor names like "openai" as their `provider`.
+ */
+function isProviderOwnedModel(model: Pick<ModelListItem, "id">, providerId: string): boolean {
+  if (providerId === "codex") {
+    return model.id.startsWith("codex/")
+  }
+  return parseDirectProviderModelId(model.id)?.providerId === providerId
+}
+
 /** Replaces any existing entries for `providerId` with a freshly-fetched list. */
-function replaceProviderModels(models: readonly ModelListItem[], providerId: string, replacement: ModelListItem[]): ModelListItem[] {
-  const kept = models.filter((model) => model.provider !== providerId)
+export function replaceProviderModels(models: readonly ModelListItem[], providerId: string, replacement: ModelListItem[]): ModelListItem[] {
+  const kept = models.filter((model) => !isProviderOwnedModel(model, providerId))
   return [...kept, ...replacement]
+}
+
+/**
+ * Applies a new base list (OpenRouter catalog or presets) while keeping every
+ * provider-owned entry already present — those are managed by their own live
+ * fetches, which may have resolved before the (slower) catalog fetch.
+ */
+export function mergePreservingProviderModels(next: readonly ModelListItem[], current: readonly ModelListItem[]): ModelListItem[] {
+  const preserved = current.filter((model) => isDirectProviderModelId(model.id) || model.id.startsWith("codex/"))
+  const preservedIds = new Set(preserved.map((model) => model.id))
+  return [...next.filter((model) => !preservedIds.has(model.id)), ...preserved]
 }
 
 export function buildModelSearchText(model: ModelListItem): string {
@@ -292,7 +321,7 @@ export function useModelPicker({
       setFetchError(null)
       setFetchKey(targetKey)
       if (fallback.length > 0) {
-        setAvailableModels(fallback)
+        setAvailableModels((current) => mergePreservingProviderModels(fallback, current))
       }
       setHint("Connect OpenRouter with /connect openrouter to load the full OpenRouter catalog.")
       return
@@ -312,7 +341,7 @@ export function useModelPicker({
         if (cancelled) {
           return
         }
-        setAvailableModels(mergeConnectedProviderModels(models))
+        setAvailableModels((current) => mergePreservingProviderModels(mergeConnectedProviderModels(models), current))
         setFetchState("success")
         setFetchKey(targetKey)
         setHint(null)
@@ -322,7 +351,7 @@ export function useModelPicker({
         }
         const message = error instanceof Error ? error.message : `Failed to load models: ${String(error)}`
         if (fallback.length > 0) {
-          setAvailableModels(fallback)
+          setAvailableModels((current) => mergePreservingProviderModels(fallback, current))
           setFetchState("success")
           setFetchError(null)
           setFetchKey(targetKey)
@@ -369,7 +398,7 @@ export function useModelPicker({
     }
 
     void fetchCodexSubscriptionModels().then((models) => {
-      if (cancelled) {
+      if (cancelled || models.length === 0) {
         return
       }
       setAvailableModels((current) => replaceProviderModels(

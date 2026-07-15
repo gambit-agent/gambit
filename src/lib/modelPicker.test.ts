@@ -6,6 +6,8 @@ import {
   getAllowedReasoningEfforts,
   isFreeModel,
   isOpenRouterRoutedModel,
+  mergePreservingProviderModels,
+  replaceProviderModels,
 } from './modelPicker'
 import type { ModelListItem } from './openrouterModels'
 
@@ -63,6 +65,58 @@ test('isOpenRouterRoutedModel is true for OpenRouter ids, false for codex and di
   expect(isOpenRouterRoutedModel({ id: 'openai:gpt-4o' })).toBe(false)
   expect(isOpenRouterRoutedModel({ id: 'chatgpt:gpt-5.5' })).toBe(false)
   expect(isOpenRouterRoutedModel({ id: 'lmstudio:qwen2.5-coder-32b' })).toBe(false)
+})
+
+test('replaceProviderModels keeps OpenRouter entries whose vendor matches a direct provider id', () => {
+  const current = [
+    model({ id: 'openai/gpt-5' }),
+    model({ id: 'openai/gpt-4o' }),
+    model({ id: 'openai:gpt-4o', provider: 'openai' }),
+  ]
+  const replacement = [model({ id: 'openai:gpt-5.6', provider: 'openai' })]
+
+  expect(replaceProviderModels(current, 'openai', replacement).map((entry) => entry.id)).toEqual([
+    'openai/gpt-5',
+    'openai/gpt-4o',
+    'openai:gpt-5.6',
+  ])
+})
+
+test('replaceProviderModels only replaces codex/ entries for the codex provider', () => {
+  const current = [
+    model({ id: 'openai/gpt-5' }),
+    model({ id: 'codex/gpt-5.4', provider: 'codex' }),
+  ]
+  const replacement = [model({ id: 'codex/gpt-5.6', provider: 'codex' })]
+
+  expect(replaceProviderModels(current, 'codex', replacement).map((entry) => entry.id)).toEqual([
+    'openai/gpt-5',
+    'codex/gpt-5.6',
+  ])
+})
+
+test('mergePreservingProviderModels keeps direct and codex entries across catalog refreshes', () => {
+  const current = [
+    model({ id: 'qwen/qwen3.6-plus' }),
+    model({ id: 'codex/gpt-5.6', provider: 'codex' }),
+    model({ id: 'chatgpt:gpt-5.6', provider: 'chatgpt' }),
+  ]
+  const catalog = [
+    model({ id: 'openai/gpt-5' }),
+    model({ id: 'anthropic/claude-sonnet-4' }),
+    model({ id: 'chatgpt:gpt-5.6', provider: 'chatgpt', name: 'stale curated entry' }),
+  ]
+
+  const merged = mergePreservingProviderModels(catalog, current)
+
+  expect(merged.map((entry) => entry.id)).toEqual([
+    'openai/gpt-5',
+    'anthropic/claude-sonnet-4',
+    'codex/gpt-5.6',
+    'chatgpt:gpt-5.6',
+  ])
+  // The live-fetched entry wins over the curated duplicate from the new base list.
+  expect(merged.find((entry) => entry.id === 'chatgpt:gpt-5.6')?.name).toBe('chatgpt:gpt-5.6')
 })
 
 test('uses model-specific effort levels from a live provider catalog', () => {
