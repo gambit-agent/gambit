@@ -1,4 +1,3 @@
-<img width="2150" height="1398" alt="gambit-coding-agent" src="https://github.com/user-attachments/assets/21f3fee0-8925-4657-b5e8-a25ad8b0c062" />
 # Gambit CLI
 
 > Interactive AI agent development environment built with Bun, TypeScript, and OpenTUI.
