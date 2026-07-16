@@ -1,4 +1,4 @@
-import type { ModelMessage, ToolResultPart } from "@ai-sdk/provider-utils";
+import type { AssistantModelMessage, ModelMessage, ToolCallPart, ToolResultPart } from "@ai-sdk/provider-utils";
 import type { JSONValue } from "@ai-sdk/provider";
 
 import type { UIMessage } from "../types/chat";
@@ -88,20 +88,60 @@ const toToolResultOutput = (value: unknown): ToolResultPart["output"] => {
 };
 
 export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
-  return messages.map<ModelMessage>((message) => {
+  const result: ModelMessage[] = [];
+  // Providers require every tool result to be paired with a tool-call part on a
+  // preceding assistant message, but the store persists tool executions as
+  // standalone `role: "tool"` messages. Track the assistant message that owns
+  // the current run of tool messages so the pairing can be reconstructed.
+  let openAssistant: AssistantModelMessage | null = null;
+
+  for (const message of messages) {
     if (message.role === "tool") {
       const toolCallId = message.metadata?.toolCallId ?? message.id;
       const toolName = message.metadata?.toolName ?? "tool";
       const toolSource = message.metadata?.toolResult ?? message.content;
+
+      if (!openAssistant) {
+        openAssistant = { role: "assistant", content: [] };
+        result.push(openAssistant);
+      }
+      if (typeof openAssistant.content === "string") {
+        openAssistant.content = openAssistant.content
+          ? [{ type: "text", text: openAssistant.content }]
+          : [];
+      }
+      const hasToolCall = openAssistant.content.some(
+        (part) => part.type === "tool-call" && part.toolCallId === toolCallId,
+      );
+      if (!hasToolCall) {
+        const toolCall: ToolCallPart = {
+          type: "tool-call",
+          toolCallId,
+          toolName,
+          input: normalizeJsonValue(message.metadata?.toolArgs ?? {}),
+        };
+        openAssistant.content.push(toolCall);
+      }
+
       const toolContent: ToolResultPart = {
         type: "tool-result",
         toolCallId,
         toolName,
         output: toToolResultOutput(toolSource),
       };
-      return { role: "tool", content: [toolContent] };
+      result.push({ role: "tool", content: [toolContent] });
+      continue;
     }
 
-    return { role: message.role, content: message.content };
-  });
+    if (message.role === "assistant") {
+      openAssistant = { role: "assistant", content: message.content };
+      result.push(openAssistant);
+      continue;
+    }
+
+    openAssistant = null;
+    result.push({ role: message.role, content: message.content });
+  }
+
+  return result;
 }

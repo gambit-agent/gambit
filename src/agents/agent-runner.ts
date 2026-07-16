@@ -136,6 +136,7 @@ export class AgentRunner {
       tools: mergedTools,
       maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
       signal: options.signal,
+      promptCacheKey: turnId,
       logMetadata: {
         agentId: options.definition.id,
         modelId: options.modelId,

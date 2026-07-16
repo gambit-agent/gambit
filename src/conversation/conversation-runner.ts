@@ -141,9 +141,13 @@ export class ConversationRunner {
 
     await this.compact({ apiKey: options.apiKey, modelId: options.modelId })
 
+    // Recalled memories go into the message history (not the system prompt):
+    // they vary with each user input, and a changing system prompt invalidates
+    // the provider's prompt cache for the entire conversation prefix.
+    await this.appendMemoryContext(formatRelevantMemories(await relevantMemoriesPromise))
+
     const snapshot = this.dependencies.store.getSnapshot()
     const initialMessageCount = snapshot.messages.length
-    const relevantMemoryContext = formatRelevantMemories(await relevantMemoriesPromise)
     const basePrompt = options.systemPromptOverride ?? this.dependencies.baseSystemPrompt
     const goalSystemPrompt = buildGoalSystemPrompt(snapshot.messages)
     const systemPrompt = [
@@ -151,7 +155,6 @@ export class ConversationRunner {
       goalSystemPrompt,
       options.appendSystemPrompt,
       getMemoryPrompt(),
-      relevantMemoryContext,
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -217,6 +220,7 @@ export class ConversationRunner {
         tools,
         maxSteps: maxAgentSteps,
         signal: options.signal,
+        promptCacheKey: this.dependencies.store.conversationId,
         logMetadata: {
           modelId: options.modelId,
           reasoningEffort: options.reasoningEffort ?? null,
@@ -302,6 +306,37 @@ export class ConversationRunner {
       this.dependencies.store.setError(error instanceof Error ? error.message : String(error))
       throw error
     }
+  }
+
+  /**
+   * Persist recalled memory context as a hidden user-role message so it
+   * replays identically on later turns (keeping the prompt prefix cacheable).
+   * Skipped when empty or when it matches the most recent memory context.
+   */
+  private async appendMemoryContext(memoryContext: string): Promise<void> {
+    if (!memoryContext) {
+      return
+    }
+
+    const messages = this.dependencies.store.getSnapshot().messages
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]
+      if (message?.metadata?.memoryContext) {
+        if (message.content === memoryContext) {
+          return
+        }
+        break
+      }
+    }
+
+    await this.dependencies.store.pushMessage({
+      id: generateId(),
+      role: 'user',
+      content: memoryContext,
+      timestamp: new Date().toISOString(),
+      hidden: true,
+      metadata: { memoryContext: true },
+    })
   }
 
   /** Insert a new tool message or update an existing one by toolCallId. */

@@ -80,3 +80,39 @@ test('delegated agent base prompt includes the active conversation goal', () => 
   expect(delegatedPrompt).toContain('Base prompt')
   expect(delegatedPrompt).toContain('Current conversation goal:\nfinish the workflow port')
 })
+
+test('persists recalled memory context as a hidden user message without duplicates', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'memory-context-test' })
+  const runner = new ConversationRunner({
+    store,
+    baseSystemPrompt: 'Base prompt',
+    memoryStore: new MemoryStore(),
+    createToolContext: () => ({ workspaceRoot: tempRoot }),
+  })
+  const appendMemoryContext = (context: string) =>
+    (runner as unknown as { appendMemoryContext(context: string): Promise<void> }).appendMemoryContext(context)
+
+  await appendMemoryContext('')
+  expect(store.getSnapshot().messages).toHaveLength(0)
+
+  await appendMemoryContext('Relevant memory context:\n\n## fact-one')
+  let messages = store.getSnapshot().messages
+  expect(messages).toHaveLength(1)
+  expect(messages[0]?.role).toBe('user')
+  expect(messages[0]?.hidden).toBe(true)
+  expect(messages[0]?.metadata?.memoryContext).toBe(true)
+
+  // Same context again: skipped.
+  await appendMemoryContext('Relevant memory context:\n\n## fact-one')
+  expect(store.getSnapshot().messages).toHaveLength(1)
+
+  // Changed context: appended.
+  await appendMemoryContext('Relevant memory context:\n\n## fact-two')
+  messages = store.getSnapshot().messages
+  expect(messages).toHaveLength(2)
+  expect(messages[1]?.content).toContain('fact-two')
+
+  // Persisted to the transcript, so later turns replay it identically.
+  const persisted = await store.loadMessages()
+  expect(persisted.filter((message) => message.metadata?.memoryContext)).toHaveLength(2)
+})

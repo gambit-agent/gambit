@@ -15,6 +15,14 @@ import { type DirectProviderId, type ProviderId, getProviderDefinition } from '.
 
 const MODELS_TIMEOUT_MS = 8_000
 
+/**
+ * The ChatGPT backend gates `/backend-api/codex/models` on the *Codex CLI*
+ * version scheme: anything below ~1.0.0 gets an empty `models` list with HTTP
+ * 200. Gambit's own version (0.x) is below that cutoff, so a pinned
+ * Codex-compatible version is sent instead of `appVersion`.
+ */
+const CHATGPT_MODELS_CLIENT_VERSION = '1.0.0'
+
 export interface DirectProviderModel {
   id: string
   name: string
@@ -147,7 +155,7 @@ async function fetchOpenAICompatibleModels(baseURL: string, apiKey: string | nul
 
 async function fetchChatGptModels(token: CodexAuthToken): Promise<DirectProviderModel[]> {
   const response = await fetch(
-    `https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent(appVersion)}`,
+    `https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent(CHATGPT_MODELS_CLIENT_VERSION)}`,
     {
       headers: {
         Authorization: `Bearer ${token.accessToken}`,
@@ -244,16 +252,17 @@ async function fetchLiveModels(providerId: ProviderId, credential: ProviderCrede
 
 /**
  * Fetches the live model list for a connected provider. Never throws: on any
- * failure (network error, unsupported endpoint, missing credential) the curated
- * `defaultModels` fallback is returned instead so the model picker always has
- * something to show.
+ * failure (network error, unsupported endpoint, missing credential) — or when
+ * the provider "succeeds" with an empty list — the curated `defaultModels`
+ * fallback is returned instead so the model picker always has something to show.
  */
 export async function fetchDirectProviderModels(
   providerId: DirectProviderId,
   credential: ProviderCredential,
 ): Promise<DirectProviderModel[]> {
   try {
-    return await fetchLiveModels(providerId, credential)
+    const models = await fetchLiveModels(providerId, credential)
+    return models.length > 0 ? models : fallbackModels(providerId)
   } catch {
     return fallbackModels(providerId)
   }

@@ -11,5 +11,6 @@ export interface UIMessage {
     toolName?: string;
     toolArgs?: unknown;
     toolResult?: unknown;
+    memoryContext?: boolean;
   };
 }
