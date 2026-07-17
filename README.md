@@ -2,7 +2,7 @@
 
 > Interactive AI agent development environment built with Bun, TypeScript, and OpenTUI.
 
-<img width="2150" height="1398" alt="gambit-coding-agent" src="https://github.com/user-attachments/assets/f92c2c87-0fe2-4538-95a3-b06b068b8f99" />
+<img width="1727" height="1360" alt="Screenshot" src="https://github.com/user-attachments/assets/c2738f9a-d1e7-48e6-b242-0d762c6e6da4" />
 
 [![Bun](https://img.shields.io/badge/Bun-1.2+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?logo=typescript&logoColor=white&labelColor=14151a)](https://www.typescriptlang.org/)
