@@ -8,11 +8,39 @@ describe("InteractiveHistory", () => {
     history.add("first command")
     history.add("second command")
 
-    expect(history.previous("")).toBe("second command")
-    expect(history.previous("")).toBe("first command")
-    expect(history.previous("")).toBe("first command")
+    expect(history.previous()).toBe("second command")
+    expect(history.previous()).toBe("first command")
+    expect(history.previous()).toBe("first command")
     expect(history.next()).toBe("second command")
     expect(history.next()).toBe("")
+  })
+
+  it("skips slash commands during arrow navigation", () => {
+    const history = new InteractiveHistory([
+      "first command",
+      "/model",
+      "second command",
+      "/theme dark",
+    ])
+
+    expect(history.previous()).toBe("second command")
+    expect(history.previous()).toBe("first command")
+    expect(history.previous()).toBe("first command")
+    expect(history.next()).toBe("second command")
+    expect(history.next()).toBe("")
+  })
+
+  it("returns null when history only contains slash commands", () => {
+    const history = new InteractiveHistory(["/model", "/theme dark"])
+
+    expect(history.previous()).toBeNull()
+    expect(history.next()).toBeNull()
+  })
+
+  it("still finds slash commands via search", () => {
+    const history = new InteractiveHistory(["/model", "first command"])
+
+    expect(history.findLatestMatch("model")?.value).toBe("/model")
   })
 
   it("finds matches when searching backwards", () => {

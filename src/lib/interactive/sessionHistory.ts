@@ -1,5 +1,5 @@
 ﻿import { generateId } from "../id"
-import { mkdir } from "node:fs/promises"
+import { mkdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { Glob, JSONL } from "bun"
 
@@ -9,6 +9,8 @@ import { appendJsonlEntry } from "../jsonl"
 const HISTORY_FILE_PREFIX = "history-"
 const HISTORY_FILE_SUFFIX = ".jsonl"
 const MAX_HISTORY_ENTRIES = 1000
+/** Only the newest N session files are read at startup to bound load cost. */
+const MAX_HISTORY_FILES = 20
 
 type SessionHistoryRole = "user" | "assistant"
 
@@ -91,8 +93,26 @@ export async function loadUserHistoryEntries(limit: number = MAX_HISTORY_ENTRIES
     })) {
       historyFiles.push(filePath)
     }
+    const fileInfos = await Promise.all(
+      historyFiles.map(async (filePath) => {
+        try {
+          const stats = await stat(filePath)
+          if (!stats.isFile()) {
+            return null
+          }
+          return { filePath, mtimeMs: stats.mtimeMs }
+        } catch {
+          return null
+        }
+      }),
+    )
+    const newestFiles = fileInfos
+      .filter((info): info is { filePath: string; mtimeMs: number } => info !== null)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, MAX_HISTORY_FILES)
+      .map((info) => info.filePath)
     const parsedFiles = await Promise.all(
-      historyFiles.map((filePath) => readUserEntriesFromFile(filePath)),
+      newestFiles.map((filePath) => readUserEntriesFromFile(filePath)),
     )
     entries.push(...parsedFiles.flat())
   } catch (error) {

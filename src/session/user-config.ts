@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { parseOptionalPositiveInteger } from '../config'
 import { isProviderId } from '../lib/providers'
+import { createSerialQueue } from '../lib/serial-queue'
 import { isRecord } from './jsonl'
 
 export interface UserConfigProviderCredential {
@@ -106,53 +107,71 @@ export async function readUserConfig(configPath: string = getUserConfigPath()): 
   return parseUserConfig(await readUserConfigRecord(configPath))
 }
 
+/**
+ * Config updates are lockless read-modify-write cycles on config.json, so two
+ * concurrent updates (e.g. a token refresh racing a theme change) could drop
+ * one another's fields. Serialize every mutation so each update sees the
+ * previous one's result.
+ */
+const configWriteQueue = createSerialQueue()
+
+function enqueueConfigUpdate<T>(update: () => Promise<T>): Promise<T> {
+  return configWriteQueue.run(update)
+}
+
 export async function writeProviderCredential(
   providerId: string,
   credential: UserConfigProviderCredential,
   configPath: string = getUserConfigPath(),
 ): Promise<void> {
-  const current = await readUserConfigRecord(configPath)
-  const providers = isRecord(current.providers) ? { ...current.providers } : {}
-  const nextCredential: UserConfigProviderCredential = {
-    apiKey: credential.apiKey?.trim() || null,
-    baseURL: credential.baseURL?.trim() || null,
-  }
-  if (credential.accessToken?.trim()) nextCredential.accessToken = credential.accessToken.trim()
-  if (credential.refreshToken?.trim()) nextCredential.refreshToken = credential.refreshToken.trim()
-  if (typeof credential.expiresAt === 'number' && Number.isFinite(credential.expiresAt)) {
-    nextCredential.expiresAt = Math.max(0, Math.floor(credential.expiresAt))
-  }
-  if (credential.accountId?.trim()) nextCredential.accountId = credential.accountId.trim()
+  return enqueueConfigUpdate(async () => {
+    const current = await readUserConfigRecord(configPath)
+    const providers = isRecord(current.providers) ? { ...current.providers } : {}
+    const nextCredential: UserConfigProviderCredential = {
+      apiKey: credential.apiKey?.trim() || null,
+      baseURL: credential.baseURL?.trim() || null,
+    }
+    if (credential.accessToken?.trim()) nextCredential.accessToken = credential.accessToken.trim()
+    if (credential.refreshToken?.trim()) nextCredential.refreshToken = credential.refreshToken.trim()
+    if (typeof credential.expiresAt === 'number' && Number.isFinite(credential.expiresAt)) {
+      nextCredential.expiresAt = Math.max(0, Math.floor(credential.expiresAt))
+    }
+    if (credential.accountId?.trim()) nextCredential.accountId = credential.accountId.trim()
 
-  providers[providerId] = nextCredential
-  const next = { ...current, providers }
+    providers[providerId] = nextCredential
+    const next = { ...current, providers }
 
-  await writeUserConfigRecord(configPath, next)
+    await writeUserConfigRecord(configPath, next)
+  })
 }
 
 export async function removeProviderCredential(
   providerId: string,
   configPath: string = getUserConfigPath(),
 ): Promise<void> {
-  const current = await readUserConfigRecord(configPath)
-  const providers = isRecord(current.providers) ? { ...current.providers } : {}
-  delete providers[providerId]
-  const next = { ...current, providers }
+  return enqueueConfigUpdate(async () => {
+    const current = await readUserConfigRecord(configPath)
+    const providers = isRecord(current.providers) ? { ...current.providers } : {}
+    delete providers[providerId]
+    const next = { ...current, providers }
 
-  await writeUserConfigRecord(configPath, next)
+    await writeUserConfigRecord(configPath, next)
+  })
 }
 
 export async function writeThemePreference(
   themeId: string,
   configPath: string = getUserConfigPath(),
 ): Promise<void> {
-  const current = await readUserConfigRecord(configPath)
-  const next = {
-    ...current,
-    theme: themeId.trim() || null,
-  }
+  return enqueueConfigUpdate(async () => {
+    const current = await readUserConfigRecord(configPath)
+    const next = {
+      ...current,
+      theme: themeId.trim() || null,
+    }
 
-  await writeUserConfigRecord(configPath, next)
+    await writeUserConfigRecord(configPath, next)
+  })
 }
 
 async function writeUserConfigRecord(configPath: string, record: Record<string, unknown>): Promise<void> {

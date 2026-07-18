@@ -67,6 +67,15 @@ export class InteractiveSession {
     return this.permissionMode
   }
 
+  /**
+   * True while a run started via `startRun` has not yet been cleared or
+   * aborted. Unlike store-derived `isRunning` snapshots, this flips
+   * synchronously on submit, so it can guard against double-submission.
+   */
+  get isRunActive(): boolean {
+    return this.abortController !== null
+  }
+
   startRun(): AbortSignal {
     this.abortController?.abort()
     this.abortController = new AbortController()

@@ -17,22 +17,24 @@ interface HistorySearchState {
 
 interface UseInteractiveHistorySearchOptions {
   historyRef: MutableRefObject<InteractiveHistory | null>
-  inputValueRef: MutableRefObject<string>
   suppressNextInputRef: MutableRefObject<boolean>
   setInputValueWithRef: (next: SetStateAction<string>) => void
   clearPreviewLabel: () => void
+  /** Returns the composer's current value; used to stash/restore drafts. */
+  getCurrentInputValue?: () => string
 }
 
 export function useInteractiveHistorySearch({
   historyRef,
-  inputValueRef,
   suppressNextInputRef,
   setInputValueWithRef,
   clearPreviewLabel,
+  getCurrentInputValue,
 }: UseInteractiveHistorySearchOptions) {
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: '', match: null })
   const lastSearchIndex = useRef<number | null>(null)
   const loadPromiseRef = useRef<Promise<InteractiveHistory> | null>(null)
+  const stashedDraftRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -85,31 +87,59 @@ export function useInteractiveHistorySearch({
     lastSearchIndex.current = null
   }, [])
 
+  const applyRecalledValue = useCallback(
+    (value: string): boolean => {
+      const current = getCurrentInputValue?.()
+      if (current !== undefined && current === value) {
+        // Navigation was a no-op; do not leave a dangling suppress flag.
+        return true
+      }
+      clearPreviewLabel()
+      suppressNextInputRef.current = true
+      setInputValueWithRef(value)
+      return true
+    },
+    [clearPreviewLabel, getCurrentInputValue, setInputValueWithRef, suppressNextInputRef],
+  )
+
+  /**
+   * Navigates history in the given direction. Returns true when the key was
+   * handled (the composer content was replaced, or the navigation pinned on
+   * an existing entry) so the caller can consume the key event.
+   */
   const handleHistoryNavigation = useCallback(
-    (direction: 'previous' | 'next') => {
+    (direction: 'previous' | 'next'): boolean => {
       const history = historyRef.current
       if (!history) {
-        return
+        return false
       }
 
       if (direction === 'previous') {
-        const nextValue = history.previous(inputValueRef.current)
-        if (nextValue !== null) {
-          clearPreviewLabel()
-          suppressNextInputRef.current = true
-          setInputValueWithRef(nextValue)
+        // Stash the in-progress draft before the first step back so
+        // down-arrow past the newest entry restores it.
+        if (!history.isNavigating) {
+          stashedDraftRef.current = getCurrentInputValue?.() ?? null
         }
-        return
+        const nextValue = history.previous()
+        if (nextValue === null) {
+          return false
+        }
+        return applyRecalledValue(nextValue)
       }
 
       const nextValue = history.next()
-      if (nextValue !== null) {
-        clearPreviewLabel()
-        suppressNextInputRef.current = true
-        setInputValueWithRef(nextValue)
+      if (nextValue === null) {
+        return false
       }
+      if (nextValue === '' && !history.isNavigating) {
+        // Walked past the newest entry: restore the stashed draft.
+        const draft = stashedDraftRef.current ?? ''
+        stashedDraftRef.current = null
+        return applyRecalledValue(draft)
+      }
+      return applyRecalledValue(nextValue)
     },
-    [clearPreviewLabel, inputValueRef, setInputValueWithRef, suppressNextInputRef],
+    [applyRecalledValue, getCurrentInputValue],
   )
 
   const updateHistorySearch = useCallback(
@@ -129,12 +159,10 @@ export function useInteractiveHistorySearch({
       setHistorySearch({ active: true, query, match: match?.value ?? null })
 
       if (match?.value) {
-        clearPreviewLabel()
-        suppressNextInputRef.current = true
-        setInputValueWithRef(match.value)
+        applyRecalledValue(match.value)
       }
     },
-    [clearPreviewLabel, setInputValueWithRef, suppressNextInputRef],
+    [applyRecalledValue],
   )
 
   return {

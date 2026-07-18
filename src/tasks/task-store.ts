@@ -1,4 +1,5 @@
 import { generateId } from '../lib/id'
+import { createSerialQueue } from '../lib/serial-queue'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -116,6 +117,14 @@ async function readTaskRecords(): Promise<TaskRecord[]> {
   return readJsonlEntries(getTaskStorePath(workspaceRoot), parseTaskRecord)
 }
 
+/**
+ * Serializes every store mutation. updateTask/removeTask/reconcile are
+ * read-all/rewrite-all cycles with realistic concurrent writers (parallel
+ * background agents reporting progress); without the queue, interleaved
+ * rewrites silently drop each other's updates.
+ */
+const storeMutationQueue = createSerialQueue()
+
 async function writeTaskRecords(records: readonly TaskRecord[]): Promise<void> {
   await writeJsonlEntries(getTaskStorePath(workspaceRoot), records)
 }
@@ -137,28 +146,30 @@ export async function listTasks(): Promise<TaskRecord[]> {
 export async function reconcileInterruptedTasks(
   cancelledAt: string = new Date().toISOString(),
 ): Promise<TaskRecord[]> {
-  const tasks = await readTaskRecords()
-  let changed = false
+  return storeMutationQueue.run(async () => {
+    const tasks = await readTaskRecords()
+    let changed = false
 
-  const nextTasks = tasks.map((task) => {
-    if (task.status !== 'pending' && task.status !== 'running') {
-      return task
+    const nextTasks = tasks.map((task) => {
+      if (task.status !== 'pending' && task.status !== 'running') {
+        return task
+      }
+
+      changed = true
+      return {
+        ...task,
+        status: 'cancelled' as const,
+        finishedAt: task.finishedAt ?? cancelledAt,
+        progressSummary: task.status === 'running' ? interruptedTaskSummary : abandonedTaskSummary,
+      }
+    })
+
+    if (changed) {
+      await writeTaskRecords(nextTasks)
     }
 
-    changed = true
-    return {
-      ...task,
-      status: 'cancelled' as const,
-      finishedAt: task.finishedAt ?? cancelledAt,
-      progressSummary: task.status === 'running' ? interruptedTaskSummary : abandonedTaskSummary,
-    }
+    return nextTasks
   })
-
-  if (changed) {
-    await writeTaskRecords(nextTasks)
-  }
-
-  return nextTasks
 }
 
 export async function getTask(id: string): Promise<TaskRecord | null> {
@@ -193,11 +204,17 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
   }
 
   await ensureTaskDirectories(id, outputPath, transcriptPath)
-  await appendJsonlEntry(getTaskStorePath(workspaceRoot), record)
+  // The append itself goes through the queue so it cannot land between another
+  // mutation's read and rewrite phases (which would drop the new record).
+  await storeMutationQueue.run(() => appendJsonlEntry(getTaskStorePath(workspaceRoot), record))
   return record
 }
 
 export async function updateTask(id: string, patch: UpdateTaskInput): Promise<TaskRecord | null> {
+  return storeMutationQueue.run(() => updateTaskUnlocked(id, patch))
+}
+
+async function updateTaskUnlocked(id: string, patch: UpdateTaskInput): Promise<TaskRecord | null> {
   const tasks = await readTaskRecords()
   const index = tasks.findIndex((task) => task.id === id)
   if (index === -1) {
@@ -242,13 +259,15 @@ export async function updateTask(id: string, patch: UpdateTaskInput): Promise<Ta
 }
 
 export async function removeTask(id: string): Promise<TaskRecord | null> {
-  const tasks = await readTaskRecords()
-  const index = tasks.findIndex((task) => task.id === id)
-  if (index === -1) {
-    return null
-  }
+  return storeMutationQueue.run(async () => {
+    const tasks = await readTaskRecords()
+    const index = tasks.findIndex((task) => task.id === id)
+    if (index === -1) {
+      return null
+    }
 
-  const [removed] = tasks.splice(index, 1)
-  await writeTaskRecords(tasks)
-  return removed ?? null
+    const [removed] = tasks.splice(index, 1)
+    await writeTaskRecords(tasks)
+    return removed ?? null
+  })
 }

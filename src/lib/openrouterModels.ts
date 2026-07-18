@@ -5,6 +5,7 @@ import type { ReasoningEffort } from "./model";
 const MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 const MODELS_RETRY_DELAY_MS = 300;
 const MODELS_MAX_ATTEMPTS = 3;
+const MODELS_TIMEOUT_MS = 8_000;
 
 export interface OpenRouterModelEntry {
   id: string;
@@ -110,6 +111,7 @@ export async function fetchOpenRouterModels(apiKey?: string): Promise<ModelListI
       const response = await fetch(MODELS_ENDPOINT, {
         headers,
         cache: "no-store",
+        signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
       });
       if (!response.ok) {
         if (shouldRetryModelsRequest(response.status) && attempt < MODELS_MAX_ATTEMPTS) {
@@ -166,6 +168,7 @@ export async function fetchOpenRouterModelProviders(modelId: string, apiKey?: st
       const response = await fetch(endpoint, {
         headers,
         cache: "no-store",
+        signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
       });
       if (!response.ok) {
         if (shouldRetryModelsRequest(response.status) && attempt < MODELS_MAX_ATTEMPTS) {

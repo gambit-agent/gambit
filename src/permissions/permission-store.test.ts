@@ -36,6 +36,24 @@ describe('permission store', () => {
     expect(allRequests[0]?.state).toBe('resolved')
   })
 
+  test('does not lose records under concurrent enqueues and resolves', async () => {
+    const total = 25
+
+    await Promise.all(
+      Array.from({ length: total }, async (_, index) => {
+        const record = await enqueuePermissionRequest({ subject: `concurrent request ${index}` })
+        const resolved = await resolvePermissionRequest(record.id, { decision: 'allow' })
+        expect(resolved?.id).toBe(record.id)
+      }),
+    )
+
+    const records = await listPermissionRequests()
+    expect(records).toHaveLength(total)
+    expect(records.every((record) => record.state === 'resolved')).toBe(true)
+    expect(records.every((record) => record.decision === 'allow')).toBe(true)
+    expect(new Set(records.map((record) => record.subject)).size).toBe(total)
+  })
+
   test('rejects empty permission subjects', async () => {
     await expect(
       enqueuePermissionRequest({

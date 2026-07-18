@@ -397,23 +397,119 @@ interface DiscoveredTool {
   tool: MCPListToolsEntry
 }
 
-function buildZodSchemaForTool(tool: MCPListToolsEntry): ZodTypeAny {
-  const jsonSchema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] } | undefined
-  const properties = jsonSchema?.properties
-  if (!properties || Object.keys(properties).length === 0) {
-    return z.record(z.string(), z.unknown()).describe('Arguments for this MCP tool.').default({})
+const MAX_JSON_SCHEMA_TRANSLATION_DEPTH = 8
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Translate an MCP JSON Schema fragment to a zod validator. Maps the common
+ * cases (primitive types, enums, arrays, objects with required fields) to real
+ * validators so tool inputs are actually validated, and falls back to
+ * z.unknown() for anything exotic (e.g. anyOf/oneOf compositions).
+ */
+export function jsonSchemaToZod(schema: unknown, depth = 0): ZodTypeAny {
+  if (!isPlainObject(schema) || depth > MAX_JSON_SCHEMA_TRANSLATION_DEPTH) {
+    return z.unknown()
   }
 
-  const required = new Set(jsonSchema?.required ?? [])
+  let result = translateJsonSchemaValue(schema, depth)
+  if (typeof schema.description === 'string' && schema.description) {
+    result = result.describe(schema.description)
+  }
+  return result
+}
+
+function translateJsonSchemaValue(schema: Record<string, unknown>, depth: number): ZodTypeAny {
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
+    return translateEnum(schema.enum)
+  }
+
+  if (typeof schema.const === 'string' || typeof schema.const === 'number' || typeof schema.const === 'boolean') {
+    return z.literal(schema.const)
+  }
+
+  const type = schema.type
+  if (Array.isArray(type)) {
+    const members = type
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => translateJsonSchemaValue({ ...schema, type: entry }, depth))
+    if (members.length === 0) return z.unknown()
+    if (members.length === 1) return members[0]!
+    return z.union([members[0]!, members[1]!, ...members.slice(2)])
+  }
+
+  switch (type) {
+    case 'string':
+      return z.string()
+    // Models commonly emit stringified numbers ("5"); coercing avoids a retry
+    // round-trip while still rejecting non-numeric strings (NaN fails).
+    // Booleans stay strict: z.coerce.boolean() treats any non-empty string
+    // (including "false") as true, which is unsafe.
+    case 'number':
+      return z.coerce.number()
+    case 'integer':
+      return z.coerce.number().int()
+    case 'boolean':
+      return z.boolean()
+    case 'null':
+      return z.null()
+    case 'array':
+      return z.array(jsonSchemaToZod(schema.items, depth + 1))
+    case 'object':
+      return translateObjectSchema(schema, depth)
+    default:
+      return z.unknown()
+  }
+}
+
+function translateEnum(values: unknown[]): ZodTypeAny {
+  const stringValues = values.filter((value): value is string => typeof value === 'string')
+  if (stringValues.length === values.length && stringValues.length > 0) {
+    return z.enum(stringValues as [string, ...string[]])
+  }
+
+  const literalValues = values.filter(
+    (value): value is string | number | boolean => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean',
+  )
+  if (literalValues.length !== values.length || literalValues.length === 0) {
+    return z.unknown()
+  }
+  const literals = literalValues.map((value) => z.literal(value))
+  if (literals.length === 1) return literals[0]!
+  return z.union([literals[0]!, literals[1]!, ...literals.slice(2)])
+}
+
+function translateObjectSchema(schema: Record<string, unknown>, depth: number): ZodTypeAny {
+  const properties = isPlainObject(schema.properties) ? schema.properties : null
+  if (!properties || Object.keys(properties).length === 0) {
+    return schema.additionalProperties === false
+      ? z.object({})
+      : z.record(z.string(), z.unknown())
+  }
+
+  const required = new Set(Array.isArray(schema.required) ? schema.required.filter((key) => typeof key === 'string') : [])
   const shape: Record<string, ZodTypeAny> = {}
   for (const [key, raw] of Object.entries(properties)) {
-    const field = raw as { description?: string }
-    let fieldSchema: ZodTypeAny = z.unknown()
-    if (field?.description) fieldSchema = fieldSchema.describe(field.description)
+    let fieldSchema = jsonSchemaToZod(raw, depth + 1)
     if (!required.has(key)) fieldSchema = fieldSchema.optional()
     shape[key] = fieldSchema
   }
-  return z.object(shape).passthrough()
+
+  const objectSchema = z.object(shape)
+  // Keep passthrough only when additionalProperties isn't explicitly false.
+  return schema.additionalProperties === false ? objectSchema : objectSchema.passthrough()
+}
+
+export function buildZodSchemaForTool(tool: MCPListToolsEntry): ZodTypeAny {
+  const jsonSchema = tool.inputSchema as Record<string, unknown> | undefined
+  const properties = isPlainObject(jsonSchema?.properties) ? jsonSchema?.properties : undefined
+  if (!jsonSchema || !properties || Object.keys(properties).length === 0) {
+    return z.record(z.string(), z.unknown()).describe('Arguments for this MCP tool.').default({})
+  }
+
+  return jsonSchemaToZod({ ...jsonSchema, type: 'object' })
 }
 
 function buildDiscoveredToolDefinition({ serverName, tool }: DiscoveredTool): ToolDefinition<any, any> {

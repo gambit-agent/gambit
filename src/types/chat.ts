@@ -11,6 +11,9 @@ export interface UIMessage {
     toolName?: string;
     toolArgs?: unknown;
     toolResult?: unknown;
+    toolStatus?: "started" | "completed" | "failed" | "cancelled";
+    /** Display-only reasoning text; excluded from content replayed to the model. */
+    reasoningText?: string;
     memoryContext?: boolean;
   };
 }

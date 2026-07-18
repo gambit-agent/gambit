@@ -70,8 +70,18 @@ test('patches installer cp to handle busy binary', () => {
 })
 
 test('patchInstallerScript warns on unknown installer', () => {
-  const result = patchInstallerScript('some random script')
+  const warnings: string[] = []
+  const result = patchInstallerScript('some random script', (message) => warnings.push(message))
   expect(result).toBe('some random script')
+  expect(warnings).toEqual(['Warning: could not patch installer for "Text file busy" workaround.'])
+})
+
+test('patchInstallerScript recognizes the current repo installer without warning', async () => {
+  const installer = await Bun.file(path.join(import.meta.dir, '../../install')).text()
+  const warnings: string[] = []
+  const patched = patchInstallerScript(installer, (message) => warnings.push(message))
+  expect(warnings).toEqual([])
+  expect(patched).toContain('mv -f "$tmp_dest" "$destination"')
 })
 
 test('buildWindowsUpdateScript generates valid PowerShell with default settings', () => {

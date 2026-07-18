@@ -1,6 +1,8 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 
+import { decodeJwt, isJwtExpired } from './jwt'
+
 const TOKEN_URL = 'https://auth.openai.com/oauth/token'
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth'
@@ -60,9 +62,32 @@ export async function getCodexAuthToken(): Promise<CodexAuthToken> {
     throw new Error('Codex subscription token is expired and no refresh token was found. Run codex login again.')
   }
 
+  let pending = inflightRefreshes.get(refreshToken)
+  if (!pending) {
+    pending = refreshAndPersistCodexToken(authPath, auth, refreshToken).finally(() => {
+      inflightRefreshes.delete(refreshToken)
+    })
+    inflightRefreshes.set(refreshToken, pending)
+  }
+  return pending
+}
+
+/**
+ * Concurrent callers (per-stream getAuthToken, parallel subagents, the model
+ * picker fetch) share a single in-flight refresh, keyed by the refresh token
+ * being spent. Without this, two simultaneous refresh grants can invalidate
+ * each other when the server rotates refresh tokens.
+ */
+const inflightRefreshes = new Map<string, Promise<CodexAuthToken>>()
+
+async function refreshAndPersistCodexToken(
+  authPath: string,
+  auth: CodexAuthFile,
+  refreshToken: string,
+): Promise<CodexAuthToken> {
   const refreshed = await refreshCodexToken(refreshToken)
   await persistRefreshedToken(authPath, auth, refreshed).catch(() => undefined)
-  return refreshed
+  return { accessToken: refreshed.accessToken, accountId: refreshed.accountId }
 }
 
 async function readCodexAuthFile(authPath: string): Promise<CodexAuthFile> {
@@ -73,12 +98,20 @@ async function readCodexAuthFile(authPath: string): Promise<CodexAuthFile> {
   }
 }
 
-async function persistRefreshedToken(authPath: string, current: CodexAuthFile, token: CodexAuthToken): Promise<void> {
+interface RefreshedCodexToken extends CodexAuthToken {
+  /** Rotated refresh token when the server issued one; null when it did not. */
+  refreshToken: string | null
+}
+
+async function persistRefreshedToken(authPath: string, current: CodexAuthFile, token: RefreshedCodexToken): Promise<void> {
   const next = {
     ...current,
     tokens: {
       ...current.tokens,
       access_token: token.accessToken,
+      // Keep the rotated refresh token, otherwise the stored one goes stale
+      // after the first rotation and every later refresh fails.
+      refresh_token: token.refreshToken ?? current.tokens?.refresh_token,
       account_id: token.accountId,
     },
     last_refresh: new Date().toISOString(),
@@ -86,7 +119,7 @@ async function persistRefreshedToken(authPath: string, current: CodexAuthFile, t
   await Bun.write(authPath, `${JSON.stringify(next, null, 2)}\n`)
 }
 
-async function refreshCodexToken(refreshToken: string): Promise<CodexAuthToken> {
+async function refreshCodexToken(refreshToken: string): Promise<RefreshedCodexToken> {
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -98,36 +131,34 @@ async function refreshCodexToken(refreshToken: string): Promise<CodexAuthToken> 
   })
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`Codex token refresh failed (${response.status}): ${text || response.statusText}`)
+    // Never surface the response body: OAuth error payloads can echo tokens.
+    const code = await extractOAuthErrorCode(response)
+    throw new Error(`Codex token refresh failed (HTTP ${response.status}${code ? `, ${code}` : ''}). Run codex login again.`)
   }
 
   const json = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number }
   if (!json.access_token) {
-    throw new Error(`Codex token refresh response missing access_token: ${JSON.stringify(json)}`)
+    throw new Error('Codex token refresh response was missing an access token. Run codex login again.')
   }
 
   return {
     accessToken: json.access_token,
     accountId: extractAccountId(json.access_token),
+    refreshToken: typeof json.refresh_token === 'string' && json.refresh_token ? json.refresh_token : null,
   }
 }
 
-function isJwtExpired(token: string): boolean {
-  const payload = decodeJwt(token)
-  const exp = typeof payload?.exp === 'number' ? payload.exp : undefined
-  if (!exp) return false
-  return Date.now() >= exp * 1000 - 60_000
-}
-
-function decodeJwt(token: string): Record<string, unknown> | null {
+/** Extracts only the OAuth error code (e.g. `invalid_grant`) — never token material. */
+async function extractOAuthErrorCode(response: Response): Promise<string | null> {
   try {
-    const parts = token.split('.')
-    if (parts.length !== 3 || !parts[1]) return null
-    return JSON.parse(atob(parts[1])) as Record<string, unknown>
-  } catch {
-    return null
-  }
+    const json = (await response.json()) as { error?: unknown }
+    if (typeof json.error === 'string' && json.error) return json.error
+    if (json.error && typeof json.error === 'object') {
+      const code = (json.error as { code?: unknown }).code
+      if (typeof code === 'string' && code) return code
+    }
+  } catch {}
+  return null
 }
 
 function extractAccountId(token: string): string {

@@ -1,4 +1,5 @@
 import { generateId } from '../lib/id'
+import { createSerialQueue } from '../lib/serial-queue'
 
 import { workspaceRoot } from '../config'
 import { isRecord, readJsonlEntries, writeJsonlEntries } from '../session/jsonl'
@@ -67,6 +68,18 @@ async function readPermissionRecords(): Promise<PermissionRequestRecord[]> {
   return readJsonlEntries(getPermissionStorePath(workspaceRoot), parsePermissionRequestRecord)
 }
 
+/**
+ * Serializes every read-modify-rewrite cycle. Without it, concurrent tool
+ * calls interleave their read/rewrite phases and silently drop each other's
+ * records (lost updates), which can strand a pending permission request
+ * forever.
+ */
+const storeMutationQueue = createSerialQueue()
+
+function withStoreMutationLock<T>(mutation: () => Promise<T>): Promise<T> {
+  return storeMutationQueue.run(mutation)
+}
+
 async function writePermissionRecords(records: readonly PermissionRequestRecord[]): Promise<void> {
   await writeJsonlEntries(getPermissionStorePath(workspaceRoot), records)
 }
@@ -92,58 +105,64 @@ export async function enqueuePermissionRequest(
     metadata: input.metadata,
   }
 
-  const records = await readPermissionRecords()
-  records.push(record)
-  await writePermissionRecords(records)
-  return record
+  return withStoreMutationLock(async () => {
+    const records = await readPermissionRecords()
+    records.push(record)
+    await writePermissionRecords(records)
+    return record
+  })
 }
 
 export async function dequeuePermissionRequest(): Promise<PermissionRequestRecord | null> {
-  const records = await readPermissionRecords()
-  const index = records.findIndex((request) => request.state === 'queued')
-  if (index === -1) {
-    return null
-  }
+  return withStoreMutationLock(async () => {
+    const records = await readPermissionRecords()
+    const index = records.findIndex((request) => request.state === 'queued')
+    if (index === -1) {
+      return null
+    }
 
-  const current = records[index]
-  if (!current) {
-    return null
-  }
-  const nextRequest: PermissionRequestRecord = {
-    ...current,
-    state: 'dequeued',
-    dequeuedAt: new Date().toISOString(),
-  }
+    const current = records[index]
+    if (!current) {
+      return null
+    }
+    const nextRequest: PermissionRequestRecord = {
+      ...current,
+      state: 'dequeued',
+      dequeuedAt: new Date().toISOString(),
+    }
 
-  records[index] = nextRequest
-  await writePermissionRecords(records)
-  return nextRequest
+    records[index] = nextRequest
+    await writePermissionRecords(records)
+    return nextRequest
+  })
 }
 
 export async function resolvePermissionRequest(
   id: string,
   input: ResolvePermissionRequestInput,
 ): Promise<PermissionRequestRecord | null> {
-  const records = await readPermissionRecords()
-  const index = records.findIndex((request) => request.id === id)
-  if (index === -1) {
-    return null
-  }
+  return withStoreMutationLock(async () => {
+    const records = await readPermissionRecords()
+    const index = records.findIndex((request) => request.id === id)
+    if (index === -1) {
+      return null
+    }
 
-  const current = records[index]
-  if (!current) {
-    return null
-  }
-  const nextRequest: PermissionRequestRecord = {
-    ...current,
-    decision: input.decision,
-    state: 'resolved',
-    resolvedAt: new Date().toISOString(),
-  }
+    const current = records[index]
+    if (!current) {
+      return null
+    }
+    const nextRequest: PermissionRequestRecord = {
+      ...current,
+      decision: input.decision,
+      state: 'resolved',
+      resolvedAt: new Date().toISOString(),
+    }
 
-  records[index] = nextRequest
-  await writePermissionRecords(records)
-  return nextRequest
+    records[index] = nextRequest
+    await writePermissionRecords(records)
+    return nextRequest
+  })
 }
 
 export async function listQueuedPermissionRequests(): Promise<PermissionRequestRecord[]> {

@@ -1,4 +1,4 @@
-import type { ParsedKey } from '@opentui/core'
+import type { KeyEvent, ParsedKey } from '@opentui/core'
 import { useKeyboard } from '@opentui/react'
 import { useCallback } from 'react'
 
@@ -12,7 +12,18 @@ const isPrintableKey = (key: ParsedKey): boolean => {
   if (key.ctrl || key.meta) {
     return false
   }
-  return key.sequence.length === 1 && key.sequence.charCodeAt(0) >= 32
+  if (key.sequence.length === 0) {
+    return false
+  }
+  // Accept multi-character sequences (IME composition, multi-byte input) as
+  // long as they contain no control characters.
+  for (const character of key.sequence) {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (codePoint < 32 || codePoint === 127) {
+      return false
+    }
+  }
+  return true
 }
 
 export function useInteractiveKeyboard({
@@ -34,7 +45,7 @@ export function useInteractiveKeyboard({
 }) {
   useKeyboard(
     useCallback(
-      (key: ParsedKey) => {
+      (key: KeyEvent) => {
         if (!enabled) {
           return
         }
@@ -75,7 +86,12 @@ export function useInteractiveKeyboard({
           }
         }
 
-        handleShortcut(key)
+        // Honor the shortcut contract: when a shortcut handled the key,
+        // prevent the focused renderable (the composer textarea) from also
+        // processing it.
+        if (handleShortcut(key)) {
+          key.preventDefault()
+        }
       },
       [
         completionNavigationActive,

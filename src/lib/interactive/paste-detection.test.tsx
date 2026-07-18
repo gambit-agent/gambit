@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
+import type { PasteEvent } from '@opentui/core'
 import { testRender } from '@opentui/react/test-utils'
 import { act } from 'react'
 import type { MutableRefObject } from 'react'
@@ -15,7 +16,7 @@ afterEach(async () => {
   testSetup = null
 })
 
-type PasteHandler = (event: FakePasteEvent) => void
+type PasteHandler = (event: PasteEvent) => void
 
 class FakeKeyInput {
   handlers = new Set<PasteHandler>()
@@ -27,7 +28,7 @@ class FakeKeyInput {
   }
   emitPaste(event: FakePasteEvent) {
     for (const handler of this.handlers) {
-      handler(event)
+      handler(event as unknown as PasteEvent)
     }
   }
 }

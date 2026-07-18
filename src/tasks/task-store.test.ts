@@ -44,6 +44,55 @@ describe('task store', () => {
     expect(await listTasks()).toEqual([])
   })
 
+  test('concurrent updateTask calls do not lose updates', async () => {
+    const count = 12
+    const tasks: Awaited<ReturnType<typeof createTask>>[] = []
+    for (let index = 0; index < count; index += 1) {
+      tasks.push(
+        await createTask({
+          kind: 'shell',
+          title: `Task ${index}`,
+          background: true,
+        }),
+      )
+    }
+
+    await Promise.all(
+      tasks.map((task, index) =>
+        updateTask(task.id, {
+          status: 'running',
+          progressSummary: `progress-${index}`,
+        }),
+      ),
+    )
+
+    const stored = await listTasks()
+    expect(stored).toHaveLength(count)
+    for (let index = 0; index < count; index += 1) {
+      const task = stored.find((record) => record.id === tasks[index]!.id)
+      expect(task?.status).toBe('running')
+      expect(task?.progressSummary).toBe(`progress-${index}`)
+    }
+  })
+
+  test('concurrent createTask calls append every record', async () => {
+    const created = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        createTask({
+          kind: 'agent',
+          title: `Parallel ${index}`,
+          background: true,
+        }),
+      ),
+    )
+
+    const stored = await listTasks()
+    expect(stored).toHaveLength(created.length)
+    for (const task of created) {
+      expect(stored.some((record) => record.id === task.id)).toBe(true)
+    }
+  })
+
   test('rejects empty task titles', async () => {
     await expect(
       createTask({

@@ -87,6 +87,36 @@ const toToolResultOutput = (value: unknown): ToolResultPart["output"] => {
   return { type: "json", value: normalizeJsonValue(value) };
 };
 
+/**
+ * The honest replay value for a tool message. Never substitutes the short
+ * human-readable summary (`message.content`) for real tool output: the model
+ * would believe it has file contents/command output it never saw.
+ */
+function resolveToolReplaySource(message: UIMessage): unknown {
+  if (message.metadata?.toolStatus === "cancelled") {
+    return "[tool cancelled before completion]";
+  }
+  if (message.metadata?.toolResult !== undefined) {
+    return message.metadata.toolResult;
+  }
+  return "[tool output not persisted from a previous session; re-run the tool if needed]";
+}
+
+/**
+ * Reasoning is display-only: when it was baked into the assistant content for
+ * rendering (`Reasoning:\n...` prefix), strip it before replaying to the model.
+ */
+function stripDisplayReasoning(content: string, reasoningText: string | undefined): string {
+  if (!reasoningText?.trim()) {
+    return content;
+  }
+  const prefix = `Reasoning:\n${reasoningText.trim()}`;
+  if (!content.startsWith(prefix)) {
+    return content;
+  }
+  return content.slice(prefix.length).replace(/^\n+/, "");
+}
+
 export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
   const result: ModelMessage[] = [];
   // Providers require every tool result to be paired with a tool-call part on a
@@ -99,7 +129,7 @@ export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
     if (message.role === "tool") {
       const toolCallId = message.metadata?.toolCallId ?? message.id;
       const toolName = message.metadata?.toolName ?? "tool";
-      const toolSource = message.metadata?.toolResult ?? message.content;
+      const toolSource = resolveToolReplaySource(message);
 
       if (!openAssistant) {
         openAssistant = { role: "assistant", content: [] };
@@ -134,7 +164,16 @@ export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
     }
 
     if (message.role === "assistant") {
-      openAssistant = { role: "assistant", content: message.content };
+      const content = stripDisplayReasoning(message.content, message.metadata?.reasoningText);
+      if (!content.trim()) {
+        // A reasoning-only segment (e.g. an abort mid-reasoning) strips to
+        // empty content, and providers reject empty assistant messages. Skip
+        // it entirely; if tool messages follow, the tool branch synthesizes
+        // the pairing assistant message on demand.
+        openAssistant = null;
+        continue;
+      }
+      openAssistant = { role: "assistant", content };
       result.push(openAssistant);
       continue;
     }

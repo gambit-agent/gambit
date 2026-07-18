@@ -2,8 +2,11 @@ import type { AnyToolDefinition, ToolDefinition } from '../tool-types'
 import {
   buildSlashCommandToolDescription,
   executeSlashCommand,
+  executeSlashCommandFromPreview,
+  previewSlashCommand,
   type SlashCommandDefinition,
   type SlashCommandExecution,
+  type SlashCommandPreview,
 } from '../../lib/slashCommands'
 import {
   executeShellSchema,
@@ -46,6 +49,9 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
           background: background ?? false,
           timeoutMs,
           cwd: resolvedCwd,
+          // Background tasks must outlive the turn: linking them to the turn's
+          // cancellation signal would kill them on ESC or the next turn.
+          signal: background ? undefined : context.signal,
         })
         if (background) {
           return [
@@ -78,14 +84,80 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
       summarizeBuiltInToolCompletion('bash', context.input, result, context.artifactPath),
   }
 
+  // Previews captured at permission time, keyed by (name, arguments) and
+  // consumed by the matching execute call. Executing from the captured
+  // preview guarantees the shell directives that run are exactly the ones the
+  // user approved, even if the command file changes on disk in between.
+  const approvedPreviews = new Map<string, SlashCommandPreview>()
+  const previewKey = (name: string, args: string | undefined) =>
+    JSON.stringify([name.replace(/^\//, '').trim(), args?.trim() ?? ''])
+
   const slashCommandTool: ToolDefinition<typeof slashCommandSchema, SlashCommandExecution> = {
     id: 'slashCommand',
     displayName: 'Slash Command',
     description: buildSlashCommandToolDescription(commands),
     inputSchema: slashCommandSchema,
-    execute: async ({ name, arguments: args }) => executeSlashCommand(name, args),
+    execute: async ({ name, arguments: args }) => {
+      const key = previewKey(name, args)
+      const approved = approvedPreviews.get(key)
+      if (approved) {
+        approvedPreviews.delete(key)
+        return executeSlashCommandFromPreview(approved)
+      }
+      // No captured preview (e.g. no permission engine in this context):
+      // resolve from disk as before.
+      return executeSlashCommand(name, args)
+    },
     summarize: (result, context) =>
       summarizeBuiltInToolCompletion('slashCommand', context.input, result, context.artifactPath),
+    getPermissionRequest: async ({ name, arguments: args }) => {
+      // Resolve the command body and enumerate its embedded `!` shell
+      // directives with the model-supplied arguments already substituted, so
+      // the user approves the exact commands that would run. Directive-free
+      // (pure prompt) commands need no permission gate.
+      let preview: SlashCommandPreview | null
+      try {
+        preview = await previewSlashCommand(name, args)
+      } catch {
+        // Fail closed: if the command cannot be previewed we cannot rule out
+        // embedded shell directives, so require approval (plan mode denies,
+        // normal mode asks) instead of silently skipping the gate.
+        const displayName = name.replace(/^\//, '').trim() || name
+        return {
+          subject: `Run slash command /${displayName} (could not preview embedded shell commands)`,
+          metadata: {
+            commandName: `/${displayName}`,
+            arguments: args?.trim() ?? '',
+            hasShellDirectives: true,
+            previewFailed: true,
+          },
+        }
+      }
+      if (!preview) {
+        // Unknown command: execute() throws without running anything.
+        return null
+      }
+
+      // Capture the resolved preview (even when directive-free) so execute
+      // runs what was inspected here rather than re-reading the file — a file
+      // that gains directives after approval cannot run them unapproved.
+      approvedPreviews.set(previewKey(name, args), preview)
+
+      if (preview.shellDirectives.length === 0) {
+        return null
+      }
+
+      const directiveList = preview.shellDirectives.map((directive) => `  - ${directive}`).join('\n')
+      return {
+        subject: `Run slash command /${preview.command.id} with embedded shell commands:\n${directiveList}`,
+        metadata: {
+          commandName: `/${preview.command.id}`,
+          arguments: args?.trim() ?? '',
+          shellDirectives: preview.shellDirectives,
+          hasShellDirectives: true,
+        },
+      }
+    },
   }
 
   return [bashTool, executeShellTool, slashCommandTool]

@@ -4,7 +4,7 @@ import type { ConversationMessage } from '../../conversation/conversation-types'
 import { formatToolMessageLine, formatToolMessagePresentation, toolMessageRunningFrames } from './tool-message-line'
 
 function createToolMessage(
-  status: 'started' | 'completed' | 'failed',
+  status: 'started' | 'completed' | 'failed' | 'cancelled',
   metadata: NonNullable<ConversationMessage['metadata']> = {},
 ): ConversationMessage {
   return {
@@ -116,6 +116,24 @@ test('formats edited file diffs with counts and a compact changed-line preview',
     { text: '    13 +      paddingTop={1}', kind: 'added' },
     { text: '    14        paddingBottom={1}', kind: 'context' },
   ])
+})
+
+test('marks cancelled tools so they do not render identically to completed ones', () => {
+  const cancelled = formatToolMessagePresentation(createToolMessage('cancelled'))
+  const completed = formatToolMessagePresentation(createToolMessage('completed'))
+
+  expect(cancelled.indicator).toBeNull()
+  expect(cancelled.heading).toBe('Ran echo hello (cancelled)')
+  expect(cancelled.heading).not.toBe(completed.heading)
+})
+
+test('keeps the explored detail line on a cancelled read tool', () => {
+  const presentation = formatToolMessagePresentation(
+    createToolMessage('cancelled', { toolName: 'readFile', toolArgs: { path: 'REFERENCE.md' } }),
+  )
+
+  expect(presentation.heading).toBe('Explored (cancelled)')
+  expect(presentation.detailLines).toEqual([{ text: '  └ Read REFERENCE.md', kind: 'normal' }])
 })
 
 test('does not render failed patch inputs as completed edits', () => {

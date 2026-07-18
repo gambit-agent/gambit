@@ -23,7 +23,7 @@ The installer downloads the matching binary for your platform, verifies it again
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
 # Bash: specific release
-curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.7.0
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.15.0
 
 # Bash: local compiled binary
 ./install --binary ./gambit
@@ -37,7 +37,7 @@ GAMBIT_BIN_DIR="$HOME/bin" ./install
 
 ```powershell
 # PowerShell: specific release
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.7.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.15.0
 
 # PowerShell: local compiled binary
 .\install.ps1 -Binary .\gambit.exe
@@ -60,7 +60,7 @@ gambit update
 To install a specific release, run:
 
 ```bash
-gambit update 0.7.0
+gambit update 0.15.0
 ```
 
 On Windows, `gambit update` downloads `install.ps1`, waits for the running `gambit.exe` to exit, then replaces it. On WSL, it uses the Bash installer and installs the Linux binary inside WSL.
