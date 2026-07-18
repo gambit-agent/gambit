@@ -1,3 +1,5 @@
+import type { AtifSubagentTrajectoryRef } from '../trajectory/atif-types'
+
 export type ConversationRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface ConversationMessage {
@@ -14,6 +16,8 @@ export interface ConversationMessage {
     toolResult?: unknown
     toolStatus?: 'started' | 'completed' | 'failed' | 'cancelled'
     toolArtifactPath?: string
+    /** ATIF subagent trajectory references attached to a tool result. */
+    subagentTrajectoryRefs?: AtifSubagentTrajectoryRef[]
     reasoningStartedAt?: string
     reasoningFinishedAt?: string
     reasoningDurationMs?: number

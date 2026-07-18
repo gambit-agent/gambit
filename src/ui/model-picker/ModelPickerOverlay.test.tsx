@@ -68,7 +68,7 @@ test('renders an available model in a compact terminal', async () => {
       onProviderOptionChange={() => undefined}
       onProviderOptionSelect={() => undefined}
     />,
-    { width: 80, height: 8 },
+    { width: 80, height: 14 },
   )
 
   await testSetup.renderOnce()
