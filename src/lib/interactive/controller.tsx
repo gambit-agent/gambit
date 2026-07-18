@@ -177,6 +177,7 @@ export function useInteractiveController({
     setInputValueWithRef,
     historyRef,
     suppressNextInputRef,
+    enabled: keyboardEnabled,
   })
 
   const {

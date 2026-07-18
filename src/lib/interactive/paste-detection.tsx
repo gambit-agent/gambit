@@ -25,6 +25,7 @@ export function usePasteDetection({
   setInputValueWithRef,
   historyRef,
   suppressNextInputRef,
+  enabled = true,
 }: {
   renderer: PasteRenderer | null | undefined
   inputPreview: string | null
@@ -32,9 +33,15 @@ export function usePasteDetection({
   setInputValueWithRef: (next: SetStateAction<string>) => void
   historyRef: MutableRefObject<InteractiveHistory | null>
   suppressNextInputRef: MutableRefObject<boolean>
+  enabled?: boolean
 }) {
   const inputPreviewRef = useRef(inputPreview)
   const lastPasteLabelRef = useRef<string | null>(inputPreview)
+  const enabledRef = useRef(enabled)
+
+  useEffect(() => {
+    enabledRef.current = enabled
+  }, [enabled])
 
   useEffect(() => {
     inputPreviewRef.current = inputPreview
@@ -61,6 +68,12 @@ export function usePasteDetection({
     }
 
     const handlePaste = (event: PasteEvent) => {
+      // When an overlay input owns focus (e.g. the connect-provider modal),
+      // leave the event untouched so opentui routes it to that input.
+      if (!enabledRef.current) {
+        return
+      }
+
       const cleaned = sanitizePastedText(pasteDecoder.decode(event.bytes))
       if (!cleaned) {
         return
