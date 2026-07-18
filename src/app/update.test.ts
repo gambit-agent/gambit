@@ -4,7 +4,8 @@ import path from 'node:path'
 
 import {
   buildInstallerArgs,
-  buildPowerShellInstallerArgs, buildWindowsUpdateScript,
+  buildPowerShellInstallerArgs,
+  buildWindowsUpdateScript,
   parseUpdateArgs,
   patchInstallerScript,
 } from './update'
@@ -96,14 +97,25 @@ test('buildWindowsUpdateScript generates valid PowerShell with default settings'
   expect(script).toContain('function Resolve-InstallDir')
   expect(script).toContain('$env:GAMBIT_BIN_DIR')
   expect(script).toContain("Join-Path $HOME '.local\\bin'")
+  expect(script).toContain('function Invoke-DownloadText')
+  expect(script).toContain('$response.Content -is [byte[]]')
+  expect(script).toContain('$response.Content -is [System.Array]')
+  expect(script).toContain('$manifestJson = Invoke-DownloadText -Url $manifestUrl')
+  expect(script).toContain('function Get-FileSha256')
+  expect(script).toContain('[System.Security.Cryptography.SHA256]::Create()')
+  expect(script).toContain('$actualChecksum = Get-FileSha256 -Path $downloadPath')
+  expect(script).not.toContain('Get-FileHash')
   expect(script).toContain('function Add-ToUserPath')
   expect(script).toContain('function Install-Binary')
   expect(script).toContain('Copy-Item -LiteralPath')
-  expect(script).toContain('Get-FileHash -LiteralPath')
   expect(script).toContain('Remove-Item -LiteralPath')
   expect(script).toContain(cleanupPath)
   expect(script).toContain('github.com/gambit-agent/gambit/releases')
   expect(script).toContain('gambit-$platform.exe')
+  expect(script).toContain('$updateSucceeded = $false')
+  expect(script).toContain('$updateSucceeded = $true')
+  expect(script).toContain('Log "ERROR: $($_.Exception.Message)"')
+  expect(script).toContain('if ($updateSucceeded)')
 
   // Verify no JS template syntax leaked into output
   expect(script).not.toMatch(/\$\{[a-zA-Z]/)
