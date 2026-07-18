@@ -5,6 +5,7 @@ const HELP_TEXT = `gambit ${appVersion} — TUI coding agent
 USAGE
   gambit [options]                          Launch the interactive TUI
   gambit -p <prompt> [options]              Run a single prompt headlessly
+  gambit acp                                Serve Gambit over ACP on stdio
   gambit install [options]                  Install the gambit CLI
   gambit update [latest|VERSION]            Update the installed CLI from GitHub Releases
   gambit --help | -h                        Show this help
@@ -21,6 +22,7 @@ HEADLESS
   --events                                  Shortcut for --output-format stream-json
   --verbose                                 Include intermediate events in headless output
   --include-partial-messages                Emit in-progress deltas when streaming JSON events
+  --image <path>                           Attach an image to the prompt (repeatable)
   --allowed-tools <a,b,c>                   Comma-separated tool ids permitted during the run
   --system-prompt <text>                    Replace the default system prompt
   --append-system-prompt <text>             Append text to the system prompt (repeatable)
@@ -44,6 +46,21 @@ ENVIRONMENT
   WORKSPACE_ROOT                            Override the workspace root directory
 `
 
+const ACP_HELP_TEXT = `gambit acp — Agent Client Protocol server
+
+USAGE
+  gambit acp
+
+Runs an ACP v1 agent over newline-delimited JSON-RPC on stdin/stdout. The ACP
+client supplies the workspace directory when it creates or resumes a session.
+Configure provider credentials in Gambit before connecting. ACP clients can select
+the model through session configuration or with /model <model-id>.
+`
+
 export function printHelp(): void {
   process.stdout.write(HELP_TEXT)
+}
+
+export function printAcpHelp(): void {
+  process.stdout.write(ACP_HELP_TEXT)
 }

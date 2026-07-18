@@ -55,12 +55,12 @@ export class FollowUpDrainGate {
   }
 }
 
-export interface FollowUpDrainDeps {
+export interface FollowUpDrainDeps<T = string> {
   gate: FollowUpDrainGate
   getStatus: () => string
   isRunActive: () => boolean
-  drainFollowUp: () => string | undefined
-  submit: (value: string, options: { fromFollowUpDrain: true }) => Promise<SubmitOutcome | void>
+  drainFollowUp: () => T | undefined
+  submit: (value: T, options: { fromFollowUpDrain: true }) => Promise<SubmitOutcome | void>
 }
 
 /**
@@ -78,7 +78,7 @@ export interface FollowUpDrainDeps {
  * on. Draining resumes automatically after the next run (the status leaving
  * 'idle' re-arms the gate).
  */
-export async function drainFollowUps(deps: FollowUpDrainDeps): Promise<void> {
+export async function drainFollowUps<T>(deps: FollowUpDrainDeps<T>): Promise<void> {
   while (true) {
     if (!deps.gate.tryBeginDrain(deps.getStatus(), deps.isRunActive())) {
       return
@@ -108,7 +108,7 @@ export async function drainFollowUps(deps: FollowUpDrainDeps): Promise<void> {
   }
 }
 
-export function useFollowUpDrain({
+export function useFollowUpDrain<T>({
   status,
   queueVersion,
   isRunActive,
@@ -124,8 +124,8 @@ export function useFollowUpDrain({
    */
   queueVersion: unknown
   isRunActive: () => boolean
-  drainFollowUp: () => string | undefined
-  submit: (value: string, options?: { fromFollowUpDrain?: boolean }) => Promise<SubmitOutcome | void>
+  drainFollowUp: () => T | undefined
+  submit: (value: T, options?: { fromFollowUpDrain?: boolean }) => Promise<SubmitOutcome | void>
 }): void {
   const gateRef = useRef<FollowUpDrainGate | null>(null)
   if (gateRef.current === null) {

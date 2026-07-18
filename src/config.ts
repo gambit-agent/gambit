@@ -83,9 +83,14 @@ export const DOUBLE_ESC_INTERVAL_MS = 400;
 /** Frames used by the interactive REPL response spinner. */
 export const responseSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
+/** Set the active workspace root for runtimes that bind it after process start. */
+export function setWorkspaceRoot(newRoot: string) {
+  workspaceRoot = computeWorkspaceRoot(newRoot);
+}
+
 /** Override the workspace root at test time so tests run in a temp directory. */
 export function setWorkspaceRootForTesting(newRoot: string) {
-  workspaceRoot = computeWorkspaceRoot(newRoot);
+  setWorkspaceRoot(newRoot);
 }
 
 export function resolveMaxDelegationDepth(configMaxDepth: number | null | undefined): number {

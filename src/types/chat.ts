@@ -1,3 +1,5 @@
+import type { ImageAttachment } from "../lib/image-attachments";
+
 export type Role = "system" | "user" | "assistant" | "tool";
 
 export interface UIMessage {
@@ -15,5 +17,6 @@ export interface UIMessage {
     /** Display-only reasoning text; excluded from content replayed to the model. */
     reasoningText?: string;
     memoryContext?: boolean;
+    attachments?: ImageAttachment[];
   };
 }

@@ -38,6 +38,37 @@ describe("toCoreMessages", () => {
     ]);
   });
 
+  test("maps user image attachments to model file parts", () => {
+    const result = toCoreMessages([{
+      id: "user-image",
+      role: "user",
+      content: "What is shown?",
+      timestamp: at,
+      metadata: {
+        attachments: [{
+          id: "image-1",
+          name: "screen.png",
+          mediaType: "image/png",
+          data: "iVBORw0KGgo=",
+          size: 8,
+        }],
+      },
+    }]);
+
+    expect(result).toEqual([{
+      role: "user",
+      content: [
+        { type: "text", text: "What is shown?" },
+        {
+          type: "file",
+          data: { type: "data", data: "iVBORw0KGgo=" },
+          mediaType: "image/png",
+          filename: "screen.png",
+        },
+      ],
+    }]);
+  });
+
   test("pairs tool results with a tool-call part on the preceding assistant message", () => {
     const result = toCoreMessages([
       userMessage("fix it"),

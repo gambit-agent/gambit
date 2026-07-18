@@ -10,7 +10,7 @@ Developers who live in the terminal. They use Neovim, tmux, helix, lazygit, and 
 
 ## Product Purpose
 
-Gambit CLI is a terminal-based AI agent development environment. It exists to keep the entire AI coding workflow — conversation, tool execution, file editing, delegation, planning, memory — inside the terminal where developers already work. Success looks like: a developer never needs to leave their terminal to interact with an AI agent, and the experience is faster and more pleasant than any web-based alternative. It runs on OpenTUI with the Vercel AI SDK and OpenRouter, supports MCP for extensibility, and ships Agent Skills with progressive disclosure.
+Gambit CLI is a terminal-first AI agent development environment that can also run as an ACP external agent inside compatible editors. It keeps the AI coding workflow — conversation, tool execution, file editing, delegation, planning, memory — in the developer's chosen interface while sharing one Gambit runtime and permission model. It runs on OpenTUI with the Vercel AI SDK and OpenRouter, supports MCP for extensibility, ships Agent Skills with progressive disclosure, and exposes ACP v1 over stdio for editor integrations such as Zed.
 
 ## Brand Personality
 

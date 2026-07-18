@@ -1,4 +1,10 @@
-import type { AssistantModelMessage, ModelMessage, ToolCallPart, ToolResultPart } from "@ai-sdk/provider-utils";
+import type {
+  AssistantModelMessage,
+  ModelMessage,
+  ToolCallPart,
+  ToolResultPart,
+  UserContent,
+} from "@ai-sdk/provider-utils";
 import type { JSONValue } from "@ai-sdk/provider";
 
 import type { UIMessage } from "../types/chat";
@@ -117,6 +123,23 @@ function stripDisplayReasoning(content: string, reasoningText: string | undefine
   return content.slice(prefix.length).replace(/^\n+/, "");
 }
 
+function toUserContent(message: UIMessage): UserContent {
+  const attachments = message.metadata?.attachments ?? [];
+  if (attachments.length === 0) {
+    return message.content;
+  }
+
+  return [
+    ...(message.content ? [{ type: "text" as const, text: message.content }] : []),
+    ...attachments.map((attachment) => ({
+      type: "file" as const,
+      data: { type: "data" as const, data: attachment.data },
+      mediaType: attachment.mediaType,
+      filename: attachment.name,
+    })),
+  ];
+}
+
 export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
   const result: ModelMessage[] = [];
   // Providers require every tool result to be paired with a tool-call part on a
@@ -179,7 +202,11 @@ export function toCoreMessages(messages: UIMessage[]): ModelMessage[] {
     }
 
     openAssistant = null;
-    result.push({ role: message.role, content: message.content });
+    if (message.role === "user") {
+      result.push({ role: "user", content: toUserContent(message) });
+    } else {
+      result.push({ role: "system", content: message.content });
+    }
   }
 
   return result;

@@ -14,6 +14,7 @@ export interface RuntimeToolOptions extends Partial<ToolExecutionContext> {
   includeMCPTools?: boolean
   discoverMCPServerTools?: boolean
   allowedToolIds?: readonly string[]
+  disabledToolIds?: readonly string[]
   onEvent?: (event: ToolEventRecord) => void
 }
 
@@ -44,11 +45,11 @@ function toAiTool(
   return tool<any, any>({
     description: definition.description,
     inputSchema: definition.inputSchema as any,
-    execute: async (input: any) => {
+    execute: async (input: any, executionOptions: { toolCallId?: string } = {}) => {
       const result = await executor.execute(definition.id, input, {
         ...context,
         workspaceRoot: context.workspaceRoot ?? workspaceRoot,
-        toolCallId: generateId(),
+        toolCallId: executionOptions.toolCallId ?? generateId(),
       })
       return result.output
     },
@@ -101,6 +102,9 @@ export function createAiToolMap(
     .list()
     .filter((definition) => {
       if (options.allowedToolIds && !options.allowedToolIds.includes(definition.id)) {
+        return false
+      }
+      if (options.disabledToolIds?.includes(definition.id)) {
         return false
       }
       if (!options.allowedToolIds && definition.hiddenFromModel) {

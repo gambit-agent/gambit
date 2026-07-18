@@ -21,6 +21,7 @@ Features:
 - Comprehensive keyboard shortcuts — transcript mode, scroll navigation, vim-style keys, double-press exit confirmation, and prompt stashing.
 - Plan mode with `EnterPlanMode` / `ExitPlanMode` tools for structured agent workflows.
 - Headless mode (`-p` / `--prompt`) for scripting and CI usage, with JSON and streaming output formats.
+- ACP v1 agent mode for editor and IDE integrations over stdio.
 - MCP client with `stdio` and `streamable-http` transports.
 - Pluggable slash commands loaded from user and project scopes.
 - Agent Skills with progressive disclosure — the model sees a compact catalog up front and loads full instructions only when activating a skill.
@@ -183,6 +184,7 @@ Provide `-p` / `--prompt` to run non-interactively:
 gambit -p "Summarize the README"                             # text output
 gambit -p "Refactor this file" --output-format stream-json   # streaming JSON events
 gambit -p "List the open TODOs" --permission-mode Auto-accept
+gambit -p "What is wrong with this UI?" --image ./screenshot.png
 ```
 
 Flags:
@@ -194,6 +196,7 @@ Flags:
 | `--events` | Shortcut for `--output-format stream-json`. |
 | `--verbose` | Include intermediate events in headless output. |
 | `--include-partial-messages` | Emit in-progress deltas when streaming JSON events. |
+| `--image` | Attach an image file to the prompt (repeatable). |
 | `--allowed-tools` | Comma-separated allowlist of tool IDs. |
 | `--system-prompt` | Replace the system prompt. |
 | `--append-system-prompt` | Append to the system prompt (repeatable). |
@@ -202,6 +205,22 @@ Flags:
 | `--mcp-config` | Path to an MCP config file. |
 | `-c` / `--continue` | Continue the last conversation. |
 | `-r` / `--resume [id]` | Resume a conversation by id, or open the picker. |
+
+### Agent Client Protocol (ACP)
+
+Run Gambit as an [ACP](https://agentclientprotocol.com/) agent over stdio:
+
+```bash
+gambit acp
+```
+
+Configure provider credentials in Gambit first, then configure your ACP client to launch `gambit acp`. The client supplies the absolute workspace path when opening a session. Gambit supports new, list, resume, close, prompt, cancel, text/resource/image content, streaming assistant messages, tool-call updates, and client-side permission requests.
+
+Model, permission mode, and reasoning effort are exposed as native ACP session configuration options. Gambit also advertises its full built-in catalog and project/user custom slash commands; use `/model <model-id>` to switch models directly.
+
+Each ACP process binds to the first workspace requested by its client. Start another process for a different workspace. Text, resource-link, and image prompts are supported; audio prompts, additional workspace directories, and client-supplied MCP servers are not advertised yet. MCP servers already configured in Gambit remain available to the runtime.
+
+See [Using Gambit over ACP](docs/acp.md) for Zed setup, command behavior, protocol coverage, and current limitations.
 
 ## Built-in tools
 

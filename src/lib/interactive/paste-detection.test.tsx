@@ -35,9 +35,11 @@ class FakeKeyInput {
 
 class FakePasteEvent {
   bytes: Uint8Array
+  metadata?: { mimeType?: string; kind?: 'text' | 'binary' | 'unknown' }
   defaultPrevented = false
-  constructor(text: string) {
-    this.bytes = new TextEncoder().encode(text)
+  constructor(value: string | Uint8Array, metadata?: FakePasteEvent['metadata']) {
+    this.bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
+    this.metadata = metadata
   }
   preventDefault() {
     this.defaultPrevented = true
@@ -49,11 +51,13 @@ function Harness({
   enabled,
   values,
   previews,
+  images = [],
 }: {
   keyInput: FakeKeyInput
   enabled: boolean
   values: string[]
   previews: (string | null)[]
+  images?: Array<{ bytes?: Uint8Array; mediaType?: string; path?: string }>
 }) {
   const historyRef: MutableRefObject<InteractiveHistory | null> = { current: null }
   const suppressNextInputRef: MutableRefObject<boolean> = { current: false }
@@ -68,6 +72,7 @@ function Harness({
     },
     historyRef,
     suppressNextInputRef,
+    onImagePaste: (image) => images.push(image),
     enabled,
   })
   return <text content="harness" />
@@ -111,4 +116,28 @@ test('lets paste flow to the focused overlay input when disabled', async () => {
   expect(event.defaultPrevented).toBe(false)
   expect(values).toEqual([])
   expect(previews).toEqual([])
+})
+
+test('captures binary image paste as an attachment instead of text', async () => {
+  const keyInput = new FakeKeyInput()
+  const values: string[] = []
+  const previews: (string | null)[] = []
+  const images: Array<{ bytes?: Uint8Array; mediaType?: string; path?: string }> = []
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+  testSetup = await testRender(
+    <Harness keyInput={keyInput} enabled values={values} previews={previews} images={images} />,
+    { width: 20, height: 4 },
+  )
+
+  const event = new FakePasteEvent(png, { kind: 'binary', mimeType: 'image/png' })
+  await act(async () => {
+    keyInput.emitPaste(event)
+  })
+
+  expect(event.defaultPrevented).toBe(true)
+  expect(values).toEqual([])
+  expect(previews).toEqual([])
+  expect(images[0]?.mediaType).toBe('image/png')
+  expect(images[0]?.bytes).toEqual(png)
 })

@@ -177,9 +177,19 @@ export class DefaultToolExecutionPipeline implements ToolExecutionPipeline {
       return
     }
 
-    const decision = await context.permissionEngine.request(
-      this.permissionPolicy.buildToolRequest(state.definition, state.parsedInput, permissionRequest),
+    const request = this.permissionPolicy.buildToolRequest(
+      state.definition,
+      state.parsedInput,
+      permissionRequest,
     )
+    const decision = await context.permissionEngine.request({
+      ...request,
+      metadata: {
+        ...request.metadata,
+        toolCallId: state.toolCallId,
+        input: state.parsedInput,
+      },
+    })
     if (decision === 'deny') {
       throw new Error(`Permission denied for ${state.toolId}.`)
     }

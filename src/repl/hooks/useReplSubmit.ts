@@ -9,6 +9,7 @@ import {
   setConversationGoal,
 } from '../../conversation/goal'
 import { generateId } from '../../lib/id'
+import type { ImageAttachment } from '../../lib/image-attachments'
 import { modelNeedsOpenRouterApiKey, type ReasoningEffort } from '../../lib/model'
 import { isProviderConnected } from '../../lib/provider-credentials'
 import { getDirectProviderDefinition, parseDirectProviderModelId } from '../../lib/providers'
@@ -112,7 +113,7 @@ export function useReplSubmit({
     async (
       prompt: string,
       signal: AbortSignal,
-      options: { hiddenContext?: string } = {},
+      options: { hiddenContext?: string; attachments?: ImageAttachment[] } = {},
     ) => {
       const runConfig = getRunConfig('chatting')
       if (!runConfig) {
@@ -137,6 +138,7 @@ export function useReplSubmit({
         id: generateId(),
         role: 'user',
         content: prompt,
+        metadata: options.attachments?.length ? { attachments: options.attachments } : undefined,
         timestamp: new Date().toISOString(),
       })
 
@@ -231,12 +233,20 @@ export function useReplSubmit({
   )
 
   return useCallback(
-    async (value: string, { signal }: { signal: AbortSignal }) => {
+    async (
+      value: string,
+      { signal, attachments }: { signal: AbortSignal; attachments: ImageAttachment[] },
+    ) => {
+      if (attachments.length > 0 && !value.trim()) {
+        await runUserPrompt('', signal, { attachments })
+        return
+      }
+
       const routed = routeInput(value)
       if (routed.kind === 'prompt' || ('channel' in routed && routed.channel === 'template')) {
         const expansion = await expandFileMentions(value)
         if (expansion.files.length > 0) {
-          await runUserPrompt(expansion.content, signal)
+          await runUserPrompt(expansion.content, signal, { attachments })
           return
         }
       }
@@ -245,7 +255,7 @@ export function useReplSubmit({
         if (!routed.value) {
           return
         }
-        await runUserPrompt(routed.value, signal)
+        await runUserPrompt(routed.value, signal, { attachments })
         return
       }
 
@@ -323,7 +333,7 @@ export function useReplSubmit({
           return
         }
 
-        await runUserPrompt(execution.content, signal)
+        await runUserPrompt(execution.content, signal, { attachments })
         return
       }
 

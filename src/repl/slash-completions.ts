@@ -29,7 +29,7 @@ export interface ReplaceSlashCompletionResult {
   cursorOffset: number
 }
 
-interface BuiltInSlashCommand {
+export interface BuiltInSlashCommand {
   name: string
   argumentHint?: string
   description: string

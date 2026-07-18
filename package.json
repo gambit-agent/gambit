@@ -25,6 +25,8 @@
     "coding",
     "openrouter",
     "mcp",
+    "acp",
+    "agent-client-protocol",
     "bun",
     "typescript",
     "opentui"
@@ -65,6 +67,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.2.1",
     "@ai-sdk/anthropic": "^4.0.16",
     "@ai-sdk/openai": "^4.0.16",
     "@ai-sdk/openai-compatible": "^3.0.12",

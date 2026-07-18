@@ -12,6 +12,7 @@ import { useAppContext } from "@opentui/react"
 import type { ParsedKey } from "@opentui/core"
 
 import { DOUBLE_ESC_INTERVAL_MS } from "../../config"
+import type { ImageAttachment } from "../image-attachments"
 import type { UIMessage } from "../../types/chat"
 import {
   resolveDownArrowAction,
@@ -27,7 +28,12 @@ import { useExitShortcuts } from "./useExitShortcuts"
 import { useInteractiveHistorySearch, type HistorySearchState } from "./useInteractiveHistorySearch"
 import { useInteractiveKeyboard } from "./useInteractiveKeyboard"
 
-type SubmitOptions = { signal: AbortSignal }
+type SubmitOptions = { signal: AbortSignal; attachments: ImageAttachment[] }
+
+export interface QueuedPrompt {
+  value: string
+  attachments: ImageAttachment[]
+}
 
 /**
  * What `handleSubmit` did with the value:
@@ -46,6 +52,7 @@ export interface HandleSubmitOptions {
    * (instead of the tail) so FIFO order is preserved.
    */
   fromFollowUpDrain?: boolean
+  attachments?: ImageAttachment[]
 }
 
 export interface UseInteractiveControllerOptions {
@@ -53,6 +60,9 @@ export interface UseInteractiveControllerOptions {
   setInputValue: Dispatch<SetStateAction<string>>
   inputPreview: string | null
   setInputPreview: Dispatch<SetStateAction<string | null>>
+  attachments?: ImageAttachment[]
+  setAttachments?: Dispatch<SetStateAction<ImageAttachment[]>>
+  onImagePaste?: (image: { bytes?: Uint8Array; mediaType?: string; path?: string }) => void
   messages: UIMessage[]
   setMessages: Dispatch<SetStateAction<UIMessage[]>>
   isRunning: boolean
@@ -85,11 +95,12 @@ export interface UseInteractiveControllerResult {
   permissionMode: PermissionMode
   historySearch: HistorySearchState
   exitPending: boolean
-  followUpQueue: string[]
+  followUpQueue: QueuedPrompt[]
   handleSubmit: (value: string, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
   handleInput: (value: string) => void
   exitHistorySearch: () => void
-  drainFollowUp: () => string | undefined
+  drainFollowUp: () => QueuedPrompt | undefined
+  submitFollowUp: (prompt: QueuedPrompt, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
   /** Synchronous run indicator (flips in `startRun`, before store snapshots update). */
   isRunActive: () => boolean
 }
@@ -99,6 +110,9 @@ export function useInteractiveController({
   setInputValue,
   inputPreview,
   setInputPreview,
+  attachments = [],
+  setAttachments,
+  onImagePaste,
   messages,
   setMessages,
   isRunning,
@@ -133,14 +147,15 @@ export function useInteractiveController({
     popFollowUp,
     requeueFrontFollowUp,
     getFollowUpQueueSize,
-  } = useFollowUpQueue()
+  } = useFollowUpQueue<QueuedPrompt>()
   const lastEscTimestamp = useRef<number | null>(null)
-  const stashedPromptRef = useRef<string | null>(null)
+  const stashedPromptRef = useRef<QueuedPrompt | null>(null)
   // Provenance of composer content that was popped off the follow-up queue,
   // so down-arrow can re-enqueue it instead of navigating history.
-  const poppedFollowUpRef = useRef<string | null>(null)
+  const poppedFollowUpRef = useRef<QueuedPrompt | null>(null)
   const { renderer } = useAppContext()
   const inputValueRef = useRef(inputValue)
+  const attachmentsRef = useRef(attachments)
   const suppressNextInputRef = useRef(false)
   const permissionMode = externalPermissionMode ?? localPermissionMode
   const { exitPending, handleAbortRun, handleExitSession } = useExitShortcuts({ renderer, sessionRef, onAbort })
@@ -148,6 +163,15 @@ export function useInteractiveController({
   useEffect(() => {
     inputValueRef.current = inputValue
   }, [inputValue])
+
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+
+  const setAttachmentsWithRef = useCallback((next: ImageAttachment[]) => {
+    attachmentsRef.current = next
+    setAttachments?.(next)
+  }, [setAttachments])
 
   const setInputValueWithRef = useCallback(
     (next: SetStateAction<string>) => {
@@ -177,6 +201,7 @@ export function useInteractiveController({
     setInputValueWithRef,
     historyRef,
     suppressNextInputRef,
+    onImagePaste,
     enabled: keyboardEnabled,
   })
 
@@ -200,6 +225,7 @@ export function useInteractiveController({
       const session = sessionRef.current
       const previewLabel = inputPreviewRef.current
       const actualValue = previewLabel ? inputValueRef.current : displayValue
+      const submittedAttachments = options?.attachments ?? attachmentsRef.current
 
       if (actualValue.endsWith("\\")) {
         suppressNextInputRef.current = true
@@ -209,7 +235,7 @@ export function useInteractiveController({
       }
 
       const trimmed = actualValue.trim()
-      if (!trimmed) {
+      if (!trimmed && submittedAttachments.length === 0) {
         setInputValueWithRef("")
         clearPreviewLabel()
         return "empty"
@@ -224,12 +250,13 @@ export function useInteractiveController({
         if (options?.fromFollowUpDrain) {
           // The value was just drained from the head of the queue; putting it
           // back at the tail would rotate FIFO order, so requeue at the head.
-          requeueFrontFollowUp(trimmed)
+          requeueFrontFollowUp({ value: trimmed, attachments: submittedAttachments })
         } else {
-          enqueueFollowUp(trimmed)
+          enqueueFollowUp({ value: trimmed, attachments: submittedAttachments })
         }
         clearPreviewLabel()
         setInputValueWithRef("")
+        setAttachmentsWithRef([])
         onSubmitted?.()
         return "queued"
       }
@@ -239,13 +266,16 @@ export function useInteractiveController({
 
       clearPreviewLabel()
       setInputValueWithRef("")
+      setAttachmentsWithRef([])
       onSubmitted?.()
 
       void (async () => {
         try {
           const history = await ensureHistoryLoaded()
           history.clearCursor()
-          history.add(trimmed)
+          if (trimmed) {
+            history.add(trimmed)
+          }
           await persistHistory()
         } catch (error) {
           console.warn("Failed to record submitted prompt history", error)
@@ -253,7 +283,7 @@ export function useInteractiveController({
       })()
 
       try {
-        await performSubmit(actualValue, { signal })
+        await performSubmit(actualValue, { signal, attachments: submittedAttachments })
       } finally {
         session.clearRun()
       }
@@ -269,6 +299,7 @@ export function useInteractiveController({
       performSubmit,
       persistHistory,
       requeueFrontFollowUp,
+      setAttachmentsWithRef,
       setInputValueWithRef,
     ],
   )
@@ -374,10 +405,11 @@ export function useInteractiveController({
             const queued = popFollowUp()
             if (queued !== undefined) {
               clearPreviewLabel()
-              if (queued !== inputValueRef.current) {
+              if (queued.value !== inputValueRef.current) {
                 suppressNextInputRef.current = true
-                setInputValueWithRef(queued)
+                setInputValueWithRef(queued.value)
               }
+              setAttachmentsWithRef(queued.attachments)
               poppedFollowUpRef.current = queued
               return true
             }
@@ -390,11 +422,15 @@ export function useInteractiveController({
               // edited form) back in the queue first so it is never lost and
               // the history draft stash starts from an empty composer.
               poppedFollowUpRef.current = null
-              enqueueFollowUp(inputValueRef.current.trim() || popped)
+              enqueueFollowUp({
+                value: inputValueRef.current.trim() || popped.value,
+                attachments: attachmentsRef.current,
+              })
               if (inputValueRef.current !== "") {
                 suppressNextInputRef.current = true
                 setInputValueWithRef("")
               }
+              setAttachmentsWithRef([])
               handleHistoryNavigation("previous")
               return true
             }
@@ -409,7 +445,7 @@ export function useInteractiveController({
           }
           const action = resolveDownArrowAction({
             composerValue: inputValueRef.current,
-            poppedFollowUp: poppedFollowUpRef.current,
+            poppedFollowUp: poppedFollowUpRef.current?.value ?? null,
             cursor: getComposerCursor?.() ?? null,
           })
           if (action === "re-enqueue-popped") {
@@ -417,15 +453,16 @@ export function useInteractiveController({
             // follow-up (or its edited form) to the queue.
             const popped = poppedFollowUpRef.current
             poppedFollowUpRef.current = null
-            const restored = inputValueRef.current.trim() || (popped ?? "")
-            if (restored) {
-              enqueueFollowUp(restored)
+            const restored = inputValueRef.current.trim() || (popped?.value ?? "")
+            if (restored || attachmentsRef.current.length > 0) {
+              enqueueFollowUp({ value: restored, attachments: attachmentsRef.current })
             }
             clearPreviewLabel()
             if (inputValueRef.current !== "") {
               suppressNextInputRef.current = true
               setInputValueWithRef("")
             }
+            setAttachmentsWithRef([])
             return true
           }
           if (action === "history-next") {
@@ -471,30 +508,35 @@ export function useInteractiveController({
         }
         case "follow-up": {
           const currentValue = inputValueRef.current.trim()
-          if (currentValue) {
+          if (currentValue || attachmentsRef.current.length > 0) {
             poppedFollowUpRef.current = null
-            enqueueFollowUp(currentValue)
+            enqueueFollowUp({ value: currentValue, attachments: attachmentsRef.current })
             historyRef.current?.clearCursor()
-            historyRef.current?.add(currentValue)
+            if (currentValue) {
+              historyRef.current?.add(currentValue)
+            }
             void persistHistory()
             clearPreviewLabel()
             suppressNextInputRef.current = true
             setInputValueWithRef("")
+            setAttachmentsWithRef([])
           }
           return match.preventDefault ?? false
         }
         case "stash-prompt": {
           const currentValue = inputValueRef.current.trim()
-          if (currentValue) {
+          if (currentValue || attachmentsRef.current.length > 0) {
             poppedFollowUpRef.current = null
-            stashedPromptRef.current = currentValue
+            stashedPromptRef.current = { value: currentValue, attachments: attachmentsRef.current }
             clearPreviewLabel()
             suppressNextInputRef.current = true
             setInputValueWithRef("")
+            setAttachmentsWithRef([])
           } else if (stashedPromptRef.current) {
             clearPreviewLabel()
             suppressNextInputRef.current = true
-            setInputValueWithRef(stashedPromptRef.current)
+            setInputValueWithRef(stashedPromptRef.current.value)
+            setAttachmentsWithRef(stashedPromptRef.current.attachments)
             stashedPromptRef.current = null
           }
           return match.preventDefault ?? false
@@ -519,6 +561,7 @@ export function useInteractiveController({
       persistHistory,
       popFollowUp,
       setInputValueWithRef,
+      setAttachmentsWithRef,
       updateHistorySearch,
     ],
   )
@@ -540,6 +583,13 @@ export function useInteractiveController({
   }, [isRunning])
 
   const isRunActive = useCallback(() => sessionRef.current.isRunActive, [])
+  const submitFollowUp = useCallback(
+    (prompt: QueuedPrompt, options?: HandleSubmitOptions) => handleSubmit(prompt.value, {
+      ...options,
+      attachments: prompt.attachments,
+    }),
+    [handleSubmit],
+  )
 
   return useMemo(
     () => ({
@@ -552,8 +602,9 @@ export function useInteractiveController({
       handleInput,
       exitHistorySearch,
       drainFollowUp,
+      submitFollowUp,
       isRunActive,
     }),
-    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, isRunActive, permissionMode, thinkingEnabled],
+    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, isRunActive, permissionMode, submitFollowUp, thinkingEnabled],
   )
 }
