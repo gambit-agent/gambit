@@ -21,6 +21,10 @@ export interface PermissionEngineSnapshot {
   activeRequest: PermissionRequestRecord | null
 }
 
+export type PermissionRequestHandler = (
+  input: PermissionEvaluationInput,
+) => Promise<Exclude<PermissionDecision, 'ask'>>
+
 export class PermissionEngine {
   private mode: PermissionMode = 'Normal'
   private prePlanMode: PermissionMode | null = null
@@ -34,7 +38,12 @@ export class PermissionEngine {
   })
   private readonly pendingResolvers = new Map<string, (decision: Exclude<PermissionDecision, 'ask'>) => void>()
 
+  constructor(private readonly requestHandler?: PermissionRequestHandler) {}
+
   async initialize(): Promise<void> {
+    if (this.requestHandler) {
+      return
+    }
     await this.refresh()
   }
 
@@ -78,6 +87,10 @@ export class PermissionEngine {
     const evaluated = evaluatePermissionMode(this.mode, input)
     if (evaluated !== 'ask') {
       return evaluated
+    }
+
+    if (this.requestHandler) {
+      return this.requestHandler(input)
     }
 
     const record = await enqueuePermissionRequest({

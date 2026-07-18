@@ -1,6 +1,9 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { PasteEvent } from '@opentui/core'
 import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 
+import { detectImageMediaType, normalizePastedImagePath } from '../image-attachments'
 import type { InteractiveHistory } from './history'
 
 interface PasteKeyInput {
@@ -25,6 +28,7 @@ export function usePasteDetection({
   setInputValueWithRef,
   historyRef,
   suppressNextInputRef,
+  onImagePaste,
   enabled = true,
 }: {
   renderer: PasteRenderer | null | undefined
@@ -33,6 +37,7 @@ export function usePasteDetection({
   setInputValueWithRef: (next: SetStateAction<string>) => void
   historyRef: MutableRefObject<InteractiveHistory | null>
   suppressNextInputRef: MutableRefObject<boolean>
+  onImagePaste?: (image: { bytes?: Uint8Array; mediaType?: string; path?: string }) => void
   enabled?: boolean
 }) {
   const inputPreviewRef = useRef(inputPreview)
@@ -74,8 +79,28 @@ export function usePasteDetection({
         return
       }
 
+      const detectedImageType = detectImageMediaType(event.bytes)
+      const metadataImageType = event.metadata?.mimeType?.startsWith('image/')
+        ? event.metadata.mimeType
+        : undefined
+      if (onImagePaste && (event.metadata?.kind === 'binary' || metadataImageType || detectedImageType)) {
+        event.preventDefault()
+        onImagePaste({
+          bytes: event.bytes,
+          mediaType: metadataImageType ?? detectedImageType ?? undefined,
+        })
+        return
+      }
+
       const cleaned = sanitizePastedText(pasteDecoder.decode(event.bytes))
       if (!cleaned) {
+        return
+      }
+
+      const pastedImagePath = normalizePastedImagePath(cleaned)
+      if (onImagePaste && pastedImagePath && existsSync(path.resolve(pastedImagePath))) {
+        event.preventDefault()
+        onImagePaste({ path: pastedImagePath })
         return
       }
 
@@ -94,7 +119,7 @@ export function usePasteDetection({
     return () => {
       keyInput.off('paste', handlePaste)
     }
-  }, [historyRef, renderer, setInputValueWithRef, setPreviewLabel, suppressNextInputRef])
+  }, [historyRef, onImagePaste, renderer, setInputValueWithRef, setPreviewLabel, suppressNextInputRef])
 
   const detectInferredPaste = useCallback(
     (previousValue: string, value: string) => {

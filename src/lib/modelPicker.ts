@@ -206,7 +206,7 @@ export function filterModels(models: readonly ModelListItem[], filterValue: stri
   })
 }
 
-function buildFallbackModels(): ModelListItem[] {
+export function buildFallbackModels(): ModelListItem[] {
   const candidates = new Set<string>(
     [defaultModel, ...freeModelPresets, ...codexModelPresets]
       .filter((id): id is string => typeof id === "string" && id.length > 0),
@@ -227,6 +227,52 @@ function buildFallbackModels(): ModelListItem[] {
     }
   })
   return mergeConnectedProviderModels(presets)
+}
+
+/**
+ * Loads the same provider-backed catalog used by the interactive model picker.
+ * Callers can render `buildFallbackModels()` immediately, then replace it with
+ * this result once live discovery finishes.
+ */
+export async function fetchAvailableModels(apiKey: string | null): Promise<ModelListItem[]> {
+  const normalizedKey = apiKey?.trim() || null
+  const fallback = buildFallbackModels()
+  const connectedProviders = listConnectedDirectProviderIds()
+
+  const [openRouterModels, codexModels, ...directProviderModels] = await Promise.all([
+    normalizedKey
+      ? fetchOpenRouterModels(normalizedKey).catch(() => null)
+      : Promise.resolve(null),
+    fetchCodexSubscriptionModels().catch(() => []),
+    ...connectedProviders.map(async (providerId) => {
+      const credential = getProviderCredential(providerId)
+      if (!credential) return { providerId, models: [] as ModelListItem[] }
+      const models = await fetchDirectProviderModels(providerId, credential)
+      return {
+        providerId,
+        models: models.map((model) => directProviderModelToListItem(providerId, model)),
+      }
+    }),
+  ])
+
+  let models = openRouterModels
+    ? mergeConnectedProviderModels(openRouterModels)
+    : fallback
+
+  for (const result of directProviderModels) {
+    if (result.models.length > 0) {
+      models = replaceProviderModels(models, result.providerId, result.models)
+    }
+  }
+  if (codexModels.length > 0) {
+    models = replaceProviderModels(
+      models,
+      'codex',
+      codexModels.map(codexSubscriptionModelToListItem),
+    )
+  }
+
+  return models
 }
 
 function shouldConfigureModel(model: ModelListItem): boolean {

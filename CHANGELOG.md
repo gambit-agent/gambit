@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Windows PowerShell installer (`install.ps1`) with release download, SHA256 verification, PATH updates, local binary installs, and `gambit update` support.
 - Windows release artifacts for `windows-x64`.
+- ACP v1 stdio server, available through `gambit acp`, for Zed and other ACP clients.
+- ACP session create, list, resume, close, prompt, and cancellation handling backed by Gambit's persisted conversations.
+- ACP text, resource, resource-link, and image prompt content with streamed assistant messages and tool-call lifecycle updates.
+- ACP client permission requests for permission-gated Gambit tools.
+- Native ACP session selectors for model, permission mode, and reasoning effort, including live provider model discovery and persisted model selection.
+- ACP slash-command discovery for all built-in commands and project/user commands from `.gambit/commands`, plus local handling for `/model`, `/help`, context reset, and headless-compatible commands.
+- Zed custom-agent setup and ACP capability/limitation documentation in `docs/acp.md`.
+
+### Changed
+- Shared Gambit's model catalog loading between the interactive picker and ACP sessions.
+- Runtime bootstrap and tool execution now accept ACP-scoped workspace, cancellation, permission, and disabled-tool configuration.
+
+### Fixed
+- ACP cancellation now aborts active model turns and reports the protocol `cancelled` stop reason.
+- ACP model and slash-command capabilities are published after new and resumed session setup so clients such as Zed can render their native selectors and command menus.
 
 ## [0.7.0] — 2026-05-30
 

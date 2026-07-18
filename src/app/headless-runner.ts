@@ -1,4 +1,5 @@
 import { generateId } from '../lib/id'
+import { loadImageAttachment, type ImageAttachment } from '../lib/image-attachments'
 
 import { defaultModel } from '../config'
 import {
@@ -347,8 +348,16 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   const { headless } = options
 
   const trimmedPrompt = headless.prompt.trim()
-  if (!trimmedPrompt) {
+  if (!trimmedPrompt && !headless.images?.length) {
     stderr.write('Error: --prompt/-p requires a non-empty prompt.\n')
+    return 1
+  }
+
+  let imageAttachments: ImageAttachment[] = []
+  try {
+    imageAttachments = await Promise.all((headless.images ?? []).map(loadImageAttachment))
+  } catch (error) {
+    stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`)
     return 1
   }
 
@@ -419,7 +428,9 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   let prepared: HeadlessPreparedInput | null = null
 
   try {
-    prepared = await prepareHeadlessInput(runtime, trimmedPrompt)
+    prepared = trimmedPrompt
+      ? await prepareHeadlessInput(runtime, trimmedPrompt)
+      : { kind: 'run', prompt: '' }
   } catch (error) {
     prepared = {
       kind: 'local',
@@ -577,6 +588,7 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
         id: generateId(),
         role: 'user',
         content: prepared.prompt,
+        metadata: imageAttachments.length > 0 ? { attachments: imageAttachments } : undefined,
         timestamp: new Date().toISOString(),
       })
 

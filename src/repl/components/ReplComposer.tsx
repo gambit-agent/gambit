@@ -6,6 +6,7 @@ import { theme } from '../../ui/theme'
 import { FileMentionOverlay } from '../../ui/overlays/FileMentionOverlay'
 import { SlashCompletionOverlay } from '../../ui/overlays/SlashCompletionOverlay'
 import type { SlashCompletionMatch, SlashCompletionMode } from '../slash-completions'
+import type { ImageAttachment } from '../../lib/image-attachments'
 
 export interface TextareaKeyBinding {
   name: string
@@ -18,6 +19,8 @@ export interface TextareaKeyBinding {
 export function ReplComposer({
   inputValue,
   inputPreview,
+  attachments,
+  onRemoveAttachment,
   textareaRef,
   focused,
   keyBindings,
@@ -28,6 +31,8 @@ export function ReplComposer({
 }: {
   inputValue: string
   inputPreview: string | null
+  attachments: ImageAttachment[]
+  onRemoveAttachment: (id: string) => void
   textareaRef: RefObject<TextareaRenderable | null>
   focused: boolean
   keyBindings: TextareaKeyBinding[]
@@ -60,6 +65,27 @@ export function ReplComposer({
       }}
     >
       <box flexDirection="column" gap={inputPreview ? 1 : 0}>
+        {attachments.length > 0 ? (
+          <box flexDirection="row" flexWrap="wrap" gap={1} paddingX={1} paddingTop={1}>
+            {attachments.map((attachment) => (
+              <box
+                key={attachment.id}
+                flexDirection="row"
+                gap={1}
+                paddingX={1}
+                backgroundColor={theme.systemBg}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  onRemoveAttachment(attachment.id)
+                }}
+              >
+                <text fg={theme.headerAccent} content="▧" />
+                <text fg={theme.userFg} content={attachment.name} />
+                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="×" />
+              </box>
+            ))}
+          </box>
+        ) : null}
         {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
         {slashCompletion ? (
           <SlashCompletionOverlay

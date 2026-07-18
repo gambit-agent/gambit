@@ -68,6 +68,7 @@ function serializeMessageForTranscript(message: ConversationMessage): Conversati
         reasoningText: metadata.reasoningText,
         memoryContext: metadata.memoryContext,
         compactionSummary: metadata.compactionSummary,
+        attachments: metadata.attachments,
       }
     : undefined
 

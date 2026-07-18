@@ -514,6 +514,10 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
   const hasAssistantResponse = Boolean(assistantReasoning?.response.trim())
   const renderTimestamp = shouldRenderMessageTimestamp(message)
   const reasoningDurationLabel = assistantReasoning ? formatDuration(getReasoningDurationMs(message)) : null
+  const attachments = message.metadata?.attachments ?? []
+  const clipboardContent = attachments.length > 0
+    ? [message.content, ...attachments.map((attachment) => `[Image: ${attachment.name}]`)].filter(Boolean).join('\n')
+    : message.content
 
   if (isToolMessage) {
     const toolPresentation = getToolMessagePresentation(message, toolMessageAnimationFrame)
@@ -591,7 +595,7 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
 
   return (
     <HoverClipboardBox
-      content={message.content}
+      content={clipboardContent}
       onCopyError={onClipboardError}
       flexDirection="column"
       alignItems={isUser ? 'flex-end' : 'flex-start'}
@@ -599,6 +603,11 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
       paddingY={1}
     >
       <box flexDirection="column" gap={0}>
+        {attachments.map((attachment) => (
+          <text key={attachment.id} selectable fg={theme.headerAccent} attributes={TextAttributes.DIM}>
+            {`▧ ${attachment.name}`}
+          </text>
+        ))}
         {assistantReasoning ? (
           <>
             <ThoughtToggle

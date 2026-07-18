@@ -18,6 +18,11 @@ import { useAskUserQuestionController } from '../ui/overlays/AskUserQuestionOver
 import { writeThemePreference } from '../session/user-config'
 import { ConversationPanel } from '../ui/panels/ConversationPanel'
 import { generateId } from '../lib/id'
+import {
+  createImageAttachment,
+  loadImageAttachment,
+  type ImageAttachment,
+} from '../lib/image-attachments'
 import { useInteractiveController } from '../lib/interactive/controller'
 import {
   findActiveFileMention,
@@ -119,6 +124,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const [inputValue, setInputValue] = useState('')
   const [inputPreview, setInputPreview] = useState<string | null>(null)
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
   const [taskDrawerSelectedIndex, setTaskDrawerSelectedIndex] = useState(0)
@@ -276,8 +282,27 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
   const clearComposer = useCallback(() => {
     setInputValue('')
+    setAttachments([])
     textareaRef.current?.setText('')
   }, [])
+
+  const handleImagePaste = useCallback((image: {
+    bytes?: Uint8Array
+    mediaType?: string
+    path?: string
+  }) => {
+    void (async () => {
+      try {
+        const attachment = image.path
+          ? await loadImageAttachment(image.path)
+          : createImageAttachment(image.bytes ?? new Uint8Array(), { mediaType: image.mediaType })
+        setAttachments((current) => [...current, attachment])
+        setInputPreview(null)
+      } catch (error) {
+        runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+      }
+    })()
+  }, [runtime.conversationStore])
 
   useEffect(() => {
     const cursorOffset = textareaRef.current?.cursorOffset ?? inputValue.length
@@ -521,6 +546,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setInputValue,
     inputPreview,
     setInputPreview,
+    attachments,
+    setAttachments,
+    onImagePaste: handleImagePaste,
     messages: interactiveMessages,
     setMessages: setConversationMessages,
     isRunning: conversation.status === 'running',
@@ -594,7 +622,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     queueVersion: interactive.followUpQueue,
     isRunActive: interactive.isRunActive,
     drainFollowUp: interactive.drainFollowUp,
-    submit: interactive.handleSubmit,
+    submit: interactive.submitFollowUp,
   })
 
   useEffect(() => {
@@ -747,6 +775,8 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       <ReplComposer
         inputValue={inputValue}
         inputPreview={inputPreview}
+        attachments={attachments}
+        onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
         textareaRef={textareaRef}
         focused={overlayFocus.mainInput && !tasksOpen}
         keyBindings={textareaKeyBindings}

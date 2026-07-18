@@ -17,6 +17,7 @@ export interface HeadlessLaunchOptions {
   appendSystemPromptFiles?: string[]
   permissionMode?: HeadlessPermissionMode
   mcpConfigPath?: string
+  images?: string[]
 }
 
 export interface LaunchOptions {
@@ -75,6 +76,7 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
   const appendSystemPromptFiles: string[] = []
   let permissionMode: HeadlessPermissionMode | undefined
   let mcpConfigPath: string | undefined
+  const images: string[] = []
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -193,6 +195,15 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
       }
       continue
     }
+
+    if (arg === '--image') {
+      const next = readRequiredValue(argv, index)
+      if (next.value !== undefined) {
+        images.push(next.value)
+        index += next.consumed
+      }
+      continue
+    }
   }
 
   const headless: HeadlessLaunchOptions | undefined =
@@ -208,6 +219,7 @@ export function parseLaunchOptions(argv: string[]): LaunchOptions {
           appendSystemPromptFiles: appendSystemPromptFiles.length > 0 ? appendSystemPromptFiles : undefined,
           permissionMode,
           mcpConfigPath,
+          images: images.length > 0 ? images : undefined,
         }
       : undefined
 

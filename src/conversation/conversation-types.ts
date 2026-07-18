@@ -1,4 +1,5 @@
 import type { AtifSubagentTrajectoryRef } from '../trajectory/atif-types'
+import type { ImageAttachment } from '../lib/image-attachments'
 
 export type ConversationRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -26,6 +27,8 @@ export interface ConversationMessage {
     memoryContext?: boolean
     /** Marks a hidden message produced by context compaction. */
     compactionSummary?: boolean
+    /** Images supplied with a user message. */
+    attachments?: ImageAttachment[]
   }
 }
 

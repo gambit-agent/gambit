@@ -8,7 +8,7 @@ import { resolveMaxDelegationDepth, workspaceRoot } from '../config'
 import { AgentRunner } from '../agents/agent-runner'
 import { agentToolIds } from '../agents/agent-tool-policy'
 import { MemoryStore } from '../memory/memory-store'
-import { PermissionEngine } from '../permissions/permission-engine'
+import { PermissionEngine, type PermissionRequestHandler } from '../permissions/permission-engine'
 import { QuestionEngine } from '../questions/question-engine'
 import { HookManager } from '../hooks/plugin-hooks'
 import { loadSystemPrompt } from '../lib/prompt'
@@ -71,6 +71,9 @@ export interface AppRuntime
 
 export interface BootstrapAppRuntimeOptions {
   deferConversationInitialization?: boolean
+  rootPath?: string
+  permissionRequestHandler?: PermissionRequestHandler
+  disabledToolIds?: readonly string[]
 }
 
 function buildSystemMessage(content: string): ConversationMessage {
@@ -93,6 +96,7 @@ function extractShellTaskId(output: string): string | null {
  * and return an `AppRuntime` ready for the TUI to consume.
  */
 export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = {}): Promise<AppRuntime> {
+  const runtimeRoot = options.rootPath ?? workspaceRoot
   const baseSystemPrompt = await loadSystemPrompt()
   const systemMessage = buildSystemMessage(baseSystemPrompt)
   const userConfig = await readUserConfig().catch(() => null)
@@ -102,8 +106,8 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   primeProviderCredentials(userConfig?.providers ?? {})
   const runtimeMaxDelegationDepth = resolveMaxDelegationDepth(userConfig?.maxDepth)
 
-  const memoryStore = new MemoryStore()
-  const permissionEngine = new PermissionEngine()
+  const memoryStore = new MemoryStore(runtimeRoot)
+  const permissionEngine = new PermissionEngine(options.permissionRequestHandler)
   const questionEngine = new QuestionEngine()
   const taskRuntime = new TaskRuntime()
   const hookManager = await HookManager.load()
@@ -120,7 +124,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
       agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
     } = {},
   ): Partial<ToolExecutionContext> => ({
-    workspaceRoot,
+    workspaceRoot: runtimeRoot,
     taskRuntime,
     permissionEngine,
     questionEngine,
@@ -141,7 +145,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     return createRuntimeToolSuite({
       includeSpawnAgent: options.includeSpawnAgent,
       discoverMCPServerTools: options.discoverMCPServerTools,
-      workspaceRoot,
+      workspaceRoot: runtimeRoot,
     })
   }
 
@@ -150,15 +154,19 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
   ): Promise<ToolSet> => {
     const { registry, executor } = await createToolSuite({ includeSpawnAgent: true })
+    const effectiveToolIds = (allowedToolIds ?? agentToolIds).filter(
+      (toolId) => !options.disabledToolIds?.includes(toolId),
+    )
     return createAiToolMap(registry, executor, {
       ...createToolContext({ agentExecutionOptions }),
       agentTaskRunner,
-      allowedToolIds: allowedToolIds ?? agentToolIds,
+      allowedToolIds: effectiveToolIds,
+      disabledToolIds: options.disabledToolIds,
     })
   }
 
   agentTaskRunner = new AgentTaskRunner(taskRuntime, agentRunner, createChildTools)
-  const conversationStore = createConversationStore()
+  const conversationStore = createConversationStore({ rootPath: runtimeRoot })
   if (!options.deferConversationInitialization) {
     await conversationStore.initialize()
   }
@@ -192,7 +200,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
       return conversationStore.startNewConversation()
     },
     resumeConversation: async (conversationId: string) => {
-      const summary = await getConversationSessionSummary(conversationId, workspaceRoot)
+      const summary = await getConversationSessionSummary(conversationId, runtimeRoot)
       if (!summary) {
         throw new Error(`Saved conversation not found: ${conversationId}`)
       }
@@ -200,7 +208,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
       return summary
     },
     resumeLatestConversation: async () => {
-      const summary = await getLatestConversationSession(workspaceRoot)
+      const summary = await getLatestConversationSession(runtimeRoot)
       if (!summary) {
         return null
       }
@@ -208,16 +216,16 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
       return summary
     },
     listConversationSessions: async () => {
-      return listConversationSessions(workspaceRoot)
+      return listConversationSessions(runtimeRoot)
     },
     forkConversation: async (atMessageId?: string) => {
       const sourceId = conversationStore.getSnapshot().conversationId
-      const result = await forkConversationImpl(sourceId, { atMessageId, root: workspaceRoot })
+      const result = await forkConversationImpl(sourceId, { atMessageId, root: runtimeRoot })
       await conversationStore.openConversation(result.conversationId)
       return result
     },
     getConversationTree: async () => {
-      return buildConversationTree(workspaceRoot)
+      return buildConversationTree(runtimeRoot)
     },
     runShellCommand: async (command: string, options: { background: boolean }) => {
       const { executor } = await createToolSuite({ includeSpawnAgent: false })

@@ -59,6 +59,7 @@ test('parses -p with a prompt and defaults to text output format', () => {
     appendSystemPromptFiles: undefined,
     permissionMode: undefined,
     mcpConfigPath: undefined,
+    images: undefined,
   })
 })
 
@@ -164,4 +165,9 @@ test('parses --permission-mode and rejects unknown values', () => {
 test('parses --mcp-config with a path', () => {
   const options = parseLaunchOptions(['-p', 'hi', '--mcp-config', '/tmp/mcp.json'])
   expect(options.headless?.mcpConfigPath).toBe('/tmp/mcp.json')
+})
+
+test('collects repeatable --image paths', () => {
+  const options = parseLaunchOptions(['-p', 'compare these', '--image', './a.png', '--image', './b.jpg'])
+  expect(options.headless?.images).toEqual(['./a.png', './b.jpg'])
 })

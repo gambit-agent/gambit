@@ -86,6 +86,33 @@ test('appends message batches', async () => {
   expect((await store.loadMessages()).map((message) => message.content)).toEqual(['batched response'])
 })
 
+test('persists image attachments for resumed model replay', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'image-roundtrip' })
+  await store.initialize()
+  await store.pushMessage({
+    id: 'user-image',
+    role: 'user',
+    content: 'inspect this',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      attachments: [{
+        id: 'image-1',
+        name: 'screen.png',
+        mediaType: 'image/png',
+        data: 'iVBORw0KGgo=',
+        size: 8,
+      }],
+    },
+  })
+
+  const loaded = await store.loadMessages()
+  expect(loaded[0]?.metadata?.attachments?.[0]).toMatchObject({
+    name: 'screen.png',
+    mediaType: 'image/png',
+    data: 'iVBORw0KGgo=',
+  })
+})
+
 test('message replacement only writes message records', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replace-writes-messages' })
   await store.initialize()

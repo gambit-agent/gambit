@@ -49,6 +49,7 @@ export interface RunConversationTurnOptions {
   showReasoning?: boolean
   signal?: AbortSignal
   allowedToolIds?: readonly string[]
+  disabledToolIds?: readonly string[]
   systemPromptOverride?: string
   appendSystemPrompt?: string
 }
@@ -174,6 +175,7 @@ export class ConversationRunner {
     const tools = createAiToolMap(registry, executor, {
       ...toolContext,
       allowedToolIds: options.allowedToolIds,
+      disabledToolIds: options.disabledToolIds,
     })
 
     const selectModel = createModelSelector(options.apiKey)

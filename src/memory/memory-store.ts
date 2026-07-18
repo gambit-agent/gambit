@@ -6,17 +6,19 @@ import {
   slugifyMemoryName,
   upsertMemoryRecord,
 } from './memory-index'
-import { findRelevantMemories, formatRelevantMemories } from './memory-retrieval'
+import { formatRelevantMemories, loadRelevantMemoryRecords } from './memory-retrieval'
 import { workspaceRoot } from '../config'
 import type { CreateMemoryInput, MemoryRecord } from './memory-types'
 
 export class MemoryStore {
+  constructor(private readonly rootPath: string = workspaceRoot) {}
+
   async upsert(input: CreateMemoryInput): Promise<MemoryRecord> {
-    return upsertMemoryRecord(input)
+    return upsertMemoryRecord(input, this.rootPath)
   }
 
   async list(): Promise<MemoryRecord[]> {
-    return scanMemoryRecords()
+    return scanMemoryRecords(this.rootPath)
   }
 
   async getRelevantContext(query: string): Promise<string> {
@@ -24,16 +26,16 @@ export class MemoryStore {
   }
 
   async getRelevantMemories(query: string, options: { limit?: number } = {}): Promise<MemoryRecord[]> {
-    return findRelevantMemories(query, options.limit)
+    return loadRelevantMemoryRecords(query, { rootPath: this.rootPath, limit: options.limit })
   }
 
   async getIndex(): Promise<string> {
-    return readMemoryIndex()
+    return readMemoryIndex(this.rootPath)
   }
 
   async readRecord(slugOrPath: string): Promise<string> {
     const slug = slugifyMemoryName(slugOrPath)
-    const record = (await scanMemoryRecords()).find((entry) => entry.filePath.endsWith(`${slug}.md`))
+    const record = (await scanMemoryRecords(this.rootPath)).find((entry) => entry.filePath.endsWith(`${slug}.md`))
     if (!record) {
       return ''
     }

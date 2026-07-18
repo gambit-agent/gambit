@@ -5,18 +5,18 @@ import { useCallback, useRef, useState } from 'react'
  * run finishes, while `pop` removes the most recently queued entry (LIFO) so
  * up-arrow can pull the newest follow-up back into the composer for editing.
  */
-export class FollowUpQueue {
-  private items: string[] = []
+export class FollowUpQueue<T = string> {
+  private items: T[] = []
 
   get size(): number {
     return this.items.length
   }
 
-  get snapshot(): string[] {
+  get snapshot(): T[] {
     return [...this.items]
   }
 
-  enqueue(value: string): void {
+  enqueue(value: T): void {
     this.items = [...this.items, value]
   }
 
@@ -25,12 +25,12 @@ export class FollowUpQueue {
    * could not run (a run was already active) and must be put back without
    * rotating the FIFO order.
    */
-  requeueFront(value: string): void {
+  requeueFront(value: T): void {
     this.items = [value, ...this.items]
   }
 
   /** Removes and returns the oldest entry (FIFO). */
-  drain(): string | undefined {
+  drain(): T | undefined {
     if (this.items.length === 0) return undefined
     const next = this.items[0]
     this.items = this.items.slice(1)
@@ -38,7 +38,7 @@ export class FollowUpQueue {
   }
 
   /** Removes and returns the newest entry (LIFO). */
-  pop(): string | undefined {
+  pop(): T | undefined {
     if (this.items.length === 0) return undefined
     const last = this.items[this.items.length - 1]
     this.items = this.items.slice(0, -1)
@@ -46,14 +46,14 @@ export class FollowUpQueue {
   }
 }
 
-export function useFollowUpQueue() {
-  const queueRef = useRef<FollowUpQueue | null>(null)
+export function useFollowUpQueue<T = string>() {
+  const queueRef = useRef<FollowUpQueue<T> | null>(null)
   if (queueRef.current === null) {
-    queueRef.current = new FollowUpQueue()
+    queueRef.current = new FollowUpQueue<T>()
   }
-  const [followUpQueue, setFollowUpQueue] = useState<string[]>([])
+  const [followUpQueue, setFollowUpQueue] = useState<T[]>([])
 
-  const enqueueFollowUp = useCallback((value: string) => {
+  const enqueueFollowUp = useCallback((value: T) => {
     queueRef.current!.enqueue(value)
     setFollowUpQueue(queueRef.current!.snapshot)
   }, [])
@@ -74,7 +74,7 @@ export function useFollowUpQueue() {
     return last
   }, [])
 
-  const requeueFrontFollowUp = useCallback((value: string) => {
+  const requeueFrontFollowUp = useCallback((value: T) => {
     queueRef.current!.requeueFront(value)
     setFollowUpQueue(queueRef.current!.snapshot)
   }, [])

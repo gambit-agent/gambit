@@ -23,6 +23,22 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
     process.exit(exitCode)
   }
 
+  if (rawArgs[0] === 'acp') {
+    if (rawArgs.slice(1).some((arg) => arg === '--help' || arg === '-h')) {
+      const { printAcpHelp } = await import('./help')
+      printAcpHelp()
+      return
+    }
+    if (rawArgs.length > 1) {
+      console.error(`Unknown ACP option: ${rawArgs[1]}`)
+      process.exitCode = 1
+      return
+    }
+    const { runAcpAgent } = await import('../acp/agent-server')
+    await runAcpAgent()
+    return
+  }
+
   if (rawArgs.includes('--version') || rawArgs.includes('-V')) {
     console.log(`gambit ${appVersion}`)
     process.exit(0)
