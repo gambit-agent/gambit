@@ -147,6 +147,23 @@ test('ignores unknown provider ids when reading', async () => {
   expect(config.providers).toEqual({})
 })
 
+test('serializes concurrent config writes so none are lost', async () => {
+  await Promise.all([
+    writeProviderCredential('openai', { apiKey: 'sk-openai', baseURL: null }, configPath),
+    writeProviderCredential('anthropic', { apiKey: 'sk-anthropic', baseURL: null }, configPath),
+    writeProviderCredential('openrouter', { apiKey: 'sk-or', baseURL: null }, configPath),
+    writeThemePreference('nord', configPath),
+  ])
+
+  const config = await readUserConfig(configPath)
+  expect(config.theme).toBe('nord')
+  expect(config.providers).toEqual({
+    openai: { apiKey: 'sk-openai', baseURL: null },
+    anthropic: { apiKey: 'sk-anthropic', baseURL: null },
+    openrouter: { apiKey: 'sk-or', baseURL: null },
+  })
+})
+
 test('removes a provider credential while preserving others', async () => {
   await writeProviderCredential('openai', { apiKey: 'sk-openai', baseURL: null }, configPath)
   await writeProviderCredential('anthropic', { apiKey: 'sk-anthropic', baseURL: null }, configPath)

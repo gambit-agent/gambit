@@ -3,9 +3,59 @@ import { appendTruncationNotice, collectBoundedText } from '../process-output'
 import { truncate } from '../text'
 import { loadSlashCommands } from './loader'
 import { resolveCommand } from './resolver'
-import type { SlashCommandExecution } from './types'
+import type { SlashCommandDefinition, SlashCommandExecution } from './types'
 
 const INLINE_COMMAND_PATTERN = /!`([^`]+?)`/g
+const LINE_COMMAND_PATTERN = /^!\s*(.+)$/
+
+/**
+ * Preview of a slash command invocation before execution. Exposes the shell
+ * directives (with model-supplied arguments already substituted) so the
+ * permission system can surface exactly what would run, and captures the fully
+ * resolved body so execution can run exactly what was approved without
+ * re-reading the command file from disk.
+ */
+export interface SlashCommandPreview {
+  command: SlashCommandDefinition
+  /** Trimmed argument text the preview was resolved with. */
+  arguments: string
+  /** Command body with $ARGUMENTS/$1... substituted (directives not yet run). */
+  resolvedBody: string
+  /** Embedded `!` shell directives, with $ARGUMENTS/$1... already substituted. */
+  shellDirectives: string[]
+}
+
+/**
+ * Resolve a slash command and enumerate the shell directives it would execute
+ * for the given arguments, without running anything. Returns null only when
+ * the command does not exist (execution will surface the precise not-found
+ * error). Loader or resolution failures are rethrown so callers fail closed
+ * instead of treating an unreadable command as directive-free.
+ */
+export async function previewSlashCommand(
+  identifier: string,
+  args: string | undefined,
+): Promise<SlashCommandPreview | null> {
+  const trimmed = identifier.replace(/^\//, '').trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const commands = await loadSlashCommands()
+  const command = resolveCommand(commands, trimmed)
+  if (!command) {
+    return null
+  }
+
+  return buildPreview(command, args)
+}
+
+function buildPreview(command: SlashCommandDefinition, args: string | undefined): SlashCommandPreview {
+  const argumentText = args?.trim() ?? ''
+  const resolvedBody = applyArguments(command.body, argumentText)
+  const { commands: shellDirectives } = extractEmbeddedCommands(resolvedBody)
+  return { command, arguments: argumentText, resolvedBody, shellDirectives }
+}
 
 export async function executeSlashCommand(
   identifier: string,
@@ -23,19 +73,32 @@ export async function executeSlashCommand(
     throw new Error(`Slash command not found: /${trimmed}`)
   }
 
+  return executeSlashCommandFromPreview(buildPreview(command, args), options)
+}
+
+/**
+ * Execute a slash command from a previously captured preview. The preview's
+ * resolved body (arguments already substituted) is used verbatim, so the shell
+ * directives that run are exactly the ones enumerated at preview time — the
+ * command file is never re-read, closing the window where an on-disk edit
+ * between permission approval and execution could swap in unapproved commands.
+ */
+export async function executeSlashCommandFromPreview(
+  preview: SlashCommandPreview,
+  options: { allowDisabledModelInvocation?: boolean } = {},
+): Promise<SlashCommandExecution> {
+  const { command } = preview
   if (command.disableModelInvocation && !options.allowDisabledModelInvocation) {
     throw new Error(`Slash command /${command.id} is disabled for model invocation.`)
   }
 
-  const argumentText = args?.trim() ?? ''
-  const contentWithArgs = applyArguments(command.body, argumentText)
-  const rendered = await renderEmbeddedCommands(contentWithArgs)
+  const rendered = await renderEmbeddedCommands(preview.resolvedBody)
 
   return {
     command: `/${command.id}`,
     scope: command.scope,
     namespace: command.namespace,
-    arguments: argumentText,
+    arguments: preview.arguments,
     allowedTools: command.allowedTools,
     model: command.model,
     content: rendered.trim(),
@@ -81,58 +144,75 @@ function parseArguments(argumentText: string): string[] {
   return args
 }
 
-async function renderEmbeddedCommands(content: string): Promise<string> {
-  const withInlineCommands = await replaceInlineCommands(content)
-  return replaceLineCommands(withInlineCommands)
+interface ExtractedEmbeddedCommands {
+  /** Template with every directive replaced by a unique placeholder token. */
+  template: string
+  /** Directive commands in execution order (inline first, then line directives). */
+  commands: string[]
 }
 
-async function replaceInlineCommands(content: string): Promise<string> {
+function commandPlaceholder(index: number): string {
+  return `\u0000gambit-embedded-command-${index}\u0000`
+}
+
+/**
+ * Extract every embedded `!` directive from the ORIGINAL command body and
+ * replace it with an inert placeholder. Directives are enumerated before any
+ * command runs, so shell output can never introduce additional directives and
+ * permission previews match execution exactly.
+ */
+function extractEmbeddedCommands(content: string): ExtractedEmbeddedCommands {
+  const commands: string[] = []
+
+  // Pass 1: inline !`command` directives.
   INLINE_COMMAND_PATTERN.lastIndex = 0
   let match: RegExpExecArray | null
   let cursor = 0
   const parts: string[] = []
-
   while ((match = INLINE_COMMAND_PATTERN.exec(content)) !== null) {
-    const fullMatch = match[0]
     const commandText = match[1]
     if (commandText === undefined) {
       continue
     }
-
-    const start = match.index
-    const end = start + fullMatch.length
-    parts.push(content.slice(cursor, start))
-    parts.push(await formatCommandOutput(commandText.trim()))
-    cursor = end
+    parts.push(content.slice(cursor, match.index))
+    parts.push(commandPlaceholder(commands.length))
+    commands.push(commandText.trim())
+    cursor = match.index + match[0].length
   }
-
   parts.push(content.slice(cursor))
-  return parts.join('')
-}
 
-async function replaceLineCommands(content: string): Promise<string> {
-  const lines = content.split(/\r?\n/)
-  let mutated = false
-
+  // Pass 2: whole-line `! command` directives.
+  const lines = parts.join('').split(/\r?\n/)
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (line === undefined) {
       continue
     }
-    const match = /^!\s*(.+)$/.exec(line.trim())
-    if (!match) {
-      continue
-    }
-    const commandText = match[1]
+    const lineMatch = LINE_COMMAND_PATTERN.exec(line.trim())
+    const commandText = lineMatch?.[1]
     if (commandText === undefined) {
       continue
     }
-
-    mutated = true
-    lines[index] = await formatCommandOutput(commandText.trim())
+    lines[index] = commandPlaceholder(commands.length)
+    commands.push(commandText.trim())
   }
 
-  return mutated ? lines.join('\n') : content
+  return { template: lines.join('\n'), commands }
+}
+
+async function renderEmbeddedCommands(content: string): Promise<string> {
+  const { template, commands } = extractEmbeddedCommands(content)
+  if (commands.length === 0) {
+    return content
+  }
+
+  let rendered = template
+  for (let index = 0; index < commands.length; index += 1) {
+    const command = commands[index]
+    const output = command === undefined ? '' : await formatCommandOutput(command)
+    rendered = rendered.split(commandPlaceholder(index)).join(output)
+  }
+  return rendered
 }
 
 async function formatCommandOutput(command: string): Promise<string> {

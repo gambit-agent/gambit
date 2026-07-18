@@ -102,7 +102,9 @@ export interface ToolDefinition<InputSchema extends ZodTypeAny, Output> {
   shouldPersistLargeResult?: boolean
   maxInlineResultChars?: number
   hiddenFromModel?: boolean
-  getPermissionRequest?: (input: z.infer<InputSchema>) => ToolPermissionRequest | null
+  getPermissionRequest?: (
+    input: z.infer<InputSchema>,
+  ) => ToolPermissionRequest | null | Promise<ToolPermissionRequest | null>
   requiredCapabilities?: readonly ToolCapability[]
   permissionMetadata?: ToolPermissionMetadata<z.infer<InputSchema>>
 }

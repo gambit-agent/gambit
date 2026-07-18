@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type MutableRefObject,
   type SetStateAction,
 } from "react"
 import { useAppContext } from "@opentui/react"
@@ -12,6 +13,11 @@ import type { ParsedKey } from "@opentui/core"
 
 import { DOUBLE_ESC_INTERVAL_MS } from "../../config"
 import type { UIMessage } from "../../types/chat"
+import {
+  resolveDownArrowAction,
+  resolveUpArrowAction,
+  type ComposerCursor,
+} from "./composer-navigation"
 import { useFollowUpQueue } from "./follow-up-queue"
 import type { InteractiveHistory } from "./history"
 import { usePasteDetection } from "./paste-detection"
@@ -22,6 +28,25 @@ import { useInteractiveHistorySearch, type HistorySearchState } from "./useInter
 import { useInteractiveKeyboard } from "./useInteractiveKeyboard"
 
 type SubmitOptions = { signal: AbortSignal }
+
+/**
+ * What `handleSubmit` did with the value:
+ * - 'submitted': a model run was started (resolves when the run finishes).
+ * - 'queued': a run was already active, so the value was queued as a follow-up.
+ * - 'continuation': the value ended in '\'; it was stuffed back into the
+ *   composer as a multi-line draft and nothing was submitted.
+ * - 'empty': the value was blank; nothing happened.
+ */
+export type SubmitOutcome = 'submitted' | 'queued' | 'continuation' | 'empty'
+
+export interface HandleSubmitOptions {
+  /**
+   * Set by the follow-up drain. If the value cannot run because a run is
+   * already active, it is requeued at the HEAD of the follow-up queue
+   * (instead of the tail) so FIFO order is preserved.
+   */
+  fromFollowUpDrain?: boolean
+}
 
 export interface UseInteractiveControllerOptions {
   inputValue: string
@@ -38,9 +63,21 @@ export interface UseInteractiveControllerOptions {
   onRewind?: () => void
   onBackgroundRequest?: (command: string) => boolean
   onToggleBackgroundTasks?: () => void
+  /**
+   * Invoked synchronously whenever a submission is accepted (a run starts or
+   * the value is queued as a follow-up). Used by the REPL to scroll the
+   * conversation to the bottom on the user's own submission.
+   */
+  onSubmitted?: () => void
   keyboardEnabled?: boolean
   historyNavigationEnabled?: boolean
   completionNavigationActive?: boolean
+  /**
+   * Returns the composer cursor position so bare up/down only navigate
+   * history from the first/last line of a multi-line draft. When omitted,
+   * navigation behaves as if the composer were single-line.
+   */
+  getComposerCursor?: () => ComposerCursor | null
 }
 
 export interface UseInteractiveControllerResult {
@@ -49,10 +86,12 @@ export interface UseInteractiveControllerResult {
   historySearch: HistorySearchState
   exitPending: boolean
   followUpQueue: string[]
-  handleSubmit: (value: string) => Promise<void>
+  handleSubmit: (value: string, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
   handleInput: (value: string) => void
   exitHistorySearch: () => void
   drainFollowUp: () => string | undefined
+  /** Synchronous run indicator (flips in `startRun`, before store snapshots update). */
+  isRunActive: () => boolean
 }
 
 export function useInteractiveController({
@@ -70,17 +109,36 @@ export function useInteractiveController({
   onRewind,
   onBackgroundRequest,
   onToggleBackgroundTasks,
+  onSubmitted,
   keyboardEnabled = true,
   historyNavigationEnabled = true,
   completionNavigationActive = false,
+  getComposerCursor,
 }: UseInteractiveControllerOptions): UseInteractiveControllerResult {
-  const sessionRef = useRef(new InteractiveSession())
+  // Lazy init so the session is only constructed once, not on every render.
+  const lazySessionRef = useRef<InteractiveSession | null>(null)
+  if (lazySessionRef.current === null) {
+    lazySessionRef.current = new InteractiveSession()
+  }
+  const sessionRef = lazySessionRef as MutableRefObject<InteractiveSession>
   const historyRef = useRef<InteractiveHistory | null>(null)
-  const [thinkingEnabled, setThinkingEnabled] = useState(true)
+  // The session is the single source of truth for the thinking toggle; the
+  // React state mirrors it for rendering.
+  const [thinkingEnabled, setThinkingEnabled] = useState(() => sessionRef.current.isThinkingEnabled)
   const [localPermissionMode, setLocalPermissionMode] = useState<PermissionMode>("Normal")
-  const { followUpQueue, enqueueFollowUp, drainFollowUp } = useFollowUpQueue()
+  const {
+    followUpQueue,
+    enqueueFollowUp,
+    drainFollowUp,
+    popFollowUp,
+    requeueFrontFollowUp,
+    getFollowUpQueueSize,
+  } = useFollowUpQueue()
   const lastEscTimestamp = useRef<number | null>(null)
   const stashedPromptRef = useRef<string | null>(null)
+  // Provenance of composer content that was popped off the follow-up queue,
+  // so down-arrow can re-enqueue it instead of navigating history.
+  const poppedFollowUpRef = useRef<string | null>(null)
   const { renderer } = useAppContext()
   const inputValueRef = useRef(inputValue)
   const suppressNextInputRef = useRef(false)
@@ -130,14 +188,14 @@ export function useInteractiveController({
     updateHistorySearch,
   } = useInteractiveHistorySearch({
     historyRef,
-    inputValueRef,
     suppressNextInputRef,
     setInputValueWithRef,
     clearPreviewLabel,
+    getCurrentInputValue: useCallback(() => inputValueRef.current, []),
   })
 
   const handleSubmit = useCallback(
-    async (displayValue: string) => {
+    async (displayValue: string, options?: HandleSubmitOptions): Promise<SubmitOutcome> => {
       const session = sessionRef.current
       const previewLabel = inputPreviewRef.current
       const actualValue = previewLabel ? inputValueRef.current : displayValue
@@ -146,21 +204,33 @@ export function useInteractiveController({
         suppressNextInputRef.current = true
         setInputValueWithRef(`${actualValue.slice(0, -1)}\n`)
         clearPreviewLabel()
-        return
+        return "continuation"
       }
 
       const trimmed = actualValue.trim()
       if (!trimmed) {
         setInputValueWithRef("")
         clearPreviewLabel()
-        return
+        return "empty"
       }
 
-      if (isRunning) {
-        enqueueFollowUp(trimmed)
+      poppedFollowUpRef.current = null
+
+      // `isRunning` comes from a store snapshot that lags behind the actual
+      // submission; `session.isRunActive` flips synchronously in `startRun`,
+      // so a rapid double-Enter queues a follow-up instead of double-running.
+      if (isRunning || session.isRunActive) {
+        if (options?.fromFollowUpDrain) {
+          // The value was just drained from the head of the queue; putting it
+          // back at the tail would rotate FIFO order, so requeue at the head.
+          requeueFrontFollowUp(trimmed)
+        } else {
+          enqueueFollowUp(trimmed)
+        }
         clearPreviewLabel()
         setInputValueWithRef("")
-        return
+        onSubmitted?.()
+        return "queued"
       }
 
       session.pushSnapshot(messages)
@@ -168,6 +238,7 @@ export function useInteractiveController({
 
       clearPreviewLabel()
       setInputValueWithRef("")
+      onSubmitted?.()
 
       void (async () => {
         try {
@@ -185,6 +256,7 @@ export function useInteractiveController({
       } finally {
         session.clearRun()
       }
+      return "submitted"
     },
     [
       clearPreviewLabel,
@@ -192,8 +264,10 @@ export function useInteractiveController({
       enqueueFollowUp,
       isRunning,
       messages,
+      onSubmitted,
       performSubmit,
       persistHistory,
+      requeueFrontFollowUp,
       setInputValueWithRef,
     ],
   )
@@ -282,16 +356,81 @@ export function useInteractiveController({
           return match.preventDefault ?? false
         }
         case "history-previous": {
-          if (historyNavigationEnabled && !historySearch.active) {
-            handleHistoryNavigation("previous")
+          if (!historyNavigationEnabled || historySearch.active) {
+            return false
           }
-          return match.preventDefault ?? false
+          // Read the length synchronously from the queue ref: the React
+          // snapshot lags mutations, so two key events in one frame would
+          // misroute (history recall instead of pop, or a pop of undefined).
+          const action = resolveUpArrowAction({
+            composerValue: inputValueRef.current,
+            followUpQueueLength: getFollowUpQueueSize(),
+            cursor: getComposerCursor?.() ?? null,
+          })
+          if (action === "pop-follow-up") {
+            // A queued follow-up takes priority: up-arrow on an empty composer
+            // pulls the most recently queued message back for editing.
+            const queued = popFollowUp()
+            if (queued !== undefined) {
+              clearPreviewLabel()
+              if (queued !== inputValueRef.current) {
+                suppressNextInputRef.current = true
+                setInputValueWithRef(queued)
+              }
+              poppedFollowUpRef.current = queued
+              return true
+            }
+            return false
+          }
+          if (action === "history-previous") {
+            const popped = poppedFollowUpRef.current
+            if (popped !== null) {
+              // Navigating away from a popped follow-up puts it (or its
+              // edited form) back in the queue first so it is never lost and
+              // the history draft stash starts from an empty composer.
+              poppedFollowUpRef.current = null
+              enqueueFollowUp(inputValueRef.current.trim() || popped)
+              if (inputValueRef.current !== "") {
+                suppressNextInputRef.current = true
+                setInputValueWithRef("")
+              }
+              handleHistoryNavigation("previous")
+              return true
+            }
+            return handleHistoryNavigation("previous")
+          }
+          // Cursor is mid-draft: let the textarea move the cursor instead.
+          return false
         }
         case "history-next": {
-          if (historyNavigationEnabled && !historySearch.active) {
-            handleHistoryNavigation("next")
+          if (!historyNavigationEnabled || historySearch.active) {
+            return false
           }
-          return match.preventDefault ?? false
+          const action = resolveDownArrowAction({
+            composerValue: inputValueRef.current,
+            poppedFollowUp: poppedFollowUpRef.current,
+            cursor: getComposerCursor?.() ?? null,
+          })
+          if (action === "re-enqueue-popped") {
+            // Symmetric to the up-arrow pop: down-arrow restores the popped
+            // follow-up (or its edited form) to the queue.
+            const popped = poppedFollowUpRef.current
+            poppedFollowUpRef.current = null
+            const restored = inputValueRef.current.trim() || (popped ?? "")
+            if (restored) {
+              enqueueFollowUp(restored)
+            }
+            clearPreviewLabel()
+            if (inputValueRef.current !== "") {
+              suppressNextInputRef.current = true
+              setInputValueWithRef("")
+            }
+            return true
+          }
+          if (action === "history-next") {
+            return handleHistoryNavigation("next")
+          }
+          return false
         }
         case "toggle-thinking": {
           const enabled = sessionRef.current.toggleThinking()
@@ -320,6 +459,7 @@ export function useInteractiveController({
           }
           const handled = onBackgroundRequest ? onBackgroundRequest(trimmed) : false
           if (handled) {
+            poppedFollowUpRef.current = null
             historyRef.current?.clearCursor()
             historyRef.current?.add(trimmed)
             void persistHistory()
@@ -331,6 +471,7 @@ export function useInteractiveController({
         case "follow-up": {
           const currentValue = inputValueRef.current.trim()
           if (currentValue) {
+            poppedFollowUpRef.current = null
             enqueueFollowUp(currentValue)
             historyRef.current?.clearCursor()
             historyRef.current?.add(currentValue)
@@ -344,6 +485,7 @@ export function useInteractiveController({
         case "stash-prompt": {
           const currentValue = inputValueRef.current.trim()
           if (currentValue) {
+            poppedFollowUpRef.current = null
             stashedPromptRef.current = currentValue
             clearPreviewLabel()
             suppressNextInputRef.current = true
@@ -363,6 +505,8 @@ export function useInteractiveController({
     [
       clearPreviewLabel,
       enqueueFollowUp,
+      getComposerCursor,
+      getFollowUpQueueSize,
       handleHistoryNavigation,
       historySearch,
       handleAbortRun,
@@ -372,6 +516,7 @@ export function useInteractiveController({
       onToggleBackgroundTasks,
       onCyclePermissionMode,
       persistHistory,
+      popFollowUp,
       setInputValueWithRef,
       updateHistorySearch,
     ],
@@ -393,6 +538,8 @@ export function useInteractiveController({
     }
   }, [isRunning])
 
+  const isRunActive = useCallback(() => sessionRef.current.isRunActive, [])
+
   return useMemo(
     () => ({
       thinkingEnabled,
@@ -404,7 +551,8 @@ export function useInteractiveController({
       handleInput,
       exitHistorySearch,
       drainFollowUp,
+      isRunActive,
     }),
-    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, permissionMode, thinkingEnabled],
+    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, isRunActive, permissionMode, thinkingEnabled],
   )
 }

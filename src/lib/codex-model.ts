@@ -44,6 +44,14 @@ export function createCodexLanguageModel(options: CodexLanguageModelOptions): La
         const { done, value } = await reader.read()
         if (done) break
         if (value.type === 'text-delta') text += value.delta
+        if (value.type === 'tool-call') {
+          content.push({
+            type: 'tool-call',
+            toolCallId: value.toolCallId,
+            toolName: value.toolName,
+            input: value.input,
+          })
+        }
         if (value.type === 'finish') {
           finishReason = value.finishReason
           usage = value.usage
@@ -79,7 +87,7 @@ export function createCodexLanguageModel(options: CodexLanguageModelOptions): La
       return {
         stream: createResponseStream(response),
         request: { body: requestBody },
-        response: { headers: Object.fromEntries(response.headers.entries()) },
+        response: { headers: filterResponseHeaders(response.headers) },
       }
     },
   }
@@ -187,7 +195,12 @@ function convertTool(tool: LanguageModelV2FunctionTool): Record<string, unknown>
 function createResponseStream(response: Response): ReadableStream<LanguageModelV2StreamPart> {
   return new ReadableStream<LanguageModelV2StreamPart>({
     async start(controller) {
-      const toolCalls = new Map<string, { id: string; name: string; input: string; started: boolean }>()
+      // Each in-flight function call is indexed under BOTH the output item id
+      // (`fc_...`, carried by `response.function_call_arguments.*` events as
+      // `item_id`) and the `call_id` so either identifier resolves it. The
+      // emitted tool-call part always uses the true `call_id`.
+      const toolCalls = new Map<string, ToolCallState>()
+      let toolCallCount = 0
       let textStarted = false
       let reasoningStarted = false
       let usage: LanguageModelV2Usage = { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined }
@@ -235,17 +248,21 @@ function createResponseStream(response: Response): ReadableStream<LanguageModelV
           if (event.type === 'response.output_item.added') {
             const item = getRecord(event, 'item')
             if (item?.type === 'function_call') {
-              const id = stringValue(item.call_id) || stringValue(item.id) || `call-${toolCalls.size}`
+              const callId = stringValue(item.call_id)
+              const itemId = stringValue(item.id)
+              const id = callId || itemId || `call-${toolCallCount}`
+              toolCallCount += 1
               const name = stringValue(item.name) || 'unknown'
-              toolCalls.set(id, { id, name, input: stringValue(item.arguments) || '', started: true })
+              const call: ToolCallState = { id, name, input: stringValue(item.arguments) || '', emitted: false }
+              toolCalls.set(id, call)
+              if (itemId) toolCalls.set(itemId, call)
               controller.enqueue({ type: 'tool-input-start', id, toolName: name })
             }
             continue
           }
 
           if (event.type === 'response.function_call_arguments.delta') {
-            const id = findToolCallId(event, toolCalls)
-            const call = id ? toolCalls.get(id) : undefined
+            const call = findToolCall(event, toolCalls)
             const delta = typeof event.delta === 'string' ? event.delta : ''
             if (call && delta) {
               call.input += delta
@@ -255,9 +272,9 @@ function createResponseStream(response: Response): ReadableStream<LanguageModelV
           }
 
           if (event.type === 'response.function_call_arguments.done') {
-            const id = findToolCallId(event, toolCalls)
-            const call = id ? toolCalls.get(id) : undefined
-            if (call) {
+            const call = findToolCall(event, toolCalls)
+            if (call && !call.emitted) {
+              call.emitted = true
               call.input = stringValue(event.arguments) || call.input
               controller.enqueue({ type: 'tool-input-end', id: call.id })
               controller.enqueue({ type: 'tool-call', toolCallId: call.id, toolName: call.name, input: call.input || '{}' })
@@ -271,6 +288,13 @@ function createResponseStream(response: Response): ReadableStream<LanguageModelV
               const id = stringValue(item.call_id) || stringValue(item.id)
               const call = id ? toolCalls.get(id) : undefined
               if (call && !call.input) call.input = stringValue(item.arguments) || '{}'
+              // Some backends omit `function_call_arguments.done`; make sure the
+              // tool call is still surfaced exactly once.
+              if (call && !call.emitted) {
+                call.emitted = true
+                controller.enqueue({ type: 'tool-input-end', id: call.id })
+                controller.enqueue({ type: 'tool-call', toolCallId: call.id, toolName: call.name, input: call.input || '{}' })
+              }
             }
             continue
           }
@@ -310,18 +334,19 @@ async function* parseSSE(response: Response): AsyncGenerator<ResponsesEvent> {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      let index = buffer.indexOf('\n\n')
-      while (index !== -1) {
-        const chunk = buffer.slice(0, index)
-        buffer = buffer.slice(index + 2)
+      let boundary = findEventBoundary(buffer)
+      while (boundary) {
+        const chunk = buffer.slice(0, boundary.index)
+        buffer = buffer.slice(boundary.index + boundary.length)
         const data = chunk
           .split('\n')
+          .map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
           .filter((line) => line.startsWith('data:'))
           .map((line) => line.slice(5).trim())
           .join('\n')
           .trim()
         if (data && data !== '[DONE]') yield JSON.parse(data) as ResponsesEvent
-        index = buffer.indexOf('\n\n')
+        boundary = findEventBoundary(buffer)
       }
     }
   } finally {
@@ -332,6 +357,15 @@ async function* parseSSE(response: Response): AsyncGenerator<ResponsesEvent> {
       reader.releaseLock()
     } catch {}
   }
+}
+
+/** SSE events end at a blank line; tolerate both `\n\n` and `\r\n\r\n` framing. */
+function findEventBoundary(buffer: string): { index: number; length: number } | null {
+  const lf = buffer.indexOf('\n\n')
+  const crlf = buffer.indexOf('\r\n\r\n')
+  if (crlf !== -1 && (lf === -1 || crlf < lf)) return { index: crlf, length: 4 }
+  if (lf !== -1) return { index: lf, length: 2 }
+  return null
 }
 
 export function extractUsage(value: unknown): LanguageModelV2Usage {
@@ -348,6 +382,20 @@ export function extractUsage(value: unknown): LanguageModelV2Usage {
     totalTokens: numberValue(usage.total_tokens) ?? (input !== undefined && output !== undefined ? input + output : undefined),
     cachedInputTokens: numberValue(inputDetails.cached_tokens),
   }
+}
+
+const SAFE_RESPONSE_HEADERS = new Set(['content-type', 'x-request-id'])
+const SAFE_RESPONSE_HEADER_PREFIXES = ['openai-', 'x-ratelimit-']
+
+export function filterResponseHeaders(headers: Headers): Record<string, string> {
+  const filtered: Record<string, string> = {}
+  headers.forEach((value, key) => {
+    const name = key.toLowerCase()
+    if (SAFE_RESPONSE_HEADERS.has(name) || SAFE_RESPONSE_HEADER_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+      filtered[name] = value
+    }
+  })
+  return filtered
 }
 
 function formatCodexError(status: number, body: string): string {
@@ -382,12 +430,20 @@ function getNestedString(record: Record<string, unknown>, ...keys: string[]): st
   return stringValue(current)
 }
 
-function findToolCallId(event: ResponsesEvent, toolCalls: Map<string, { id: string }>): string | undefined {
-  const callId = stringValue(event.call_id)
-  if (callId && toolCalls.has(callId)) return callId
-  if (toolCalls.size === 1) return Array.from(toolCalls.keys())[0]
+interface ToolCallState {
+  id: string
+  name: string
+  input: string
+  emitted: boolean
+}
+
+function findToolCall(event: ResponsesEvent, toolCalls: Map<string, ToolCallState>): ToolCallState | undefined {
   const itemId = stringValue(event.item_id)
-  if (itemId && toolCalls.has(itemId)) return itemId
+  if (itemId && toolCalls.has(itemId)) return toolCalls.get(itemId)
+  const callId = stringValue(event.call_id)
+  if (callId && toolCalls.has(callId)) return toolCalls.get(callId)
+  const unique = new Set(toolCalls.values())
+  if (unique.size === 1) return unique.values().next().value
   return undefined
 }
 

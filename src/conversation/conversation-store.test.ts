@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
+import { toCoreMessages } from '../lib/messages'
 import { createConversationStore } from './conversation-store'
 
 let tempRoot: string
@@ -69,14 +70,9 @@ test('can switch between persisted conversations and rewrite the active transcri
   expect(store.getSnapshot().messages.map((message) => message.content)).toEqual(['rewritten conversation'])
 })
 
-test('appends message batches without writing turn records', async () => {
+test('appends message batches', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'append-batch-test' })
   await store.initialize()
-  await store.appendTurn({
-    id: 'turn-1',
-    startedAt: new Date().toISOString(),
-    userInput: 'first',
-  })
 
   await store.appendMessages([
     {
@@ -87,18 +83,12 @@ test('appends message batches without writing turn records', async () => {
     },
   ])
 
-  expect(await store.loadTurnRecords()).toHaveLength(0)
   expect((await store.loadMessages()).map((message) => message.content)).toEqual(['batched response'])
 })
 
-test('message replacement only writes compact message records', async () => {
+test('message replacement only writes message records', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replace-writes-messages' })
   await store.initialize()
-  await store.appendTurn({
-    id: 'turn-1',
-    startedAt: new Date().toISOString(),
-    userInput: 'first',
-  })
 
   await store.replaceMessages([
     {
@@ -109,12 +99,11 @@ test('message replacement only writes compact message records', async () => {
     },
   ])
 
-  expect(await store.loadTurnRecords()).toHaveLength(0)
   expect((await store.loadMessages()).map((message) => message.content)).toEqual(['compacted'])
 })
 
-test('persists compact tool metadata without raw args or results', async () => {
-  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'compact-tool-metadata' })
+test('persists tool args and results so resumed sessions replay real tool output', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'tool-metadata-roundtrip' })
   await store.initialize()
 
   await store.pushMessage({
@@ -136,7 +125,144 @@ test('persists compact tool metadata without raw args or results', async () => {
   expect(messages[0]?.metadata).toEqual({
     toolCallId: 'tool-1',
     toolName: 'readFile',
+    toolArgs: { path: 'large.txt' },
+    toolResult: 'x'.repeat(10_000),
     toolStatus: 'completed',
     toolArtifactPath: '.gambit/artifacts/tool-1.txt',
+  })
+})
+
+test('caps oversized tool results at persistence time with an explicit truncation marker', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'tool-result-cap' })
+  await store.initialize()
+
+  await store.pushMessage({
+    id: 'tool-1',
+    role: 'tool',
+    content: 'Read file\nhuge.txt',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      toolCallId: 'tool-1',
+      toolName: 'readFile',
+      toolArgs: { path: 'huge.txt' },
+      toolResult: 'y'.repeat(40_000),
+      toolStatus: 'completed',
+    },
+  })
+
+  const messages = await store.loadMessages()
+  const persistedResult = messages[0]?.metadata?.toolResult
+  expect(typeof persistedResult).toBe('string')
+  expect((persistedResult as string).length).toBeLessThan(20_000)
+  expect(persistedResult as string).toEndWith('[truncated for persistence]')
+  expect((persistedResult as string).startsWith('yyyy')).toBe(true)
+})
+
+test('caps oversized structured tool results by serializing them', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'tool-result-cap-json' })
+  await store.initialize()
+
+  await store.pushMessage({
+    id: 'tool-1',
+    role: 'tool',
+    content: 'ran tool',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      toolCallId: 'tool-1',
+      toolName: 'bash',
+      toolArgs: { command: 'ls' },
+      toolResult: { type: 'text', value: 'z'.repeat(40_000) },
+      toolStatus: 'completed',
+    },
+  })
+
+  const messages = await store.loadMessages()
+  const persistedResult = messages[0]?.metadata?.toolResult
+  expect(typeof persistedResult).toBe('string')
+  expect(persistedResult as string).toEndWith('[truncated for persistence]')
+})
+
+test('round-trips tool calls through persistence into model messages', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'replay-roundtrip' })
+  await store.initialize()
+
+  const now = new Date().toISOString()
+  await store.appendMessages([
+    { id: 'u1', role: 'user', content: 'read the file', timestamp: now },
+    { id: 'a1', role: 'assistant', content: 'reading it', timestamp: now },
+    {
+      id: 'call-1',
+      role: 'tool',
+      content: 'Read file\nnote.txt · 11 chars',
+      timestamp: now,
+      metadata: {
+        toolCallId: 'call-1',
+        toolName: 'readFile',
+        toolArgs: { path: 'note.txt' },
+        toolResult: 'hello world',
+        toolStatus: 'completed',
+      },
+    },
+  ])
+
+  // Fresh store instance simulates resuming the session from disk.
+  const resumed = createConversationStore({ rootPath: tempRoot, conversationId: 'replay-roundtrip' })
+  await resumed.initialize()
+  const loaded = await resumed.loadMessages()
+  const core = toCoreMessages(loaded.map((message) => ({ ...message, timestamp: new Date(message.timestamp) })))
+
+  expect(core[1]).toEqual({
+    role: 'assistant',
+    content: [
+      { type: 'text', text: 'reading it' },
+      { type: 'tool-call', toolCallId: 'call-1', toolName: 'readFile', input: { path: 'note.txt' } },
+    ],
+  })
+  expect(core[2]).toEqual({
+    role: 'tool',
+    content: [
+      { type: 'tool-result', toolCallId: 'call-1', toolName: 'readFile', output: { type: 'text', value: 'hello world' } },
+    ],
+  })
+})
+
+test('legacy transcripts without persisted tool results replay an honest placeholder', async () => {
+  const conversationId = 'legacy-transcript'
+  const directory = path.join(tempRoot, '.gambit', 'conversations', conversationId)
+  await mkdir(directory, { recursive: true })
+  const legacyEntries = [
+    { kind: 'message', id: 'u1', role: 'user', content: 'run it', timestamp: '2026-01-01T00:00:00.000Z' },
+    { kind: 'message', id: 'a1', role: 'assistant', content: 'running', timestamp: '2026-01-01T00:00:01.000Z' },
+    {
+      kind: 'message',
+      id: 'call-1',
+      role: 'tool',
+      content: 'Ran command\nls · 2 entries',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      metadata: { toolCallId: 'call-1', toolName: 'bash', toolStatus: 'completed' },
+    },
+  ]
+  await writeFile(
+    path.join(directory, 'transcript.jsonl'),
+    legacyEntries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+  )
+
+  const store = createConversationStore({ rootPath: tempRoot, conversationId })
+  await store.initialize()
+  const loaded = await store.loadMessages()
+  const core = toCoreMessages(loaded.map((message) => ({ ...message, timestamp: new Date(message.timestamp) })))
+
+  const toolMessage = core[2]
+  if (toolMessage?.role !== 'tool' || typeof toolMessage.content === 'string') {
+    throw new Error('expected structured tool message')
+  }
+  expect(toolMessage.content[0]).toEqual({
+    type: 'tool-result',
+    toolCallId: 'call-1',
+    toolName: 'bash',
+    output: {
+      type: 'text',
+      value: '[tool output not persisted from a previous session; re-run the tool if needed]',
+    },
   })
 })

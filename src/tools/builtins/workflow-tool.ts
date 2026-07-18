@@ -9,6 +9,7 @@ import {
   type WorkflowSnapshot,
 } from '../../workflows/workflow-display'
 import { maxDelegationDepth as defaultMaxDelegationDepth } from '../../config'
+import { createSerialQueue } from '../../lib/serial-queue'
 import { writeTaskOutput } from '../../tasks/task-output'
 import type { TaskRecord, UpdateTaskInput } from '../../tasks/task-types'
 import { parseWorkflowScript } from '../../workflows/workflow-parser'
@@ -86,7 +87,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
   const parsed = parseWorkflowScript(script)
   let snapshot: WorkflowSnapshot = createWorkflowSnapshot(parsed.meta)
   let workflowTask: TaskRecord | null = null
-  let workflowUpdateQueue = Promise.resolve()
+  const workflowUpdateQueue = createSerialQueue()
 
   const workflowMetadata = () => ({
     workflowName: snapshot.name,
@@ -102,9 +103,8 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     }
 
     const taskId = workflowTask.id
-    workflowUpdateQueue = workflowUpdateQueue
-      .catch(() => undefined)
-      .then(async () => {
+    void workflowUpdateQueue
+      .run(async () => {
         const updated = await context.taskRuntime!.updateTask(taskId, {
           ...patch,
           metadata: {
@@ -116,10 +116,11 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
           workflowTask = updated
         }
       })
+      .catch(() => undefined)
   }
 
   const flushWorkflowTaskUpdates = async () => {
-    await workflowUpdateQueue.catch(() => undefined)
+    await workflowUpdateQueue.flush()
   }
 
   const update = () => {

@@ -172,7 +172,7 @@ export class DefaultToolExecutionPipeline implements ToolExecutionPipeline {
       return
     }
 
-    const permissionRequest = state.definition.getPermissionRequest(state.parsedInput)
+    const permissionRequest = await state.definition.getPermissionRequest(state.parsedInput)
     if (!permissionRequest) {
       return
     }

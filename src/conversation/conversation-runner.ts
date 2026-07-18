@@ -36,6 +36,8 @@ export interface ConversationRunnerDependencies {
     discoverMCPServerTools?: boolean
     workspaceRoot?: string
   }) => Promise<RuntimeToolSuite>
+  /** Override for the model stream runner (used by tests). */
+  createModelStreamRunner?: () => Pick<ModelStreamRunner, 'run'>
 }
 
 export interface RunConversationTurnOptions {
@@ -64,10 +66,6 @@ export class ConversationRunner {
 
   async appendMessage(message: ConversationMessage): Promise<void> {
     await this.dependencies.store.appendMessage(message)
-  }
-
-  async appendTurn(record: ConversationTurnRecord): Promise<void> {
-    await this.dependencies.store.appendTurn(record)
   }
 
   /** Execute a single tool call and persist the result back into the conversation store. */
@@ -194,7 +192,7 @@ export class ConversationRunner {
     this.dependencies.store.setError(null)
 
     const assistantBuilder = new AssistantMessageBuilder(this.dependencies.store, Boolean(options.showReasoning))
-    const streamRunner = new ModelStreamRunner()
+    const streamRunner = this.dependencies.createModelStreamRunner?.() ?? new ModelStreamRunner()
 
     try {
       const result = await streamRunner.run({
@@ -291,16 +289,37 @@ export class ConversationRunner {
         },
       })
 
-      const finalContent = await assistantBuilder.finish(result.text)
+      let finalContent = await assistantBuilder.finish(result.text)
       turn.finishedAt = new Date().toISOString()
+      turn.finishReason = result.finishReason
+
+      if (result.aborted) {
+        // The user aborted mid-turn: never persist the partial turn as a
+        // success. In-flight tools are marked cancelled so replaying the
+        // transcript produces honest tool results.
+        turn.interrupted = true
+        this.cancelInFlightToolMessages(initialMessageCount)
+      } else {
+        const truncationNote = this.buildTruncationNote(result.finishReason, result.stepCount)
+        if (truncationNote) {
+          finalContent = this.appendTurnNote(initialMessageCount, finalContent, truncationNote)
+        }
+      }
+
       turn.assistantOutput = finalContent
 
       const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
       await this.dependencies.store.persistMessages(turnMessages)
-      await this.dependencies.store.appendTurn(turn)
       this.dependencies.store.setStatus('idle')
       return turn
     } catch (error) {
+      // Tools that already executed had real side effects: persist their
+      // messages so the on-disk transcript matches what actually happened,
+      // even though the assistant segments of the failed turn are dropped.
+      // Tools still mid-execution when the error hit must not be persisted
+      // frozen at 'started' (forever-spinner on resume): mark them failed.
+      this.finalizeInFlightToolMessages(initialMessageCount, 'failed', '[interrupted by error]')
+      await this.persistExecutedToolMessages(initialMessageCount)
       assistantBuilder.removeTurnMessages()
       this.dependencies.store.setStatus('idle')
       this.dependencies.store.setError(error instanceof Error ? error.message : String(error))
@@ -308,10 +327,81 @@ export class ConversationRunner {
     }
   }
 
+  /** Mark this turn's in-flight ('started') tool messages as cancelled. */
+  private cancelInFlightToolMessages(initialMessageCount: number): void {
+    this.finalizeInFlightToolMessages(initialMessageCount, 'cancelled', '[cancelled by user]')
+  }
+
+  /**
+   * Rewrite this turn's in-flight ('started') tool messages to a terminal
+   * status. A tool persisted frozen at 'started' renders as a forever-spinner
+   * when the conversation is resumed.
+   */
+  private finalizeInFlightToolMessages(
+    initialMessageCount: number,
+    status: 'cancelled' | 'failed',
+    note: string,
+  ): void {
+    const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
+    for (const message of turnMessages) {
+      if (message.role !== 'tool' || message.metadata?.toolStatus !== 'started') {
+        continue
+      }
+      this.dependencies.store.updateMessage(message.id, {
+        content: `${message.content}\n${note}`,
+        metadata: {
+          ...message.metadata,
+          toolResult: note,
+          toolStatus: status,
+        },
+      })
+    }
+  }
+
+  /** Note appended when the model stopped from output-token or step exhaustion. */
+  private buildTruncationNote(finishReason: string | undefined, stepCount: number): string | null {
+    if (finishReason === 'length') {
+      return '[Note: response truncated — the model hit its maximum output length.]'
+    }
+    // Only note the step limit when the run was actually cut short: a model
+    // that finished cleanly ('stop') on exactly the last step was not truncated.
+    if (stepCount >= maxAgentSteps && finishReason !== 'stop') {
+      return `[Note: response stopped after reaching the ${maxAgentSteps}-step limit.]`
+    }
+    return null
+  }
+
+  /** Append a visible note to the turn's final assistant message (or add one). */
+  private appendTurnNote(initialMessageCount: number, finalContent: string, note: string): string {
+    const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
+    const lastAssistant = [...turnMessages].reverse().find((message) => message.role === 'assistant')
+    if (lastAssistant) {
+      this.dependencies.store.updateMessage(lastAssistant.id, {
+        content: `${lastAssistant.content}\n\n${note}`,
+      })
+    }
+    return finalContent ? `${finalContent}\n\n${note}` : note
+  }
+
+  /** On a mid-turn error, persist tool messages recording executed side effects. */
+  private async persistExecutedToolMessages(initialMessageCount: number): Promise<void> {
+    try {
+      const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
+      const toolMessages = turnMessages.filter((message) => message.role === 'tool')
+      await this.dependencies.store.persistMessages(toolMessages)
+    } catch {
+      // Persisting the error-path transcript must never mask the original error.
+    }
+  }
+
   /**
    * Persist recalled memory context as a hidden user-role message so it
    * replays identically on later turns (keeping the prompt prefix cacheable).
-   * Skipped when empty or when it matches the most recent memory context.
+   * Exactly one memory-context message is kept: a new recall supersedes all
+   * prior ones instead of accumulating a hidden blob per turn. Removing the
+   * old early-position message changes the prompt prefix anyway, so one
+   * stable-position memory message is strictly better for the cache than an
+   * ever-growing pile of them. Skipped when empty or unchanged.
    */
   private async appendMemoryContext(memoryContext: string): Promise<void> {
     if (!memoryContext) {
@@ -319,24 +409,35 @@ export class ConversationRunner {
     }
 
     const messages = this.dependencies.store.getSnapshot().messages
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index]
-      if (message?.metadata?.memoryContext) {
-        if (message.content === memoryContext) {
-          return
-        }
-        break
-      }
+    const priorMemoryMessages = messages.filter((message) => message.metadata?.memoryContext)
+    const latest = priorMemoryMessages[priorMemoryMessages.length - 1]
+
+    if (priorMemoryMessages.length === 1 && latest?.content === memoryContext) {
+      return
     }
 
-    await this.dependencies.store.pushMessage({
-      id: generateId(),
-      role: 'user',
-      content: memoryContext,
-      timestamp: new Date().toISOString(),
-      hidden: true,
-      metadata: { memoryContext: true },
-    })
+    const newMessage: ConversationMessage =
+      latest?.content === memoryContext
+        ? latest
+        : {
+            id: generateId(),
+            role: 'user',
+            content: memoryContext,
+            timestamp: new Date().toISOString(),
+            hidden: true,
+            metadata: { memoryContext: true },
+          }
+
+    if (priorMemoryMessages.length === 0) {
+      await this.dependencies.store.pushMessage(newMessage)
+      return
+    }
+
+    // Supersede: drop every prior memory-context message and append the
+    // current one, persisting the removal so resumed sessions replay a single
+    // memory message too.
+    const withoutMemory = messages.filter((message) => !message.metadata?.memoryContext)
+    await this.dependencies.store.replaceMessages([...withoutMemory, newMessage])
   }
 
   /** Insert a new tool message or update an existing one by toolCallId. */

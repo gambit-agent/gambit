@@ -138,7 +138,10 @@ async function downloadInstaller(url: string): Promise<string> {
   return response.text()
 }
 
-export function patchInstallerScript(installer: string): string {
+export function patchInstallerScript(
+  installer: string,
+  warn: (message: string) => void = console.warn,
+): string {
   const oldLine = '  cp "$source" "$destination"'
   const newBlock = `  # Try cp first (works across filesystems). If the destination is a running
   # binary, fall back to same-dir temp copy + atomic mv.
@@ -151,9 +154,7 @@ export function patchInstallerScript(installer: string): string {
   fi`
 
   if (!installer.includes(oldLine)) {
-    console.warn(
-      'Warning: could not patch installer for "Text file busy" workaround.',
-    )
+    warn('Warning: could not patch installer for "Text file busy" workaround.')
     return installer
   }
 

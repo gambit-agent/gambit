@@ -13,7 +13,12 @@ function createMessage(role: ConversationMessage['role'], content: string): Conv
   }
 }
 
-function createToolMessage(id: string, toolName: string, toolArgs: Record<string, unknown>): ConversationMessage {
+function createToolMessage(
+  id: string,
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+  toolStatus: NonNullable<ConversationMessage['metadata']>['toolStatus'] = 'completed',
+): ConversationMessage {
   return {
     id,
     role: 'tool',
@@ -22,7 +27,7 @@ function createToolMessage(id: string, toolName: string, toolArgs: Record<string
     metadata: {
       toolName,
       toolArgs,
-      toolStatus: 'completed',
+      toolStatus,
     },
   }
 }
@@ -70,6 +75,22 @@ test('groups adjacent explored tool messages in normal mode', () => {
     type: 'tool-group',
     messages: [{ id: 'tool-1' }, { id: 'tool-2' }, { id: 'tool-3' }],
   })
+})
+
+test('keeps cancelled tool messages out of explored groups so they stay visible', () => {
+  const items = groupConversationRenderItems(
+    [
+      createToolMessage('tool-1', 'readFile', { path: 'src/repl/ReplScreen.tsx' }),
+      createToolMessage('tool-2', 'readFile', { path: 'src/lib/modelPicker.ts' }, 'cancelled'),
+      createToolMessage('tool-3', 'readFile', { path: 'src/tools/mcp.ts' }),
+    ],
+    false,
+  )
+
+  expect(items).toHaveLength(3)
+  expect(items[0]).toMatchObject({ type: 'tool-group', messages: [{ id: 'tool-1' }] })
+  expect(items[1]).toMatchObject({ type: 'message', message: { id: 'tool-2' } })
+  expect(items[2]).toMatchObject({ type: 'tool-group', messages: [{ id: 'tool-3' }] })
 })
 
 test('does not group tool messages in transcript mode', () => {

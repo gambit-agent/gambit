@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 
 import type { ConversationMessage } from '../conversation/conversation-types'
 import { getConversationGoal } from '../conversation/goal'
-import { prepareHeadlessInput } from './headless-runner'
+import { prepareHeadlessInput, resolveHeadlessTurnOutcome } from './headless-runner'
 
 function createRuntimeStub(initialMessages: ConversationMessage[] = []) {
   let messages = [...initialMessages]
@@ -76,4 +76,23 @@ test('prepareHeadlessInput keeps shell and memory shortcuts local', async () => 
 
   const messages = runtime.conversationStore.getSnapshot().messages
   expect(messages.map((message: ConversationMessage) => message.role)).toEqual(['user', 'assistant', 'user', 'system'])
+})
+
+test('resolveHeadlessTurnOutcome surfaces an interrupted turn as an error with exit code 130', () => {
+  // A SIGINT/SIGTERM abort returns normally from runTurn with interrupted set;
+  // headless must not report the truncated answer as a clean success.
+  const outcome = resolveHeadlessTurnOutcome({ assistantOutput: 'partial answer', interrupted: true })
+
+  expect(outcome.finalAssistant).toBe('partial answer')
+  expect(outcome.errorMessage).toBe('interrupted')
+  expect(outcome.exitCode).toBe(130)
+  // The result events for both json and stream-json derive is_error from the
+  // error message.
+  expect(Boolean(outcome.errorMessage)).toBe(true)
+})
+
+test('resolveHeadlessTurnOutcome reports completed turns as success', () => {
+  const outcome = resolveHeadlessTurnOutcome({ assistantOutput: 'full answer' })
+
+  expect(outcome).toEqual({ finalAssistant: 'full answer', exitCode: 0 })
 })

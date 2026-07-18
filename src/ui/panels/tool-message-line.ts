@@ -33,7 +33,7 @@ export interface ToolMessagePresentation {
   detailLines: ToolMessagePresentationLine[]
 }
 
-function formatToolStatus(value?: 'started' | 'completed' | 'failed'): string | null {
+function formatToolStatus(value?: 'started' | 'completed' | 'failed' | 'cancelled'): string | null {
   switch (value) {
     case 'started':
       return 'running'
@@ -41,6 +41,8 @@ function formatToolStatus(value?: 'started' | 'completed' | 'failed'): string | 
       return 'done'
     case 'failed':
       return 'failed'
+    case 'cancelled':
+      return 'cancelled'
     default:
       return null
   }
@@ -380,6 +382,16 @@ export function formatToolMessagePresentation(
       indicator: null,
       heading: summary.detail ? `${summary.headline} ${summary.detail}` : summary.headline,
       detailLines: summary.note ? [{ text: `  └ ${summary.note}`, kind: 'normal' }] : [],
+    }
+  }
+
+  if (toolStatus === 'cancelled') {
+    // A cancelled tool must not render identically to a completed one: mark
+    // the heading so it stays visible (and ungrouped) in the conversation.
+    return {
+      indicator: null,
+      heading: `${action === 'Explored' ? 'Explored' : `${action} ${detail}`} (cancelled)`,
+      detailLines: exploredDetail ? [{ text: `  └ ${exploredDetail}`, kind: 'normal' }] : [],
     }
   }
 

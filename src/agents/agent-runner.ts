@@ -35,6 +35,8 @@ export interface AgentRunnerOptions {
   appendTranscript: (entry: unknown) => Promise<void>
   updateProgress: (summary: string) => Promise<void>
   signal?: AbortSignal
+  /** Override for the model stream runner (used by tests). */
+  streamRunner?: Pick<ModelStreamRunner, 'run'>
 }
 
 export interface AgentRunnerResult {
@@ -105,26 +107,34 @@ export class AgentRunner {
     })
 
     const turnId = `agent-${options.definition.id}-${generateId()}`
+    // Tool calls that streamed a 'tool-call' transcript entry but no matching
+    // result/error yet. If the run aborts, these are marked cancelled below so
+    // the transcript never keeps dangling 'started' entries.
+    const inFlightToolCalls = new Map<string, { toolName: string; input: unknown }>()
     let assistantContent = ''
     let reasoningContent = ''
-    let reasoningFlushed = false
+    let reasoningFlushedLength = 0
     let lastTextProgressAt = 0
     let lastTextProgressChars = 0
     let lastReasoningProgressAt = 0
 
-    // Flush reasoning transcript so the user sees agent thinking in real time.
+    // Flush all reasoning accumulated since the previous flush at natural
+    // boundaries (before each tool call and at the end of the run), so the
+    // transcript captures the full reasoning rather than only the first delta.
     const flushReasoning = async () => {
-      if (reasoningContent.trim() && !reasoningFlushed) {
-        reasoningFlushed = true
-        await options.appendTranscript({
-          type: 'reasoning',
-          content: reasoningContent.trim(),
-          timestamp: new Date().toISOString(),
-        })
+      const pending = reasoningContent.slice(reasoningFlushedLength)
+      if (!pending.trim()) {
+        return
       }
+      reasoningFlushedLength = reasoningContent.length
+      await options.appendTranscript({
+        type: 'reasoning',
+        content: pending.trim(),
+        timestamp: new Date().toISOString(),
+      })
     }
 
-    const result = await new ModelStreamRunner().run({
+    const result = await (options.streamRunner ?? new ModelStreamRunner()).run({
       streamId: turnId,
       model: selectModel(options.modelId, modelSettings),
       messages: toCoreMessages(
@@ -166,7 +176,6 @@ export class AgentRunner {
             lastReasoningProgressAt = now
             await options.updateProgress(`Agent reasoning: ${preview}`)
           }
-          await flushReasoning()
         },
         onToolCall: async (part) => {
           const summary = formatToolEvent({
@@ -176,6 +185,12 @@ export class AgentRunner {
             toolCallId: part.toolCallId,
           })
           await flushReasoning()
+          if (part.toolCallId) {
+            inFlightToolCalls.set(part.toolCallId, {
+              toolName: part.toolName ?? 'unknown',
+              input: part.input ?? {},
+            })
+          }
           await options.appendTranscript({
             type: 'tool-call',
             toolCallId: part.toolCallId,
@@ -196,6 +211,9 @@ export class AgentRunner {
             toolCallId: part.toolCallId,
             result: part.output,
           })
+          if (part.toolCallId) {
+            inFlightToolCalls.delete(part.toolCallId)
+          }
           await flushReasoning()
           await options.appendTranscript({
             type: 'tool-result',
@@ -208,6 +226,9 @@ export class AgentRunner {
           await options.updateProgress(summary)
         },
         onToolError: async (part, errorMessage) => {
+          if (part.toolCallId) {
+            inFlightToolCalls.delete(part.toolCallId)
+          }
           await flushReasoning()
           await options.appendTranscript({
             type: 'tool-error',
@@ -221,6 +242,22 @@ export class AgentRunner {
         },
       },
     })
+
+    // The transcript is append-only JSONL, so in-flight 'tool-call' entries
+    // cannot be rewritten in place; append an explicit cancellation entry per
+    // dangling call instead so readers see them as cancelled, not running.
+    if (result.aborted && inFlightToolCalls.size > 0) {
+      for (const [toolCallId, call] of inFlightToolCalls) {
+        await options.appendTranscript({
+          type: 'tool-cancelled',
+          toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+          timestamp: new Date().toISOString(),
+        })
+      }
+      inFlightToolCalls.clear()
+    }
 
     const finalText = result.text || assistantContent.trim()
     const finalOutput = reasoningContent.trim()

@@ -94,8 +94,135 @@ describe("toCoreMessages", () => {
             type: "tool-result",
             toolCallId: "call_1",
             toolName: "bash",
-            output: { type: "text", value: "ran call_1" },
+            output: {
+              type: "text",
+              value: "[tool output not persisted from a previous session; re-run the tool if needed]",
+            },
           },
+        ],
+      },
+    ]);
+  });
+
+  test("never substitutes the human summary for a missing tool result", () => {
+    // Legacy transcripts persisted only the short summary in `content`; the
+    // model must not be told that summary is the tool output.
+    const legacy: UIMessage = {
+      id: "call_1",
+      role: "tool",
+      content: "Read file\nsecrets.txt · 2 KB",
+      timestamp: at,
+      metadata: { toolCallId: "call_1", toolName: "readFile", toolStatus: "completed" },
+    };
+
+    const result = toCoreMessages([assistantMessage("reading"), legacy]);
+    const tool = result[1];
+    if (tool?.role !== "tool" || typeof tool.content === "string") {
+      throw new Error("expected structured tool message");
+    }
+    const part = tool.content[0];
+    if (part?.type !== "tool-result") {
+      throw new Error("expected tool-result part");
+    }
+    expect(part.output).toEqual({
+      type: "text",
+      value: "[tool output not persisted from a previous session; re-run the tool if needed]",
+    });
+  });
+
+  test("replays cancelled tools as cancelled, even when a result text exists", () => {
+    const cancelled: UIMessage = {
+      id: "call_1",
+      role: "tool",
+      content: "Ran command\nsleep 100\n[cancelled by user]",
+      timestamp: at,
+      metadata: {
+        toolCallId: "call_1",
+        toolName: "bash",
+        toolArgs: { command: "sleep 100" },
+        toolResult: "[cancelled by user]",
+        toolStatus: "cancelled",
+      },
+    };
+
+    const result = toCoreMessages([assistantMessage("running"), cancelled]);
+    const tool = result[1];
+    if (tool?.role !== "tool" || typeof tool.content === "string") {
+      throw new Error("expected structured tool message");
+    }
+    const part = tool.content[0];
+    if (part?.type !== "tool-result") {
+      throw new Error("expected tool-result part");
+    }
+    expect(part.output).toEqual({ type: "text", value: "[tool cancelled before completion]" });
+  });
+
+  test("strips display-only reasoning from replayed assistant content", () => {
+    const withReasoning: UIMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Reasoning:\nI should check the file first.\n\nHere is the answer.",
+      timestamp: at,
+      metadata: { reasoningText: "I should check the file first." },
+    };
+
+    const result = toCoreMessages([userMessage("hi"), withReasoning]);
+    expect(result[1]).toEqual({ role: "assistant", content: "Here is the answer." });
+  });
+
+  test("keeps assistant content intact when no reasoning metadata is present", () => {
+    const plain: UIMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Reasoning:\nnot actually metadata reasoning\n\nanswer",
+      timestamp: at,
+    };
+
+    const result = toCoreMessages([plain]);
+    expect(result[0]).toEqual({ role: "assistant", content: plain.content });
+  });
+
+  test("skips assistant segments that strip to empty content (reasoning-only abort)", () => {
+    // An abort mid-reasoning persists an assistant segment whose content is
+    // only the display reasoning; replaying it as an empty assistant message
+    // makes providers reject the whole request and wedges the conversation.
+    const reasoningOnly: UIMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Reasoning:\nI was thinking about the file.",
+      timestamp: at,
+      metadata: { reasoningText: "I was thinking about the file." },
+    };
+
+    const result = toCoreMessages([userMessage("hi"), reasoningOnly]);
+    expect(result).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  test("pairs tool messages correctly after a skipped reasoning-only assistant segment", () => {
+    const reasoningOnly: UIMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Reasoning:\nLet me run a command.",
+      timestamp: at,
+      metadata: { reasoningText: "Let me run a command." },
+    };
+
+    const result = toCoreMessages([
+      userMessage("hi"),
+      reasoningOnly,
+      toolMessage("call_1", { toolArgs: { command: "ls" }, toolResult: "ok" }),
+    ]);
+
+    expect(result).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { command: "ls" } }],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "call_1", toolName: "bash", output: { type: "text", value: "ok" } },
         ],
       },
     ]);

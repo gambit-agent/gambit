@@ -88,6 +88,26 @@ test("fetchOpenRouterModels retries transient failures", async () => {
   }
 })
 
+test("fetchOpenRouterModels attaches a timeout signal", async () => {
+  const originalFetch = globalThis.fetch
+  let signal: AbortSignal | null | undefined
+
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    signal = init?.signal
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
+  }) as unknown as typeof fetch
+
+  try {
+    await fetchOpenRouterModels("test-key")
+    expect(signal).toBeInstanceOf(AbortSignal)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("fetchOpenRouterModels requires an API key", async () => {
   await expect(fetchOpenRouterModels()).rejects.toThrow(
     "OpenRouter API key required to load the full model catalog.",

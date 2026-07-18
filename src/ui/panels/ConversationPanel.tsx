@@ -7,12 +7,38 @@ import { Markdown } from '../Markdown'
 import { getRolePresentation, layout, theme } from '../theme'
 import { HoverClipboardBox } from '../components/HoverClipboardBox'
 import {
-  formatToolMessageLine,
   formatToolMessagePresentation,
   toolMessageRunningFrames,
   toolMessageRunningIntervalMs,
+  type ToolMessagePresentation,
   type ToolMessagePresentationLine,
 } from './tool-message-line'
+
+/**
+ * Presentation cache keyed on message identity. The animation frame only
+ * affects the spinner of running messages, so completed/failed messages are
+ * cached with frame 0 and never recomputed while their object identity is
+ * stable. This avoids re-running formatToolMessagePresentation for every
+ * grouped message on every spinner frame and every grouping pass.
+ */
+const toolPresentationCache = new WeakMap<
+  ConversationMessage,
+  { frame: number; presentation: ToolMessagePresentation }
+>()
+
+function getToolMessagePresentation(
+  message: ConversationMessage,
+  animationFrame = 0,
+): ToolMessagePresentation {
+  const frame = message.metadata?.toolStatus === 'started' ? animationFrame : 0
+  const cached = toolPresentationCache.get(message)
+  if (cached && cached.frame === frame) {
+    return cached.presentation
+  }
+  const presentation = formatToolMessagePresentation(message, frame)
+  toolPresentationCache.set(message, { frame, presentation })
+  return presentation
+}
 
 export interface ConversationPanelProps {
   messages: ConversationMessage[]
@@ -255,6 +281,8 @@ function getToolStatusColor(status: ToolStatus): string {
       return theme.successFg
     case 'failed':
       return theme.errorFg
+    case 'cancelled':
+      return theme.warningFg
     case 'started':
       return theme.headerAccent
     default:
@@ -360,11 +388,14 @@ type ConversationRenderItem =
   | { type: 'tool-group'; messages: ConversationMessage[] }
 
 function canGroupToolPresentation(message: ConversationMessage): boolean {
-  if (message.role !== 'tool' || message.metadata?.toolStatus === 'failed') {
+  const toolStatus = message.metadata?.toolStatus
+  // Failed and cancelled tools must stay visible on their own line instead of
+  // being folded invisibly into an "Explored" group.
+  if (message.role !== 'tool' || toolStatus === 'failed' || toolStatus === 'cancelled') {
     return false
   }
 
-  const presentation = formatToolMessagePresentation(message)
+  const presentation = getToolMessagePresentation(message)
   return presentation.heading === 'Explored' && presentation.detailLines.every((line) => line.kind === 'normal')
 }
 
@@ -373,13 +404,12 @@ function getToolGroupKey(message: ConversationMessage): string | null {
     return null
   }
 
-  return formatToolMessagePresentation(message).heading
+  return getToolMessagePresentation(message).heading
 }
 
+// Keyed by the first message only so appending to a group does not remount it.
 function getToolGroupRenderKey(messages: readonly ConversationMessage[]): string {
-  const first = messages[0]?.id ?? 'empty'
-  const last = messages.at(-1)?.id ?? first
-  return `tool-group-${messages.length}-${first}-${last}`
+  return `tool-group-${messages[0]?.id ?? 'empty'}`
 }
 
 export function groupConversationRenderItems(
@@ -414,15 +444,15 @@ export function groupConversationRenderItems(
   return items
 }
 
-function ToolMessageGroup({ messages, toolMessageAnimationFrame }: ToolMessageGroupProps) {
+const ToolMessageGroup = memo(function ToolMessageGroup({ messages, toolMessageAnimationFrame }: ToolMessageGroupProps) {
   const latestMessage = messages[messages.length - 1]
   if (!latestMessage) {
     return null
   }
 
-  const latestPresentation = formatToolMessagePresentation(latestMessage, toolMessageAnimationFrame)
+  const latestPresentation = getToolMessagePresentation(latestMessage, toolMessageAnimationFrame)
   const detailLines = messages.flatMap((message) =>
-    formatToolMessagePresentation(message, toolMessageAnimationFrame).detailLines,
+    getToolMessagePresentation(message, toolMessageAnimationFrame).detailLines,
   )
 
   return (
@@ -445,6 +475,28 @@ function ToolMessageGroup({ messages, toolMessageAnimationFrame }: ToolMessageGr
       ))}
     </box>
   )
+}, areToolMessageGroupPropsEqual)
+
+function areToolMessageGroupPropsEqual(
+  previous: ToolMessageGroupProps,
+  next: ToolMessageGroupProps,
+): boolean {
+  if (previous.messages !== next.messages) {
+    if (previous.messages.length !== next.messages.length) {
+      return false
+    }
+    for (let index = 0; index < previous.messages.length; index += 1) {
+      if (previous.messages[index] !== next.messages[index]) {
+        return false
+      }
+    }
+  }
+
+  // Animation frames only matter while a grouped message is still running.
+  const hasRunningMessage = next.messages.some(
+    (message) => message.metadata?.toolStatus === 'started',
+  )
+  return !(hasRunningMessage && previous.toolMessageAnimationFrame !== next.toolMessageAnimationFrame)
 }
 
 const ConversationMessageItem = memo(function ConversationMessageItem({
@@ -464,8 +516,8 @@ const ConversationMessageItem = memo(function ConversationMessageItem({
   const reasoningDurationLabel = assistantReasoning ? formatDuration(getReasoningDurationMs(message)) : null
 
   if (isToolMessage) {
-    const toolLine = formatToolMessageLine(message, toolMessageAnimationFrame)
-    const toolPresentation = formatToolMessagePresentation(message, toolMessageAnimationFrame)
+    const toolPresentation = getToolMessagePresentation(message, toolMessageAnimationFrame)
+    const toolLine = { indicator: toolPresentation.indicator, text: `• ${toolPresentation.heading}` }
     const toolDiff = message.metadata?.toolStatus === 'completed' ? getToolDiff(message) : null
 
     if (transcriptMode) {

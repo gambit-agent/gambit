@@ -5,7 +5,7 @@ import path from 'node:path'
 import { workspaceRoot } from '../config'
 import { createObservableStore, type ObservableStore } from '../lib/observable-store'
 import { appendJsonlEntries, appendJsonlEntry, readRawJsonlEntries, writeJsonlEntries } from '../session/jsonl'
-import type { ConversationMessage, ConversationTurnRecord } from './conversation-types'
+import type { ConversationMessage } from './conversation-types'
 
 export interface ConversationStoreOptions {
   rootPath?: string
@@ -22,18 +22,52 @@ export interface ConversationStoreSnapshot {
   initialized: boolean
 }
 
+/** Maximum size of a persisted tool result, so transcripts stay bounded. */
+const MAX_PERSISTED_TOOL_RESULT_CHARS = 16_384
+const TOOL_RESULT_TRUNCATION_SUFFIX = '\n[truncated for persistence]'
+
+/**
+ * Persist tool results (capped) so resumed sessions can replay real tool
+ * output instead of the short human-readable summary. Values over the cap are
+ * stored as truncated strings with an explicit marker.
+ */
+function capToolResultForPersistence(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined
+  }
+  if (typeof value === 'string') {
+    return value.length > MAX_PERSISTED_TOOL_RESULT_CHARS
+      ? value.slice(0, MAX_PERSISTED_TOOL_RESULT_CHARS) + TOOL_RESULT_TRUNCATION_SUFFIX
+      : value
+  }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value) ?? ''
+  } catch {
+    serialized = String(value)
+  }
+  if (serialized.length > MAX_PERSISTED_TOOL_RESULT_CHARS) {
+    return serialized.slice(0, MAX_PERSISTED_TOOL_RESULT_CHARS) + TOOL_RESULT_TRUNCATION_SUFFIX
+  }
+  return value
+}
+
 function serializeMessageForTranscript(message: ConversationMessage): ConversationMessage & { kind: 'message' } {
   const { metadata, ...rest } = message
   const persistedMetadata = metadata
     ? {
         toolCallId: metadata.toolCallId,
         toolName: metadata.toolName,
+        toolArgs: metadata.toolArgs,
+        toolResult: capToolResultForPersistence(metadata.toolResult),
         toolStatus: metadata.toolStatus,
         toolArtifactPath: metadata.toolArtifactPath,
         reasoningStartedAt: metadata.reasoningStartedAt,
         reasoningFinishedAt: metadata.reasoningFinishedAt,
         reasoningDurationMs: metadata.reasoningDurationMs,
+        reasoningText: metadata.reasoningText,
         memoryContext: metadata.memoryContext,
+        compactionSummary: metadata.compactionSummary,
       }
     : undefined
 
@@ -166,10 +200,6 @@ export class ConversationStore {
     )
   }
 
-  async appendTurn(_record: ConversationTurnRecord): Promise<void> {
-    this.initialized = true
-  }
-
   updateMessage(id: string, patch: Partial<ConversationMessage>): void {
     this.messages = this.messages.map((message) => (message.id === id ? { ...message, ...patch } : message))
     this.refreshSnapshot()
@@ -199,11 +229,8 @@ export class ConversationStore {
 
   async loadMessages(): Promise<ConversationMessage[]> {
     const entries = await readRawJsonlEntries<ConversationMessage & { kind?: string }>(this.currentTranscriptPath)
+    // Older transcripts may contain 'turn' records from a removed API surface.
     return entries.filter((entry) => entry.kind !== 'turn') as ConversationMessage[]
-  }
-
-  async loadTurnRecords(): Promise<ConversationTurnRecord[]> {
-    return []
   }
 
   private refreshSnapshot(): void {

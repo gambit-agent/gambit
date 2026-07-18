@@ -72,7 +72,7 @@ export class AssistantMessageBuilder {
           role: 'assistant',
           content: finalContent,
           timestamp: new Date().toISOString(),
-          metadata: this.buildReasoningMetadata(),
+          metadata: this.buildReasoningMetadata(this.reasoning),
         },
         { persist: false },
       )
@@ -106,10 +106,11 @@ export class AssistantMessageBuilder {
     }
   }
 
-  private buildReasoningMetadata(): {
+  private buildReasoningMetadata(reasoningText: string): {
     reasoningStartedAt?: string
     reasoningFinishedAt?: string
     reasoningDurationMs?: number
+    reasoningText?: string
   } | undefined {
     if (!this.showReasoning || !this.reasoningStartedAt) {
       return undefined
@@ -120,6 +121,9 @@ export class AssistantMessageBuilder {
       reasoningStartedAt: this.reasoningStartedAt.toISOString(),
       reasoningFinishedAt: this.reasoningFinishedAt?.toISOString(),
       reasoningDurationMs: Math.max(0, finishedAt.getTime() - this.reasoningStartedAt.getTime()),
+      // Reasoning is display-only: keeping it in metadata lets replay strip it
+      // from the assistant content sent back to the model.
+      ...(reasoningText.trim() ? { reasoningText: reasoningText.trim() } : {}),
     }
   }
 
@@ -149,7 +153,7 @@ export class AssistantMessageBuilder {
           role: 'assistant',
           content,
           timestamp: new Date().toISOString(),
-          metadata: this.buildReasoningMetadata(),
+          metadata: this.buildReasoningMetadata(this.currentReasoning),
         },
         { persist: false },
       )
@@ -160,7 +164,7 @@ export class AssistantMessageBuilder {
 
     this.store.updateMessage(this.currentAssistantId, {
       content,
-      metadata: this.buildReasoningMetadata(),
+      metadata: this.buildReasoningMetadata(this.currentReasoning),
     })
     this.lastFlushedContent = content
     this.lastFlushAt = Date.now()

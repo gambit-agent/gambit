@@ -8,6 +8,7 @@ import {
   parseGoalCommand,
   setConversationGoal,
 } from '../conversation/goal'
+import type { ConversationTurnRecord } from '../conversation/conversation-types'
 import { setMCPConfigPathOverride } from '../lib/mcp-config'
 import { modelNeedsOpenRouterApiKey } from '../lib/model'
 import { getProviderCredential, isProviderConnected } from '../lib/provider-credentials'
@@ -89,6 +90,28 @@ type StreamJsonEvent = StreamEvent
 type HeadlessPreparedInput =
   | { kind: 'run'; prompt: string; hiddenContext?: string }
   | { kind: 'local'; output: string; isError?: boolean }
+
+export interface HeadlessTurnOutcome {
+  finalAssistant: string
+  errorMessage?: string
+  exitCode: number
+}
+
+/**
+ * Map a finished turn to the headless process outcome. An interrupted turn
+ * (SIGINT/SIGTERM aborted the model mid-stream) must surface as an error with
+ * a nonzero exit code — the emitted answer is truncated, not a clean result.
+ * 130 follows the shell convention for SIGINT-terminated processes.
+ */
+export function resolveHeadlessTurnOutcome(
+  turn: Pick<ConversationTurnRecord, 'assistantOutput' | 'interrupted'>,
+): HeadlessTurnOutcome {
+  const finalAssistant = turn.assistantOutput ?? ''
+  if (turn.interrupted) {
+    return { finalAssistant, errorMessage: 'interrupted', exitCode: 130 }
+  }
+  return { finalAssistant, exitCode: 0 }
+}
 
 export async function prepareHeadlessInput(
   runtime: AppRuntime,
@@ -539,9 +562,11 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
   try {
     if (prepared.kind === 'run') {
       if (prepared.hiddenContext?.trim()) {
+        // Hidden user-role message (not system): system messages are hoisted
+        // into the instructions, which busts the provider prompt cache.
         await runtime.conversationStore.pushMessage({
           id: generateId(),
-          role: 'system',
+          role: 'user',
           content: prepared.hiddenContext,
           hidden: true,
           timestamp: new Date().toISOString(),
@@ -567,7 +592,10 @@ export async function runHeadless(options: RunHeadlessOptions): Promise<number> 
         appendSystemPrompt: appendSystemPrompt || undefined,
       })
 
-      finalAssistant = turn.assistantOutput ?? ''
+      const outcome = resolveHeadlessTurnOutcome(turn)
+      finalAssistant = outcome.finalAssistant
+      errorMessage = outcome.errorMessage
+      exitCode = outcome.exitCode
     }
 
     if (format === 'text') {

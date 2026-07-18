@@ -16,17 +16,46 @@ export interface ModelStreamHandlers {
   onToolError?: (part: StreamToolPart, errorMessage: string) => Promise<void>
 }
 
+export interface ModelStreamConsumeResult {
+  /** True when the stream ended with an 'abort' part (user abort) instead of finishing. */
+  aborted: boolean
+  /** Finish reason from the final 'finish' part (e.g. 'stop', 'length', 'tool-calls'). */
+  finishReason?: string
+  /** Number of completed model steps observed on the stream. */
+  stepCount: number
+}
+
 export async function consumeModelStream(options: {
   stream: AsyncIterable<unknown>
   handlers: ModelStreamHandlers
-}): Promise<void> {
-  let streamError: unknown = null
+}): Promise<ModelStreamConsumeResult> {
+  const streamErrors: unknown[] = []
+  let aborted = false
+  let finishReason: string | undefined
+  let stepCount = 0
 
   for await (const rawPart of options.stream) {
     const part = normalizeStreamPart(rawPart)
 
     if (part.type === 'error') {
-      streamError = part.error
+      streamErrors.push(part.error)
+      continue
+    }
+
+    if (part.type === 'abort') {
+      // The AI SDK enqueues an abort part and closes the stream without
+      // throwing; treat it as an interruption, never as success.
+      aborted = true
+      continue
+    }
+
+    if (part.type === 'finish') {
+      finishReason = part.finishReason
+      continue
+    }
+
+    if (part.type === 'finish-step') {
+      stepCount++
       continue
     }
 
@@ -55,9 +84,14 @@ export async function consumeModelStream(options: {
     }
   }
 
-  if (streamError) {
-    throw streamError instanceof Error ? streamError : new Error(extractErrorMessage(streamError))
+  if (streamErrors.length > 0 && !aborted) {
+    if (streamErrors.length === 1 && streamErrors[0] instanceof Error) {
+      throw streamErrors[0]
+    }
+    throw new Error(streamErrors.map((error) => extractErrorMessage(error)).join('; '))
   }
+
+  return { aborted, finishReason, stepCount }
 }
 
 function extractErrorMessage(value: unknown): string {
@@ -92,6 +126,7 @@ function normalizeStreamPart(value: unknown): StreamToolPart & {
   reasoningDelta: string
   textDelta: string
   textLength?: number
+  finishReason?: string
 } {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const type = typeof record.type === 'string' ? record.type : 'unknown'
@@ -115,5 +150,6 @@ function normalizeStreamPart(value: unknown): StreamToolPart & {
     reasoningDelta: typeof record.text === 'string' && type === 'reasoning-delta' ? record.text : '',
     textDelta: type === 'text-delta' ? textDelta : '',
     textLength: textDelta ? textDelta.length : undefined,
+    finishReason: typeof record.finishReason === 'string' ? record.finishReason : undefined,
   }
 }

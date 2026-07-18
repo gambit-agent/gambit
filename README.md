@@ -6,7 +6,7 @@
 
 [![Bun](https://img.shields.io/badge/Bun-1.2+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?logo=typescript&logoColor=white&labelColor=14151a)](https://www.typescriptlang.org/)
-[![OpenTUI](https://img.shields.io/badge/OpenTUI-0.3.0-6c5ce7?labelColor=14151a)](https://github.com/opentui/opentui)
+[![OpenTUI](https://img.shields.io/badge/OpenTUI-0.4.3-6c5ce7?labelColor=14151a)](https://github.com/opentui/opentui)
 [![License](https://img.shields.io/github/license/gambit-agent/gambit?labelColor=14151a)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/gambit-agent/gambit?labelColor=14151a)](https://github.com/gambit-agent/gambit/releases/latest)
 ![coded on linux](https://img.shields.io/badge/coded%20on-linux-14151a?labelColor=14151a)
@@ -51,7 +51,7 @@ Install a specific version, choose a directory, or install a local binary:
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash
 
 # Bash: specific version
-curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.7.0
+curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --version 0.15.0
 
 # Bash: custom install directory
 curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | bash -s -- --install-dir "$HOME/bin"
@@ -62,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/gambit-agent/gambit/main/install | 
 
 ```powershell
 # PowerShell: specific version
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.7.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -Version 0.15.0
 
 # PowerShell: custom install directory
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/gambit-agent/gambit/main/install.ps1))) -InstallDir "$HOME\bin"
@@ -77,7 +77,7 @@ After installing, update to the latest release with:
 gambit update
 ```
 
-To update to a specific version, run `gambit update 0.7.0`. On Windows, `gambit update` uses the PowerShell installer and waits for the running `gambit.exe` to exit before replacing it.
+To update to a specific version, run `gambit update 0.15.0`. On Windows, `gambit update` uses the PowerShell installer and waits for the running `gambit.exe` to exit before replacing it.
 
 Supported platforms: `linux-x64`, `linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64`.
 
@@ -332,8 +332,8 @@ src/
 Release binaries are built by `.github/workflows/release.yml` when a `v*` tag is pushed:
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.15.0
+git push origin v0.15.0
 ```
 
 The workflow cross-compiles for all supported platforms using `bun build --compile`, produces a `manifest.json` of SHA256 checksums, and publishes them as release assets. After the release lands, `install` will resolve `stable` / `latest` to that tag.

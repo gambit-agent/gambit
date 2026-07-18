@@ -27,7 +27,6 @@ const READ_ONLY_TOOLS = new Set([
   'listTasks',
   'getTaskStatus',
   'waitForTasks',
-  'slashCommand',
   'enterPlanMode',
 ])
 
@@ -64,6 +63,14 @@ export function evaluatePermissionMode(
     // exitPlanMode triggers the Plan approval overlay
     if (input.toolId === 'exitPlanMode') {
       return 'ask'
+    }
+
+    // Slash commands are prompt expansions, but any embedded `!` shell
+    // directives execute immediately — deny those in Plan mode. Directive-free
+    // commands never reach the permission gate, but keep them allowed here for
+    // defense in depth.
+    if (input.toolId === 'slashCommand') {
+      return input.metadata?.hasShellDirectives ? 'deny' : 'allow'
     }
 
     // Allow writing to Plan files (detected by metadata)

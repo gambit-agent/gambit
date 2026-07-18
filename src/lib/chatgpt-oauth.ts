@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 
 import type { CodexAuthToken } from './codex-auth'
+import { decodeJwt, isJwtExpired } from './jwt'
 import type { ProviderCredential } from './provider-credentials'
 
 const ISSUER = 'https://auth.openai.com'
@@ -9,6 +10,7 @@ const DEVICE_URL = `${ISSUER}/codex/device`
 const TOKEN_URL = `${ISSUER}/oauth/token`
 const USER_AGENT = 'gambit'
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3_000
+const DEVICE_AUTH_TIMEOUT_MS = 15 * 60_000
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth'
 
 export interface ChatGptDeviceAuthorization {
@@ -16,12 +18,15 @@ export interface ChatGptDeviceAuthorization {
   userCode: string
   intervalMs: number
   verificationUrl: string
+  /** How long polling may continue before the device code is considered expired. */
+  expiresInMs?: number
 }
 
 interface DeviceAuthorizationResponse {
   device_auth_id?: string
   user_code?: string
   interval?: string | number
+  expires_in?: string | number
 }
 
 interface DeviceTokenResponse {
@@ -56,11 +61,13 @@ export async function createChatGptDeviceAuthorization(): Promise<ChatGptDeviceA
   }
 
   const intervalSeconds = Math.max(Number.parseInt(String(payload.interval ?? '5'), 10) || 5, 1)
+  const expiresInSeconds = Number.parseInt(String(payload.expires_in ?? ''), 10)
   return {
     deviceAuthId: payload.device_auth_id,
     userCode: payload.user_code,
     intervalMs: intervalSeconds * 1000,
     verificationUrl: DEVICE_URL,
+    expiresInMs: Number.isFinite(expiresInSeconds) && expiresInSeconds > 0 ? expiresInSeconds * 1000 : undefined,
   }
 }
 
@@ -68,7 +75,11 @@ export async function pollChatGptDeviceAuthorization(
   authorization: ChatGptDeviceAuthorization,
   signal?: AbortSignal,
 ): Promise<ProviderCredential> {
+  const deadline = Date.now() + (authorization.expiresInMs ?? DEVICE_AUTH_TIMEOUT_MS)
   while (!signal?.aborted) {
+    if (Date.now() >= deadline) {
+      throw new Error('ChatGPT authorization timed out. Run /connect chatgpt to try again.')
+    }
     const response = await fetch(`${ISSUER}/api/accounts/deviceauth/token`, {
       method: 'POST',
       headers: {
@@ -101,6 +112,14 @@ export async function pollChatGptDeviceAuthorization(
   throw new Error('ChatGPT authorization was cancelled.')
 }
 
+/**
+ * Concurrent callers (e.g. the model picker fetch and a stream start) share a
+ * single in-flight refresh, keyed by the refresh token being spent. Without
+ * this, two simultaneous refresh grants can invalidate each other when the
+ * server rotates refresh tokens.
+ */
+const inflightRefreshes = new Map<string, Promise<CodexAuthToken>>()
+
 export async function resolveChatGptAuthToken(
   credential: ProviderCredential,
   onRefresh?: (credential: ProviderCredential) => Promise<void> | void,
@@ -112,11 +131,32 @@ export async function resolveChatGptAuthToken(
     }
   }
 
-  if (!credential.refreshToken) {
+  const refreshToken = credential.refreshToken
+  if (!refreshToken) {
     throw new Error('ChatGPT subscription token is expired and no refresh token was found. Run /connect chatgpt again.')
   }
 
-  const refreshed = credentialFromTokenResponse(await refreshAccessToken(credential.refreshToken))
+  let pending = inflightRefreshes.get(refreshToken)
+  if (!pending) {
+    pending = refreshChatGptCredential(refreshToken, onRefresh).finally(() => {
+      inflightRefreshes.delete(refreshToken)
+    })
+    inflightRefreshes.set(refreshToken, pending)
+  }
+  return pending
+}
+
+async function refreshChatGptCredential(
+  refreshToken: string,
+  onRefresh?: (credential: ProviderCredential) => Promise<void> | void,
+): Promise<CodexAuthToken> {
+  const tokens = await refreshAccessToken(refreshToken)
+  // Refresh responses may omit refresh_token when the server does not rotate
+  // it; keep using the one we already have.
+  if (!tokens.refresh_token) {
+    tokens.refresh_token = refreshToken
+  }
+  const refreshed = credentialFromTokenResponse(tokens)
   await onRefresh?.(refreshed)
   if (!refreshed.accessToken) {
     throw new Error('ChatGPT token refresh response was missing an access token.')
@@ -186,12 +226,6 @@ function isTimestampExpired(expiresAt: number | null | undefined): boolean {
   return typeof expiresAt === 'number' && Date.now() >= expiresAt - 60_000
 }
 
-function isJwtExpired(token: string): boolean {
-  const payload = decodeJwt(token)
-  const exp = typeof payload?.exp === 'number' ? payload.exp : undefined
-  return typeof exp === 'number' && Date.now() >= exp * 1000 - 60_000
-}
-
 function extractAccountIdFromTokens(tokens: TokenResponse): string {
   if (tokens.id_token) {
     const accountId = extractAccountIdFromToken(tokens.id_token)
@@ -230,14 +264,4 @@ function extractAccountIdFromToken(token: string): string | null {
   }
 
   return null
-}
-
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.')
-    if (parts.length !== 3 || !parts[1]) return null
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as Record<string, unknown>
-  } catch {
-    return null
-  }
 }

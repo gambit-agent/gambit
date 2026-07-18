@@ -43,6 +43,7 @@ import {
 import { useClipboardSelection } from './hooks/useClipboardSelection'
 import { useComposerTextarea } from './hooks/useComposerTextarea'
 import { useConversationAutoScroll } from './hooks/useConversationAutoScroll'
+import { useFollowUpDrain } from './hooks/useFollowUpDrain'
 import { useConnectProvider } from './hooks/useConnectProvider'
 import { usePlanApprovalPreview } from './hooks/usePlanApprovalPreview'
 import { useReplKeyboard } from './hooks/useReplKeyboard'
@@ -130,7 +131,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const slashCompletionRequestIdRef = useRef(0)
   const [fileMentionState, setFileMentionState] = useState<FileMentionState>(closedFileMentionState)
   const [slashCompletionState, setSlashCompletionState] = useState<SlashCompletionState>(closedSlashCompletionState)
-  const { isLight, activeThemeId, themeName, applyTheme, toggleTheme } = useTheme()
+  const { isLight, activeThemeId, applyTheme, toggleTheme } = useTheme()
 
   const [themesOverlayOpen, setThemesOverlayOpen] = useState(false)
   const [themePickerIndex, setThemePickerIndex] = useState(0)
@@ -509,6 +510,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     !permissionSnapshot.activeRequest &&
     !questionSnapshot.activeRequest
 
+  // Called before the controller so `scrollToBottom` can be handed to it:
+  // the user's own submission must scroll the conversation into view even
+  // when they had scrolled up, while streaming updates keep respecting the
+  // read-scrollback protection inside the hook.
+  const { scrollToBottom } = useConversationAutoScroll(scrollboxRef, conversation.messages)
+
   const interactive = useInteractiveController({
     inputValue,
     setInputValue,
@@ -560,26 +567,35 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     onToggleBackgroundTasks: () => {
       setTasksOpen((current) => !current)
     },
+    onSubmitted: scrollToBottom,
     keyboardEnabled: composerInputActive && !tasksOpen,
     historyNavigationEnabled: composerInputActive && !tasksOpen && !fileMentionState.isOpen && !slashCompletionState.isOpen,
     completionNavigationActive: composerInputActive && (fileMentionState.isOpen || slashCompletionState.isOpen),
+    getComposerCursor: useCallback(() => {
+      const textarea = textareaRef.current
+      if (!textarea) {
+        return null
+      }
+      const { row } = textarea.logicalCursor
+      const lineCount = textarea.plainText.split('\n').length
+      return { row, lineCount }
+    }, []),
   })
 
   useEffect(() => {
     setThinkingEnabled(interactive.thinkingEnabled)
   }, [interactive.thinkingEnabled])
 
-  useEffect(() => {
-    if (conversation.status !== 'idle') {
-      return
-    }
-    const next = interactive.drainFollowUp()
-    if (next) {
-      void interactive.handleSubmit(next)
-    }
-  }, [conversation.status, interactive])
-
-  useConversationAutoScroll(scrollboxRef, conversation.messages)
+  useFollowUpDrain({
+    status: conversation.status,
+    // The queue snapshot's identity changes on every mutation, re-running the
+    // drain effect even when the status/handlers stay stable (e.g. an entry
+    // queued while idle, or leftovers after a local-only slash command).
+    queueVersion: interactive.followUpQueue,
+    isRunActive: interactive.isRunActive,
+    drainFollowUp: interactive.drainFollowUp,
+    submit: interactive.handleSubmit,
+  })
 
   useEffect(() => {
     setPermissionExplainOpen(false)
@@ -635,7 +651,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     thinkingEnabled,
     permissionMode: permissionSnapshot.mode,
     isLight,
-    themeName,
     terminalWidth,
     followUpCount,
   })

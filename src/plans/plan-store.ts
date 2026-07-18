@@ -92,5 +92,11 @@ async function writePlan(sessionId: string, content: string): Promise<string> {
 export function isSessionPlanFile(filePath: string): boolean {
   const plansDir = getPlansDirectory()
   const resolved = path.resolve(filePath)
-  return resolved.startsWith(plansDir) && resolved.endsWith('.md')
+  if (!resolved.endsWith('.md')) {
+    return false
+  }
+  // Proper containment check: a bare startsWith(plansDir) would also match
+  // sibling directories like `.gambit/plansX`.
+  const relative = path.relative(plansDir, resolved)
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
 }

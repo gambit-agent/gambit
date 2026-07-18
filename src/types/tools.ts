@@ -1,4 +1,4 @@
-export type ToolEventStatus = 'started' | 'completed' | 'failed'
+export type ToolEventStatus = 'started' | 'completed' | 'failed' | 'cancelled'
 
 export interface ToolEventPayload {
   toolName?: string;

@@ -122,6 +122,70 @@ test('handles empty message lists when adding cache breakpoints', async () => {
   expect(withCacheBreakpoints([])).toEqual([])
 })
 
+test('reannotating slides breakpoints to the current trailing messages', async () => {
+  const { reannotateCacheBreakpoints, withCacheBreakpoints } = await import('./model-stream-runner')
+
+  // Simulate a later step: earlier messages carry stale breakpoints from a
+  // previous step, and tool traffic was appended after them.
+  const stepMessages = [
+    ...withCacheBreakpoints([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'calling a tool' },
+    ]),
+    { role: 'tool', content: [] },
+    { role: 'assistant', content: 'calling another tool' },
+    { role: 'tool', content: [] },
+  ] as Parameters<typeof reannotateCacheBreakpoints>[0]
+
+  const annotated = reannotateCacheBreakpoints(stepMessages)
+
+  // Stale breakpoints are removed; only the trailing two messages carry one.
+  expect(annotated).toHaveLength(5)
+  expect(annotated[0]?.providerOptions).toBeUndefined()
+  expect(annotated[1]?.providerOptions).toBeUndefined()
+  expect(annotated[2]?.providerOptions).toBeUndefined()
+  expect(annotated[3]?.providerOptions).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' } } })
+  expect(annotated[4]?.providerOptions).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' } } })
+})
+
+test('stripping breakpoints preserves unrelated provider options', async () => {
+  const { stripCacheBreakpoints } = await import('./model-stream-runner')
+
+  const stripped = stripCacheBreakpoints([
+    {
+      role: 'user',
+      content: 'hi',
+      providerOptions: {
+        openai: { promptCacheKey: 'abc' },
+        anthropic: { cacheControl: { type: 'ephemeral' }, other: 'keep' },
+      },
+    },
+  ])
+
+  expect(stripped[0]?.providerOptions).toEqual({
+    openai: { promptCacheKey: 'abc' },
+    anthropic: { other: 'keep' },
+  })
+})
+
+test('re-annotation stays within the two-breakpoint budget across repeated steps', async () => {
+  const { reannotateCacheBreakpoints } = await import('./model-stream-runner')
+
+  let messages = [
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'reply' },
+  ] as Parameters<typeof reannotateCacheBreakpoints>[0]
+
+  for (let step = 0; step < 5; step++) {
+    messages = reannotateCacheBreakpoints([...messages, { role: 'assistant', content: `step ${step}` }])
+    const breakpointCount = messages.filter(
+      (message) =>
+        (message.providerOptions as Record<string, Record<string, unknown>> | undefined)?.anthropic?.cacheControl,
+    ).length
+    expect(breakpointCount).toBe(2)
+  }
+})
+
 test('passes the prompt cache key and cache breakpoints through to the model call', async () => {
   ;(globalThis as { AI_SDK_LOG_WARNINGS?: unknown }).AI_SDK_LOG_WARNINGS = false
 

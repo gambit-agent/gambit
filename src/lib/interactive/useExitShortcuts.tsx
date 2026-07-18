@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
 import { InteractiveSession } from './session'
 import { DoublePressDetector } from './shortcuts'
@@ -19,15 +19,40 @@ export function useExitShortcuts({
   const [exitPending, setExitPending] = useState(false)
   const ctrlCDetector = useRef(new DoublePressDetector())
   const ctrlDDetector = useRef(new DoublePressDetector())
+  const exitPendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const exitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (exitPendingTimeoutRef.current !== null) {
+        clearTimeout(exitPendingTimeoutRef.current)
+        exitPendingTimeoutRef.current = null
+      }
+      if (exitTimeoutRef.current !== null) {
+        clearTimeout(exitTimeoutRef.current)
+        exitTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   const showExitPending = useCallback(() => {
     setExitPending(true)
-    setTimeout(() => setExitPending(false), 800)
+    if (exitPendingTimeoutRef.current !== null) {
+      clearTimeout(exitPendingTimeoutRef.current)
+    }
+    exitPendingTimeoutRef.current = setTimeout(() => {
+      exitPendingTimeoutRef.current = null
+      setExitPending(false)
+    }, 800)
   }, [])
 
   const exitSession = useCallback(() => {
     sessionRef.current.abortRun()
-    setTimeout(() => {
+    if (exitTimeoutRef.current !== null) {
+      clearTimeout(exitTimeoutRef.current)
+    }
+    exitTimeoutRef.current = setTimeout(() => {
+      exitTimeoutRef.current = null
       try {
         renderer?.destroy?.()
       } catch {

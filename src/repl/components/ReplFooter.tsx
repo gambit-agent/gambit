@@ -32,15 +32,16 @@ export function ReplFooter({
         {segments.map((segment, index) => (
           <Fragment key={segment.key}>
             {index > 0 ? (
-              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content=" · " />
+              <text wrapMode="none" fg={theme.statusFg} attributes={TextAttributes.DIM} content=" · " />
             ) : null}
-            <text fg={segment.fg} attributes={segment.attributes} content={segment.content} />
+            <text wrapMode="none" fg={segment.fg} attributes={segment.attributes} content={segment.content} />
           </Fragment>
         ))}
       </box>
       <box flexDirection="row" flexShrink={0} gap={2}>
         {contextUsage ? (
           <text
+            wrapMode="none"
             fg={
               contextUsage.used / contextUsage.max > 0.85
                 ? theme.errorFg
