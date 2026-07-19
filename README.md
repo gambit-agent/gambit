@@ -2,7 +2,8 @@
 
 > Interactive AI agent development environment built with Bun, TypeScript, and OpenTUI.
 
-<img width="1571" height="1192" alt="image" src="https://github.com/user-attachments/assets/aed6c332-283b-4c49-b0e2-d3abe65dab9d" />
+<img width="1605" height="1402" alt="image" src="https://github.com/user-attachments/assets/db7ad121-567b-4095-801a-79150989814b" />
+
 
 [![Bun](https://img.shields.io/badge/Bun-1.2+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?logo=typescript&logoColor=white&labelColor=14151a)](https://www.typescriptlang.org/)
