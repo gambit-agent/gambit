@@ -401,6 +401,31 @@ export function createFileTools(): AnyToolDefinition[] {
 
       const planned: PlannedPatch[] = []
 
+      // Later entries in a patch routinely build on earlier ones — a rename
+      // A -> B followed by an edit to B, or two hunks against the same file
+      // emitted as separate entries. Phase 1 therefore reads through this
+      // planned state rather than raw disk; validating everything against
+      // pre-patch disk would reject the first case and silently drop the
+      // earlier edit in the second.
+      const plannedContent = new Map<string, string>()
+      const plannedDeletions = new Set<string>()
+
+      const readPlannedBase = async (
+        resolvedPath: string,
+      ): Promise<{ exists: boolean; text: string }> => {
+        const pending = plannedContent.get(resolvedPath)
+        if (pending !== undefined) {
+          return { exists: true, text: pending }
+        }
+        if (plannedDeletions.has(resolvedPath)) {
+          return { exists: false, text: '' }
+        }
+        const file = Bun.file(resolvedPath)
+        return (await file.exists())
+          ? { exists: true, text: await file.text() }
+          : { exists: false, text: '' }
+      }
+
       for (const filePatch of perFilePatches) {
         const { patchText, oldPath, newPath } = filePatch
         const resolvedOld = oldPath ? resolveWorkspacePath(oldPath) : null
@@ -420,10 +445,11 @@ export function createFileTools(): AnyToolDefinition[] {
             throw new Error('Patch missing target path for deletion.')
           }
 
-          const file = Bun.file(resolvedOld)
-          if (!(await file.exists())) {
+          if (!(await readPlannedBase(resolvedOld)).exists) {
             throw new Error(`Cannot delete non-existent file: ${relativeOld}`)
           }
+          plannedContent.delete(resolvedOld)
+          plannedDeletions.add(resolvedOld)
           planned.push({
             kind: 'delete',
             resolvedOld,
@@ -433,20 +459,27 @@ export function createFileTools(): AnyToolDefinition[] {
         }
 
         const basePath = resolvedOld ?? resolvedNew
-        const baseFile = Bun.file(basePath)
-        const baseExists = await baseFile.exists()
+        const base = await readPlannedBase(basePath)
+        const baseExists = base.exists
 
         if (!resolvedOld && baseExists) {
           throw new Error(`Cannot create ${relativeNew}: file already exists.`)
         }
 
-        if (resolvedOld && !(await Bun.file(resolvedOld).exists())) {
+        if (resolvedOld && !baseExists) {
           throw new Error(`Base file not found: ${relativeOld}`)
         }
 
-        const baseText = baseExists ? await baseFile.text() : ''
-        // Throws here on a bad hunk, before anything has been written.
-        const updated = applyUnifiedDiff(baseText, patchText)
+        // Throws here on a bad hunk, before anything has been written. Name the
+        // file: with nothing on disk to inspect, a bare "context mismatch near
+        // line 42" in a ten-file patch is not actionable.
+        let updated: string
+        try {
+          updated = applyUnifiedDiff(base.text, patchText)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new Error(`Cannot apply patch to ${relativeNew ?? relativeOld}: ${detail}`)
+        }
 
         const isRename = Boolean(resolvedOld && resolvedOld !== resolvedNew)
         const relativeResolvedNew = relativeWorkspacePath(resolvedNew)
@@ -458,6 +491,13 @@ export function createFileTools(): AnyToolDefinition[] {
             : baseExists
               ? `Updated ${relativeResolvedNew} via patch.`
               : `Created ${relativeResolvedNew} via patch.`
+
+        plannedContent.set(resolvedNew, updated)
+        plannedDeletions.delete(resolvedNew)
+        if (isRename && resolvedOld) {
+          plannedContent.delete(resolvedOld)
+          plannedDeletions.add(resolvedOld)
+        }
 
         planned.push({
           kind: 'write',
