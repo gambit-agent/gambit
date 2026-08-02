@@ -179,3 +179,35 @@ test("patch tool tolerates hunk offset backward by a few lines", async () => {
   expect(result).toContain(`Updated ${relativePath} via patch.`);
   expect(await Bun.file(absolutePath).text()).toBe("a\nb\nC\nd\ne\n");
 });
+
+test("patch tool leaves every file untouched when a later hunk fails", async () => {
+  const firstPath = "atomic-first.txt";
+  const secondPath = "atomic-second.txt";
+  const firstAbsolute = path.join(workspaceDir, firstPath);
+  const secondAbsolute = path.join(workspaceDir, secondPath);
+  await writeFile(firstAbsolute, "keep\noriginal\n");
+  await writeFile(secondAbsolute, "unrelated\ncontent\n");
+
+  // The first file patches cleanly; the second references context that is not
+  // present, so the whole patch must be rejected without writing the first.
+  const diff =
+    `diff --git a/${firstPath} b/${firstPath}\n` +
+    `--- a/${firstPath}\n` +
+    `+++ b/${firstPath}\n` +
+    "@@ -1,2 +1,2 @@\n" +
+    " keep\n" +
+    "-original\n" +
+    "+rewritten\n" +
+    `diff --git a/${secondPath} b/${secondPath}\n` +
+    `--- a/${secondPath}\n` +
+    `+++ b/${secondPath}\n` +
+    "@@ -1,2 +1,2 @@\n" +
+    " this context\n" +
+    "-does not exist\n" +
+    "+neither does this\n";
+
+  await expect(patchTool({ patch: diff })).rejects.toThrow();
+
+  expect(await Bun.file(firstAbsolute).text()).toBe("keep\noriginal\n");
+  expect(await Bun.file(secondAbsolute).text()).toBe("unrelated\ncontent\n");
+});

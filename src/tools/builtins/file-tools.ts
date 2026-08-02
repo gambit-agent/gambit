@@ -385,7 +385,21 @@ export function createFileTools(): AnyToolDefinition[] {
         throw new Error('Patch modifies multiple files. Omit the path parameter to allow this.')
       }
 
-      const results: string[] = []
+      // Two phases on purpose. Applying a multi-file patch file-by-file left
+      // earlier files written when a later hunk failed to apply, and recovering
+      // from that half-applied state was manual. Resolve, validate, and apply
+      // every hunk in memory first; only touch the disk once all of them hold.
+      type PlannedPatch =
+        | { kind: 'delete'; resolvedOld: string; message: string }
+        | {
+            kind: 'write'
+            resolvedNew: string
+            updated: string
+            renameFrom: string | null
+            message: string
+          }
+
+      const planned: PlannedPatch[] = []
 
       for (const filePatch of perFilePatches) {
         const { patchText, oldPath, newPath } = filePatch
@@ -410,8 +424,11 @@ export function createFileTools(): AnyToolDefinition[] {
           if (!(await file.exists())) {
             throw new Error(`Cannot delete non-existent file: ${relativeOld}`)
           }
-          await unlink(resolvedOld)
-          results.push(`Deleted ${relativeOld} via patch.`)
+          planned.push({
+            kind: 'delete',
+            resolvedOld,
+            message: `Deleted ${relativeOld} via patch.`,
+          })
           continue
         }
 
@@ -428,29 +445,46 @@ export function createFileTools(): AnyToolDefinition[] {
         }
 
         const baseText = baseExists ? await baseFile.text() : ''
+        // Throws here on a bad hunk, before anything has been written.
         const updated = applyUnifiedDiff(baseText, patchText)
-
-        await mkdir(path.dirname(resolvedNew), { recursive: true })
-        await Bun.write(resolvedNew, updated)
 
         const isRename = Boolean(resolvedOld && resolvedOld !== resolvedNew)
         const relativeResolvedNew = relativeWorkspacePath(resolvedNew)
         const toPosix = (value: string) => value.split(path.sep).join('/')
 
-        if (isRename && resolvedOld) {
-          const existingOld = Bun.file(resolvedOld)
-          if (await existingOld.exists()) {
-            await unlink(resolvedOld)
-          }
+        const message =
+          isRename && relativeOld
+            ? `Moved ${toPosix(relativeOld)} -> ${toPosix(relativeResolvedNew)} via patch.`
+            : baseExists
+              ? `Updated ${relativeResolvedNew} via patch.`
+              : `Created ${relativeResolvedNew} via patch.`
+
+        planned.push({
+          kind: 'write',
+          resolvedNew,
+          updated,
+          renameFrom: isRename ? resolvedOld : null,
+          message,
+        })
+      }
+
+      const results: string[] = []
+
+      for (const operation of planned) {
+        if (operation.kind === 'delete') {
+          await unlink(operation.resolvedOld)
+          results.push(operation.message)
+          continue
         }
 
-        if (isRename && relativeOld) {
-          results.push(`Moved ${toPosix(relativeOld)} -> ${toPosix(relativeResolvedNew)} via patch.`)
-        } else if (baseExists) {
-          results.push(`Updated ${relativeResolvedNew} via patch.`)
-        } else {
-          results.push(`Created ${relativeResolvedNew} via patch.`)
+        await mkdir(path.dirname(operation.resolvedNew), { recursive: true })
+        await Bun.write(operation.resolvedNew, operation.updated)
+
+        if (operation.renameFrom && (await Bun.file(operation.renameFrom).exists())) {
+          await unlink(operation.renameFrom)
         }
+
+        results.push(operation.message)
       }
 
       return results.length === 1 ? (results[0] ?? '') : results.join('\n')
