@@ -24,7 +24,7 @@ import {
   type ConversationSessionSummary,
 } from '../session/conversation-sessions'
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
-import { readUserConfig } from '../session/user-config'
+import { isProjectPluginRootTrusted, readUserConfig } from '../session/user-config'
 import { applyTheme } from '../ui/theme'
 import { primeProviderCredentials } from '../lib/provider-credentials'
 
@@ -110,7 +110,10 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   const permissionEngine = new PermissionEngine(options.permissionRequestHandler)
   const questionEngine = new QuestionEngine()
   const taskRuntime = new TaskRuntime()
-  const hookManager = await HookManager.load()
+  const hookManager = await HookManager.load({
+    root: runtimeRoot,
+    allowProjectPlugins: isProjectPluginRootTrusted(runtimeRoot, userConfig),
+  })
   const shellTaskRunner = new ShellTaskRunner(taskRuntime)
   const agentRunner = new AgentRunner()
 
