@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
@@ -36,28 +36,72 @@ function getPlansDirectory(): string {
   return path.join(workspaceRoot, '.gambit', 'plans')
 }
 
-function getPlanSlug(sessionId: string): string {
-  let slug = slugCache.get(sessionId)
-  if (!slug) {
-    const plansDir = getPlansDirectory()
-    for (let i = 0; i < MAX_SLUG_RETRIES; i++) {
-      slug = generateWordSlug()
-      const filePath = path.join(plansDir, `${slug}.md`)
-      if (!existsSync(filePath)) {
-        break
-      }
-    }
-    slugCache.set(sessionId, slug!)
+/**
+ * Slugs are random, so an in-memory map alone loses the session-to-plan
+ * mapping on restart: a resumed session would mint a fresh slug and its
+ * existing plan file became unreachable. Persist the mapping alongside the
+ * plans so resuming finds the same file.
+ */
+function getPlanIndexPath(): string {
+  return path.join(getPlansDirectory(), 'index.json')
+}
+
+function loadPlanIndex(): Record<string, string> {
+  const indexPath = getPlanIndexPath()
+  if (!existsSync(indexPath)) {
+    return {}
   }
-  return slug!
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(indexPath, 'utf-8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    )
+  } catch {
+    // A corrupt index must not break planning; fall back to a fresh slug.
+    return {}
+  }
 }
 
-function setPlanSlug(sessionId: string, slug: string): void {
+function persistPlanSlug(sessionId: string, slug: string): void {
+  try {
+    mkdirSync(getPlansDirectory(), { recursive: true })
+    const index = loadPlanIndex()
+    index[sessionId] = slug
+    writeFileSync(getPlanIndexPath(), `${JSON.stringify(index, null, 2)}\n`, 'utf-8')
+  } catch {
+    // Best effort: an unwritable index only costs slug stability across restarts.
+  }
+}
+
+function getPlanSlug(sessionId: string): string {
+  const cached = slugCache.get(sessionId)
+  if (cached) {
+    return cached
+  }
+
+  const persisted = loadPlanIndex()[sessionId]
+  if (persisted) {
+    slugCache.set(sessionId, persisted)
+    return persisted
+  }
+
+  const plansDir = getPlansDirectory()
+  let slug = generateWordSlug()
+  for (let i = 0; i < MAX_SLUG_RETRIES; i++) {
+    slug = generateWordSlug()
+    if (!existsSync(path.join(plansDir, `${slug}.md`))) {
+      break
+    }
+  }
+
   slugCache.set(sessionId, slug)
-}
-
-function clearPlanSlug(sessionId: string): void {
-  slugCache.delete(sessionId)
+  persistPlanSlug(sessionId, slug)
+  return slug
 }
 
 export function getPlanFilePath(sessionId: string): string {
