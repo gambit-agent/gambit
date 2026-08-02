@@ -21,9 +21,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Shared Gambit's model catalog loading between the interactive picker and ACP sessions.
 - Runtime bootstrap and tool execution now accept ACP-scoped workspace, cancellation, permission, and disabled-tool configuration.
+- **Breaking:** project plugins in `.gambit/plugins` and `.opencode/plugins` no longer load automatically. Add the workspace root to `trustedProjectPluginRoots` in `~/.gambit/config.json`, or set `GAMBIT_TRUST_PROJECT_PLUGINS=1`. User-level plugins in `~/.gambit/plugins` are unaffected.
+- Shell output collection now stops shortly after the command exits instead of waiting for every stdio pipe to close. A backgrounded grandchild holding a pipe open no longer blocks the turn on any platform; in exchange, output written more than 250ms after the command exits is not captured.
+- `grep` and `glob` normalize ripgrep's output to POSIX separators, so results no longer differ by platform or by which search backend answered.
+- `grep` and `glob` append `[ripgrep unavailable; used builtin search]` when they fall back, so degraded search is visible rather than silent.
+- MCP server credentials in `mcp-servers.json` are now written `0600`.
 
 ### Fixed
 - ACP cancellation now aborts active model turns and reports the protocol `cancelled` stop reason.
+- `call-mcp-tool` and `toggle-mcp-server` now request permission. Both previously executed without approval because the execution pipeline skips evaluation for tools that define no permission request.
+- Oversized tool results can no longer be written outside `.gambit/tool-results` via a provider-supplied tool call id containing path separators.
+- Opening or resuming an ACP session no longer marks other sessions' running tasks as cancelled. Interrupted-task reconciliation runs once per process rather than once per session runtime.
+- Cancelling a workflow now aborts the running script and its subagents instead of only recording `cancelled` and later overwriting it with `completed`.
+- Cancelling or timing out a foreground shell command no longer hangs the turn on Windows.
+- Multi-file patches apply atomically: a hunk that fails to apply leaves every file untouched instead of writing the files before it.
+- Patch failures name the file that could not be applied.
+- `grep` and `glob` fall back to the builtin search when ripgrep fails to start, instead of surfacing `rg exited with code 2` as a tool error.
+- Plan files remain reachable after a restart; the session-to-plan mapping is persisted rather than held only in memory.
+- A turn that recalls no memory no longer leaves the previous turn's memory context in the prompt.
 - ACP model and slash-command capabilities are published after new and resumed session setup so clients such as Zed can render their native selectors and command menus.
 
 ## [0.7.0] — 2026-05-30
