@@ -32,3 +32,31 @@ test('collectBoundedText does not mark exact cap output as truncated', async () 
 
   expect(result).toEqual({ text: 'hello', truncated: false })
 })
+
+test('collectBoundedText stops on the stop signal when the stream never ends', async () => {
+  const encoder = new TextEncoder()
+  // Models a pipe whose write end is still held by a surviving grandchild:
+  // data arrives, then the stream stays open forever without closing.
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode('partial output'))
+    },
+  })
+
+  const stop = new AbortController()
+  const collected = collectBoundedText(stream, 100, { stopSignal: stop.signal })
+  setTimeout(() => stop.abort(), 50)
+
+  await expect(collected).resolves.toEqual({ text: 'partial output', truncated: false })
+})
+
+test('collectBoundedText returns immediately for an already-aborted stop signal', async () => {
+  const stop = new AbortController()
+  stop.abort()
+  const stream = new ReadableStream<Uint8Array>({ start() {} })
+
+  await expect(collectBoundedText(stream, 100, { stopSignal: stop.signal })).resolves.toEqual({
+    text: '',
+    truncated: false,
+  })
+})
