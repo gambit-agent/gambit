@@ -205,6 +205,17 @@ function compileFallbackSearchPattern(pattern: string): RegExp {
   }
 }
 
+/**
+ * Falling back is invisible in the result otherwise, which turns "why are these
+ * results different from ripgrep's?" into a long afternoon. Annotate only when
+ * rg was actually expected to run and could not.
+ */
+const RIPGREP_FALLBACK_NOTICE = '[ripgrep unavailable; used builtin search]'
+
+function withFallbackNotice(output: string): string {
+  return `${output}\n\n${RIPGREP_FALLBACK_NOTICE}`
+}
+
 async function runFallbackSearch(input: { pattern: string; searchPath: string; glob?: string }): Promise<string> {
   const regex = compileFallbackSearchPattern(input.pattern)
   const fileGlob = input.glob?.trim() ? new Glob(input.glob.trim()) : null
@@ -272,7 +283,7 @@ export async function runRipgrepSearch(input: { pattern: string; path?: string; 
 
   const result = await runExecutable('rg', args, workspaceRoot)
   if (result === null) {
-    return runFallbackSearch({ pattern, searchPath, glob: input.glob })
+    return withFallbackNotice(await runFallbackSearch({ pattern, searchPath, glob: input.glob }))
   }
   if (result.exitCode === 0) {
     return truncate(normalizeRipgrepMatches(result.stdout), MAX_SHELL_OUTPUT)
@@ -283,7 +294,7 @@ export async function runRipgrepSearch(input: { pattern: string; path?: string; 
   // Exit >= 2 means rg itself failed (a bad ripgrep.conf, an unsupported flag on
   // an old build, a sandbox shim). That is an environment problem, not a search
   // result, so fall back instead of surfacing it to the model as a tool error.
-  return runFallbackSearch({ pattern, searchPath, glob: input.glob })
+  return withFallbackNotice(await runFallbackSearch({ pattern, searchPath, glob: input.glob }))
 }
 
 export async function runRipgrepGlob(input: { pattern: string; path?: string }): Promise<string> {
@@ -297,7 +308,7 @@ export async function runRipgrepGlob(input: { pattern: string; path?: string }):
 
   const result = await runExecutable('rg', args, workspaceRoot)
   if (result === null) {
-    return runFallbackGlob({ pattern, searchPath })
+    return withFallbackNotice(await runFallbackGlob({ pattern, searchPath }))
   }
   if (result.exitCode === 0) {
     return truncate(normalizeRipgrepFileList(result.stdout).trimEnd(), MAX_SHELL_OUTPUT) || 'No files found.'
@@ -306,7 +317,7 @@ export async function runRipgrepGlob(input: { pattern: string; path?: string }):
     return 'No files found.'
   }
   // See runRipgrepSearch: a broken rg falls back rather than failing the tool.
-  return runFallbackGlob({ pattern, searchPath })
+  return withFallbackNotice(await runFallbackGlob({ pattern, searchPath }))
 }
 
 export function summarizeTask(task: TaskRecord): Record<string, unknown> {
