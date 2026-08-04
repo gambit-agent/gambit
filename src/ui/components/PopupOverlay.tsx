@@ -11,6 +11,8 @@ export interface PopupOverlayProps {
   size?: PopupOverlaySize
   zIndex?: number
   onClose?: () => void
+  framed?: boolean
+  centered?: boolean
 }
 
 const popupWidths: Record<PopupOverlaySize, number> = {
@@ -24,6 +26,8 @@ export function PopupOverlay({
   size = 'medium',
   zIndex = 100,
   onClose,
+  framed = false,
+  centered = false,
 }: PopupOverlayProps) {
   const { width, height } = useTerminalDimensions()
   const maxWidth = Math.max(1, width - 2)
@@ -37,7 +41,8 @@ export function PopupOverlay({
       width={width}
       height={height}
       alignItems="center"
-      paddingTop={Math.max(1, Math.floor(height / 4))}
+      justifyContent={centered ? 'center' : undefined}
+      paddingTop={centered ? 0 : Math.max(1, Math.floor(height / 4))}
       zIndex={zIndex}
       backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
       onMouseUp={onClose ? () => onClose() : undefined}
@@ -46,7 +51,10 @@ export function PopupOverlay({
         flexDirection="column"
         width={panelWidth}
         maxWidth={maxWidth}
-        paddingTop={1}
+        border={framed}
+        borderStyle={framed ? 'rounded' : undefined}
+        borderColor={framed ? theme.bodyBorder : undefined}
+        paddingTop={framed ? 0 : 1}
         backgroundColor={theme.panel}
         onMouseUp={(event: { stopPropagation(): void }) => {
           event.stopPropagation()
