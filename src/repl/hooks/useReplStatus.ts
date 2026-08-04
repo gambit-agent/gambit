@@ -10,9 +10,9 @@ import type { PermissionMode } from '../../permissions/permission-rules'
 import { useGitBranch } from './useGitBranch'
 import {
   formatDuration,
-  isActiveTaskStatus,
   truncateMiddle,
 } from '../repl-format'
+import { splitTaskLists } from '../task-activity-model'
 
 interface UseReplStatusOptions {
   conversation: {
@@ -85,10 +85,7 @@ export function useReplStatus({
     }
   }, [conversation.status])
 
-  const activeTasks = tasks.filter((task) => isActiveTaskStatus(task.status))
-  const recentTasks = tasks
-    .filter((task) => !isActiveTaskStatus(task.status))
-    .slice(0, 8)
+  const { activeTasks, recentTasks } = splitTaskLists(tasks)
   // The task panel occupies the right side of the footer when tasks are active;
   // reserve its width so the left-side labels collapse instead of wrapping.
   const taskPanelReserve = activeTasks.length > 0 ? 36 : 0

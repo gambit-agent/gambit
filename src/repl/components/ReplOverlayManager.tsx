@@ -20,6 +20,7 @@ import { ModelPickerOverlay } from '../../ui/model-picker/ModelPickerOverlay'
 import { listMCPServerConfigs } from '../../lib/mcp-config'
 import type { SessionPickerState } from '../hooks/useSessionPicker'
 import { TaskDrawer } from './TaskDrawer'
+import type { ActivityFilter } from '../task-activity-model'
 
 type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'connect' | 'model' | 'session' | null
 
@@ -45,6 +46,12 @@ export interface ReplOverlayManagerProps {
   recentTasks: TaskRecord[]
   selectedTaskIndex: number
   goal: string | null
+  taskFilter: ActivityFilter
+  taskSearchQuery: string
+  taskSearchActive: boolean
+  taskDetailFocused: boolean
+  taskOutputExpanded: boolean
+  onTaskSearchChange: (value: string) => void
   terminalWidth: number
   terminalHeight: number
   onModelFilterChange: (value: string) => void
@@ -134,6 +141,12 @@ export function ReplOverlayManager({
   activeTasks,
   recentTasks,
   selectedTaskIndex,
+  taskFilter,
+  taskSearchQuery,
+  taskSearchActive,
+  taskDetailFocused,
+  taskOutputExpanded,
+  onTaskSearchChange,
   goal,
   terminalWidth,
   terminalHeight,
@@ -249,8 +262,14 @@ export function ReplOverlayManager({
           recentTasks={recentTasks}
           selectedTaskIndex={selectedTaskIndex}
           goal={goal}
+          filter={taskFilter}
+          searchQuery={taskSearchQuery}
+          searchActive={taskSearchActive}
+          detailFocused={taskDetailFocused}
+          outputExpanded={taskOutputExpanded}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}
+          onSearchChange={onTaskSearchChange}
           onClose={onTasksClose}
         />
       ) : null}

@@ -10,6 +10,8 @@ export interface PopupOverlayProps {
   children: ReactNode
   size?: PopupOverlaySize
   zIndex?: number
+  /** Draws a frame around the popup so it reads as a panel rather than a slab of text over the transcript. */
+  bordered?: boolean
   onClose?: () => void
 }
 
@@ -23,6 +25,7 @@ export function PopupOverlay({
   children,
   size = 'medium',
   zIndex = 100,
+  bordered = false,
   onClose,
 }: PopupOverlayProps) {
   const { width, height } = useTerminalDimensions()
@@ -46,8 +49,11 @@ export function PopupOverlay({
         flexDirection="column"
         width={panelWidth}
         maxWidth={maxWidth}
-        paddingTop={1}
+        paddingTop={bordered ? 0 : 1}
         backgroundColor={theme.panel}
+        border={bordered ? true : undefined}
+        borderStyle={bordered ? 'rounded' : undefined}
+        borderColor={bordered ? theme.bodyBorder : undefined}
         onMouseUp={(event: { stopPropagation(): void }) => {
           event.stopPropagation()
         }}

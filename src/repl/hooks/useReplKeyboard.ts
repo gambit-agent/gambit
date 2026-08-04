@@ -68,10 +68,19 @@ interface ReplKeyboardOptions {
   setPermissionExplainOpen: Dispatch<SetStateAction<boolean>>
   taskDrawer?: {
     isOpen: boolean
+    searchActive: boolean
+    detailFocused: boolean
     close: () => void
     moveSelection: (delta: number) => void
     selectFirst: () => void
     selectLast: () => void
+    cycleFilter: (delta: number) => void
+    openSearch: () => void
+    closeSearch: (options?: { clear?: boolean }) => void
+    setDetailFocused: (focused: boolean) => void
+    toggleOutputExpanded: () => void
+    copySelectedPath: () => void
+    killSelected: () => void
   }
   fileMentionCompletion?: {
     isOpen: boolean
@@ -99,24 +108,76 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         }
 
         if (options.taskDrawer?.isOpen) {
+          const drawer = options.taskDrawer
+
+          // While the search field owns the keyboard, only arrows and Esc/Enter
+          // are handled here — every letter has to reach the input untouched.
+          if (drawer.searchActive) {
+            if (key.name === 'escape') {
+              drawer.closeSearch({ clear: true })
+              return
+            }
+            if (key.name === 'return' || key.name === 'enter') {
+              drawer.closeSearch()
+              return
+            }
+            if (key.name === 'up' || (key.name === 'p' && key.ctrl)) {
+              drawer.moveSelection(-1)
+              return
+            }
+            if (key.name === 'down' || (key.name === 'n' && key.ctrl)) {
+              drawer.moveSelection(1)
+              return
+            }
+            return
+          }
+
           if (key.name === 'escape' || (key.name === 'b' && key.ctrl && !key.meta && !key.shift)) {
-            options.taskDrawer.close()
+            drawer.close()
             return
           }
           if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
-            options.taskDrawer.moveSelection(-1)
+            drawer.moveSelection(-1)
             return
           }
           if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
-            options.taskDrawer.moveSelection(1)
+            drawer.moveSelection(1)
             return
           }
           if (key.name === 'home') {
-            options.taskDrawer.selectFirst()
+            drawer.selectFirst()
             return
           }
           if (key.name === 'end') {
-            options.taskDrawer.selectLast()
+            drawer.selectLast()
+            return
+          }
+          if (key.name === 'left' || (key.name === 'h' && !key.ctrl)) {
+            drawer.setDetailFocused(false)
+            return
+          }
+          if (key.name === 'right' || (key.name === 'l' && !key.ctrl)) {
+            drawer.setDetailFocused(true)
+            return
+          }
+          if (key.name === 'f' && !key.ctrl && !key.meta) {
+            drawer.cycleFilter(key.shift ? -1 : 1)
+            return
+          }
+          if (key.name === '/' || (key.name === 'slash' && !key.ctrl)) {
+            drawer.openSearch()
+            return
+          }
+          if (key.name === 'o' && !key.ctrl && !key.meta) {
+            drawer.toggleOutputExpanded()
+            return
+          }
+          if (key.name === 'c' && !key.ctrl && !key.meta) {
+            drawer.copySelectedPath()
+            return
+          }
+          if (key.name === 'x' && !key.ctrl && !key.meta) {
+            drawer.killSelected()
             return
           }
           return
