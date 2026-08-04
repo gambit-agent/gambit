@@ -15,6 +15,89 @@ function consumeKey(key: ParsedKey): void {
   event.stopPropagation?.()
 }
 
+export interface TaskDrawerKeyboardController {
+  isOpen: boolean
+  focus: 'list' | 'detail'
+  close: () => void
+  moveSelection: (delta: number) => void
+  selectFirst: () => void
+  selectLast: () => void
+  toggleFocus: () => void
+  focusList: () => void
+  focusDetail: () => void
+  cycleFilter: () => void
+  showLive: () => void
+  showDetails: () => void
+  cancelSelected: () => Promise<void>
+}
+
+export async function handleTaskDrawerKey(
+  key: ParsedKey,
+  drawer: TaskDrawerKeyboardController,
+): Promise<boolean> {
+  if (key.name === 'escape' || (key.name === 'b' && key.ctrl && !key.meta && !key.shift)) {
+    consumeKey(key)
+    drawer.close()
+    return true
+  }
+  if (key.name === 'tab') {
+    consumeKey(key)
+    drawer.toggleFocus()
+    return true
+  }
+  if (key.name === 'left' || key.name === 'h') {
+    consumeKey(key)
+    drawer.focusList()
+    return true
+  }
+  if (key.name === 'right' || key.name === 'l') {
+    consumeKey(key)
+    drawer.focusDetail()
+    return true
+  }
+  if (key.name === 'f') {
+    consumeKey(key)
+    drawer.cycleFilter()
+    return true
+  }
+  if (key.name === 'o') {
+    consumeKey(key)
+    drawer.showLive()
+    return true
+  }
+  if (key.name === 'd') {
+    consumeKey(key)
+    drawer.showDetails()
+    return true
+  }
+  if (key.name === 'c') {
+    consumeKey(key)
+    await drawer.cancelSelected()
+    return true
+  }
+  if (drawer.focus === 'list' && (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl))) {
+    consumeKey(key)
+    drawer.moveSelection(-1)
+    return true
+  }
+  if (drawer.focus === 'list' && (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl))) {
+    consumeKey(key)
+    drawer.moveSelection(1)
+    return true
+  }
+  if (drawer.focus === 'list' && key.name === 'home') {
+    consumeKey(key)
+    drawer.selectFirst()
+    return true
+  }
+  if (drawer.focus === 'list' && key.name === 'end') {
+    consumeKey(key)
+    drawer.selectLast()
+    return true
+  }
+  return false
+}
+
 interface ReplKeyboardOptions {
   runtime: AppRuntime
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
@@ -66,13 +149,7 @@ interface ReplKeyboardOptions {
   setTranscriptMode: Dispatch<SetStateAction<boolean>>
   toggleTheme: () => void
   setPermissionExplainOpen: Dispatch<SetStateAction<boolean>>
-  taskDrawer?: {
-    isOpen: boolean
-    close: () => void
-    moveSelection: (delta: number) => void
-    selectFirst: () => void
-    selectLast: () => void
-  }
+  taskDrawer?: TaskDrawerKeyboardController
   fileMentionCompletion?: {
     isOpen: boolean
     moveSelection: (delta: number) => void
@@ -99,26 +176,7 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         }
 
         if (options.taskDrawer?.isOpen) {
-          if (key.name === 'escape' || (key.name === 'b' && key.ctrl && !key.meta && !key.shift)) {
-            options.taskDrawer.close()
-            return
-          }
-          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
-            options.taskDrawer.moveSelection(-1)
-            return
-          }
-          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
-            options.taskDrawer.moveSelection(1)
-            return
-          }
-          if (key.name === 'home') {
-            options.taskDrawer.selectFirst()
-            return
-          }
-          if (key.name === 'end') {
-            options.taskDrawer.selectLast()
-            return
-          }
+          await handleTaskDrawerKey(key, options.taskDrawer)
           return
         }
 

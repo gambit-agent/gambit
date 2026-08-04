@@ -20,6 +20,11 @@ import { ModelPickerOverlay } from '../../ui/model-picker/ModelPickerOverlay'
 import { listMCPServerConfigs } from '../../lib/mcp-config'
 import type { SessionPickerState } from '../hooks/useSessionPicker'
 import { TaskDrawer } from './TaskDrawer'
+import type {
+  TaskDrawerDetailMode,
+  TaskDrawerFilter,
+  TaskDrawerFocus,
+} from './task-drawer-model'
 
 type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'connect' | 'model' | 'session' | null
 
@@ -44,6 +49,9 @@ export interface ReplOverlayManagerProps {
   activeTasks: TaskRecord[]
   recentTasks: TaskRecord[]
   selectedTaskIndex: number
+  taskFilter: TaskDrawerFilter
+  taskFocus: TaskDrawerFocus
+  taskDetailMode: TaskDrawerDetailMode
   goal: string | null
   terminalWidth: number
   terminalHeight: number
@@ -55,6 +63,8 @@ export interface ReplOverlayManagerProps {
   onModelProviderOptionSelect: (index: number) => void
   onModelClose: () => void
   onTasksClose: () => void
+  onTaskFilterChange: (filter: TaskDrawerFilter) => void
+  onTaskDetailModeChange: (mode: TaskDrawerDetailMode) => void
   onSessionFilterChange: (value: string) => void
   onSessionFilterSubmit: (value: string) => void
   onSessionOptionChange: (index: number) => void
@@ -134,6 +144,9 @@ export function ReplOverlayManager({
   activeTasks,
   recentTasks,
   selectedTaskIndex,
+  taskFilter,
+  taskFocus,
+  taskDetailMode,
   goal,
   terminalWidth,
   terminalHeight,
@@ -145,6 +158,8 @@ export function ReplOverlayManager({
   onModelProviderOptionSelect,
   onModelClose,
   onTasksClose,
+  onTaskFilterChange,
+  onTaskDetailModeChange,
   onSessionFilterChange,
   onSessionFilterSubmit,
   onSessionOptionChange,
@@ -248,9 +263,14 @@ export function ReplOverlayManager({
           activeTasks={activeTasks}
           recentTasks={recentTasks}
           selectedTaskIndex={selectedTaskIndex}
+          filter={taskFilter}
+          focus={taskFocus}
+          detailMode={taskDetailMode}
           goal={goal}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}
+          onFilterChange={onTaskFilterChange}
+          onDetailModeChange={onTaskDetailModeChange}
           onClose={onTasksClose}
         />
       ) : null}
