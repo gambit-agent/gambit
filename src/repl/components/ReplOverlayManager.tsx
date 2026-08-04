@@ -19,6 +19,7 @@ import { ConnectProviderOverlay } from '../../ui/overlays/ConnectProviderOverlay
 import { ModelPickerOverlay } from '../../ui/model-picker/ModelPickerOverlay'
 import { listMCPServerConfigs } from '../../lib/mcp-config'
 import type { SessionPickerState } from '../hooks/useSessionPicker'
+import type { TaskDrawerDetailTab, TaskDrawerFilter, TaskDrawerPane } from '../task-drawer-model'
 import { TaskDrawer } from './TaskDrawer'
 
 type FocusedOverlay = 'permission' | 'question' | 'mcp' | 'themes' | 'connect' | 'model' | 'session' | null
@@ -44,6 +45,9 @@ export interface ReplOverlayManagerProps {
   activeTasks: TaskRecord[]
   recentTasks: TaskRecord[]
   selectedTaskIndex: number
+  taskFilter: TaskDrawerFilter
+  taskFocusPane: TaskDrawerPane
+  taskDetailTab: TaskDrawerDetailTab
   goal: string | null
   terminalWidth: number
   terminalHeight: number
@@ -134,6 +138,9 @@ export function ReplOverlayManager({
   activeTasks,
   recentTasks,
   selectedTaskIndex,
+  taskFilter,
+  taskFocusPane,
+  taskDetailTab,
   goal,
   terminalWidth,
   terminalHeight,
@@ -248,6 +255,9 @@ export function ReplOverlayManager({
           activeTasks={activeTasks}
           recentTasks={recentTasks}
           selectedTaskIndex={selectedTaskIndex}
+          filter={taskFilter}
+          focusPane={taskFocusPane}
+          detailTab={taskDetailTab}
           goal={goal}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}

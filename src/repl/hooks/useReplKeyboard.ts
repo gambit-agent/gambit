@@ -4,6 +4,7 @@ import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 
 
 import type { AppRuntime } from '../../app/bootstrap'
 import { matchShortcut } from '../../lib/interactive/shortcuts'
+import { resolveTaskDrawerAction } from '../task-drawer-model'
 import type { SessionPickerState } from './useSessionPicker'
 
 function consumeKey(key: ParsedKey): void {
@@ -68,10 +69,19 @@ interface ReplKeyboardOptions {
   setPermissionExplainOpen: Dispatch<SetStateAction<boolean>>
   taskDrawer?: {
     isOpen: boolean
+    focusPane: 'list' | 'detail'
     close: () => void
     moveSelection: (delta: number) => void
     selectFirst: () => void
     selectLast: () => void
+    focusList: () => void
+    focusDetail: () => void
+    togglePane: () => void
+    cycleFilter: () => void
+    showActivity: () => void
+    showOutput: () => void
+    showDetails: () => void
+    cancelSelected: () => Promise<void>
   }
   fileMentionCompletion?: {
     isOpen: boolean
@@ -99,27 +109,52 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
         }
 
         if (options.taskDrawer?.isOpen) {
-          if (key.name === 'escape' || (key.name === 'b' && key.ctrl && !key.meta && !key.shift)) {
-            options.taskDrawer.close()
+          const action = resolveTaskDrawerAction(key, options.taskDrawer.focusPane)
+          if (!action) {
             return
           }
-          if (key.name === 'up' || key.name === 'k' || (key.name === 'p' && key.ctrl)) {
-            options.taskDrawer.moveSelection(-1)
-            return
+          consumeKey(key)
+          switch (action) {
+            case 'close':
+              options.taskDrawer.close()
+              return
+            case 'toggle-pane':
+              options.taskDrawer.togglePane()
+              return
+            case 'cycle-filter':
+              options.taskDrawer.cycleFilter()
+              return
+            case 'show-activity':
+              options.taskDrawer.showActivity()
+              return
+            case 'show-output':
+              options.taskDrawer.showOutput()
+              return
+            case 'show-details':
+              options.taskDrawer.showDetails()
+              return
+            case 'cancel-selected':
+              await options.taskDrawer.cancelSelected()
+              return
+            case 'focus-list':
+              options.taskDrawer.focusList()
+              return
+            case 'focus-detail':
+              options.taskDrawer.focusDetail()
+              return
+            case 'select-previous':
+              options.taskDrawer.moveSelection(-1)
+              return
+            case 'select-next':
+              options.taskDrawer.moveSelection(1)
+              return
+            case 'select-first':
+              options.taskDrawer.selectFirst()
+              return
+            case 'select-last':
+              options.taskDrawer.selectLast()
+              return
           }
-          if (key.name === 'down' || key.name === 'j' || (key.name === 'n' && key.ctrl)) {
-            options.taskDrawer.moveSelection(1)
-            return
-          }
-          if (key.name === 'home') {
-            options.taskDrawer.selectFirst()
-            return
-          }
-          if (key.name === 'end') {
-            options.taskDrawer.selectLast()
-            return
-          }
-          return
         }
 
         const scrollShortcut = matchShortcut(key)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TextAttributes } from '@opentui/core'
 
+import { RESPONSE_SPINNER_INTERVAL_MS, responseSpinnerFrames } from '../../config'
 import type { TaskRecord, TaskStatus } from '../../tasks/task-types'
 import { readTaskOutputTail } from '../../tasks/task-output'
 import type { WorkflowAgentStatus, WorkflowSnapshot } from '../../workflows/workflow-display'
@@ -8,11 +9,29 @@ import { PopupOverlay } from '../../ui/components/PopupOverlay'
 import { theme } from '../../ui/theme'
 import { readRawJsonlTailEntries } from '../../session/jsonl'
 import { formatDuration, formatTaskTitle, truncateTaskLine } from '../repl-format'
+import {
+  filterTaskDrawerTasks,
+  isTaskCancellable,
+  taskDrawerDetailTabs,
+  taskDrawerFilters,
+  type TaskDrawerDetailTab,
+  type TaskDrawerFilter,
+  type TaskDrawerPane,
+} from '../task-drawer-model'
+
+type ActivityTone = 'tool' | 'success' | 'error' | 'reasoning' | 'assistant' | 'prompt' | 'muted'
+
+interface ActivityLine {
+  marker: string
+  label: string
+  content: string
+  tone: ActivityTone
+}
 
 interface TaskPreview {
   taskId: string | null
   outputLines: string[]
-  transcriptLines: string[]
+  transcriptLines: ActivityLine[]
   error: string | null
 }
 
@@ -24,17 +43,31 @@ const emptyPreview: TaskPreview = {
 }
 
 function getTaskBodyHeight(terminalHeight: number, taskCount: number, hasGoal: boolean): number {
-  const desiredHeight = Math.min(22, Math.max(hasGoal ? 10 : 8, taskCount * 2 + 6))
-  const maxHeight = Math.max(8, terminalHeight - 12)
+  const desiredHeight = Math.min(28, Math.max(hasGoal ? 16 : 14, taskCount * 3 + 8))
+  const maxHeight = Math.max(10, terminalHeight - 10)
   return Math.min(desiredHeight, maxHeight)
 }
 
 function FooterHint({ title, label }: { title: string; label: string }) {
   return (
     <text>
-      <span fg={theme.userFg} attributes={TextAttributes.BOLD}>{title}</span>
+      <strong><span fg={theme.userFg}>{title}</span></strong>
       <span fg={theme.statusFg} attributes={TextAttributes.DIM}>{` ${label}`}</span>
     </text>
+  )
+}
+
+function StatusChip({ marker, label, color, backgroundColor }: {
+  marker: string
+  label: string
+  color: string
+  backgroundColor: string
+}) {
+  return (
+    <box flexDirection="row" gap={1} paddingLeft={1} paddingRight={1} backgroundColor={backgroundColor}>
+      <text fg={color} content={marker} />
+      <text><strong><span fg={color}>{label}</span></strong></text>
+    </box>
   )
 }
 
@@ -53,18 +86,18 @@ function getStatusColor(status: TaskStatus): string {
   }
 }
 
-function getStatusMarker(status: TaskStatus): string {
+function getStatusMarker(status: TaskStatus, spinnerFrame: string = responseSpinnerFrames[0]): string {
   switch (status) {
     case 'completed':
-      return 'ok'
+      return '✓'
     case 'failed':
-      return 'err'
+      return '×'
     case 'cancelled':
-      return 'can'
+      return '–'
     case 'running':
-      return 'run'
+      return spinnerFrame
     case 'pending':
-      return 'new'
+      return '○'
   }
 }
 
@@ -148,38 +181,64 @@ function compactValue(value: unknown, maxLength: number): string {
   }
 }
 
-function formatTranscriptEntry(entry: Record<string, unknown>, maxWidth: number): string | null {
+function formatTranscriptEntry(entry: Record<string, unknown>, maxWidth: number): ActivityLine | null {
   const type = typeof entry.type === 'string' ? entry.type : 'event'
   switch (type) {
     case 'tool-call':
-      return truncateTaskLine(
-        `tool start ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.input, maxWidth)}`,
-        maxWidth,
-      )
+      return {
+        marker: '→',
+        label: String(entry.toolName ?? 'tool'),
+        content: compactValue(entry.input, maxWidth),
+        tone: 'tool',
+      }
     case 'tool-result':
-      return truncateTaskLine(
-        `tool done ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.output, maxWidth)}`,
-        maxWidth,
-      )
+      return {
+        marker: '←',
+        label: String(entry.toolName ?? 'tool'),
+        content: compactValue(entry.output, maxWidth),
+        tone: 'success',
+      }
     case 'tool-error':
-      return truncateTaskLine(
-        `tool error ${String(entry.toolName ?? 'unknown')}: ${compactValue(entry.error, maxWidth)}`,
-        maxWidth,
-      )
+      return {
+        marker: '×',
+        label: String(entry.toolName ?? 'tool'),
+        content: compactValue(entry.error, maxWidth),
+        tone: 'error',
+      }
     case 'reasoning':
-      return truncateTaskLine(`reasoning: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+      return {
+        marker: '~',
+        label: 'reasoning',
+        content: compactValue(entry.content, maxWidth),
+        tone: 'reasoning',
+      }
     case 'assistant':
-      return truncateTaskLine(`assistant: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+      return {
+        marker: '▸',
+        label: 'assistant',
+        content: compactValue(entry.content, maxWidth),
+        tone: 'assistant',
+      }
     case 'user':
-      return truncateTaskLine(`prompt: ${compactValue(entry.content, maxWidth)}`, maxWidth)
+      return {
+        marker: '›',
+        label: 'prompt',
+        content: compactValue(entry.content, maxWidth),
+        tone: 'prompt',
+      }
     case 'system':
       return null
     default:
-      return truncateTaskLine(`${type}: ${compactValue(entry, maxWidth)}`, maxWidth)
+      return {
+        marker: '·',
+        label: type,
+        content: compactValue(entry, maxWidth),
+        tone: 'muted',
+      }
   }
 }
 
-async function readTranscriptLines(task: TaskRecord, maxLines: number, maxWidth: number): Promise<string[]> {
+async function readTranscriptLines(task: TaskRecord, maxLines: number, maxWidth: number): Promise<ActivityLine[]> {
   if (!task.transcriptPath) {
     return []
   }
@@ -188,7 +247,7 @@ async function readTranscriptLines(task: TaskRecord, maxLines: number, maxWidth:
     const entries = await readRawJsonlTailEntries<Record<string, unknown>>(task.transcriptPath, maxLines * 3)
     return entries
       .map((entry) => formatTranscriptEntry(entry, maxWidth))
-      .filter((line): line is string => Boolean(line))
+      .filter((line): line is ActivityLine => Boolean(line))
       .slice(-maxLines)
   } catch (error) {
     if ((error as { code?: string }).code === 'ENOENT') {
@@ -212,21 +271,29 @@ function WorkflowDetail({
       ...snapshot.agents.map((agent) => agent.phase).filter((phase): phase is string => Boolean(phase)),
     ]),
   ]
+  const progressWidth = Math.max(8, Math.min(24, lineWidth - 22))
+  const completedWidth = snapshot.agentCount > 0
+    ? Math.round((snapshot.doneCount / snapshot.agentCount) * progressWidth)
+    : 0
+  const progressBar = `${'█'.repeat(completedWidth)}${'░'.repeat(Math.max(0, progressWidth - completedWidth))}`
 
   return (
-    <box flexDirection="column" gap={0}>
-      <text
-        fg={theme.statusFg}
-        attributes={TextAttributes.DIM}
-        content={truncateTaskLine(
-          `${snapshot.doneCount}/${snapshot.agentCount} agents / ${snapshot.runningCount} running / ${snapshot.errorCount} failed`,
-          lineWidth,
-        )}
-      />
+    <box flexDirection="column" gap={0} marginTop={1}>
+      <text><strong><span fg={theme.headingFg}>WORKFLOW PROGRESS</span></strong></text>
+      <box flexDirection="row" gap={1}>
+        <text fg={theme.headerAccent} content={progressBar} />
+        <text
+          fg={theme.statusFg}
+          content={truncateTaskLine(
+            `${snapshot.doneCount}/${snapshot.agentCount} done · ${snapshot.runningCount} running · ${snapshot.errorCount} failed`,
+            Math.max(12, lineWidth - progressWidth - 1),
+          )}
+        />
+      </box>
 
       {phaseNames.length > 0 ? (
         <>
-          <text fg={theme.headingFg} attributes={TextAttributes.BOLD} content="Phases" />
+          <text><strong><span fg={theme.headingFg}>PHASES</span></strong></text>
           {phaseNames.slice(-8).map((phase) => {
             const agents = snapshot.agents.filter((agent) => agent.phase === phase)
             const done = agents.filter((agent) => agent.status === 'done').length
@@ -234,7 +301,7 @@ function WorkflowDetail({
             const errors = agents.filter((agent) => agent.status === 'error').length
             const skipped = agents.filter((agent) => agent.status === 'skipped').length
             const complete = done + errors + skipped === agents.length
-            const marker = errors > 0 ? 'err' : running > 0 || snapshot.currentPhase === phase ? 'run' : complete ? 'ok' : 'new'
+            const marker = errors > 0 ? '×' : running > 0 || snapshot.currentPhase === phase ? '●' : complete ? '✓' : '○'
             const color = errors > 0
               ? theme.errorFg
               : skipped > 0
@@ -260,7 +327,7 @@ function WorkflowDetail({
 
       {snapshot.agents.length > 0 ? (
         <>
-          <text fg={theme.headingFg} attributes={TextAttributes.BOLD} content="Subagents" />
+          <text><strong><span fg={theme.headingFg}>SUBAGENTS</span></strong></text>
           {snapshot.agents.slice(-12).map((agent) => (
             <text
               key={`${agent.id}-${agent.label}`}
@@ -277,7 +344,7 @@ function WorkflowDetail({
 
       {snapshot.logs.length > 0 ? (
         <>
-          <text fg={theme.headingFg} attributes={TextAttributes.BOLD} content="Logs" />
+          <text><strong><span fg={theme.headingFg}>LATEST</span></strong></text>
           {snapshot.logs.slice(-4).map((log, index) => (
             <text key={`${index}-${log}`} fg={theme.statusFg} content={truncateTaskLine(log, lineWidth)} />
           ))}
@@ -287,25 +354,120 @@ function WorkflowDetail({
   )
 }
 
-function DetailSection({
-  title,
-  lines,
-  first = false,
-}: {
-  title: string
-  lines: string[]
-  first?: boolean
-}) {
+function getActivityToneColor(tone: ActivityTone): string {
+  switch (tone) {
+    case 'success':
+      return theme.successFg
+    case 'error':
+      return theme.errorFg
+    case 'reasoning':
+      return theme.headerAccent
+    case 'assistant':
+      return theme.assistantFg
+    case 'prompt':
+      return theme.infoFg
+    case 'tool':
+      return theme.toolFg
+    case 'muted':
+      return theme.statusFg
+  }
+}
+
+function ActivityTimeline({ lines, lineWidth }: { lines: ActivityLine[]; lineWidth: number }) {
   if (lines.length === 0) {
-    return null
+    return (
+      <box flexDirection="column" gap={0} marginTop={1}>
+        <text><strong><span fg={theme.headingFg}>LIVE ACTIVITY</span></strong></text>
+        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Waiting for task activity…" />
+      </box>
+    )
   }
 
+  const labelWidth = Math.min(14, Math.max(8, Math.floor(lineWidth * 0.22)))
+  const contentWidth = Math.max(12, lineWidth - labelWidth - 4)
+
   return (
-    <box flexDirection="column" gap={0} marginTop={first ? 1 : 2}>
-      <text fg={theme.headingFg} attributes={TextAttributes.BOLD} content={title} />
-      {lines.map((line, index) => (
-        <text key={`${title}-${index}`} fg={theme.statusFg} content={line} />
-      ))}
+    <box flexDirection="column" gap={0} marginTop={1}>
+      <text><strong><span fg={theme.headingFg}>LIVE ACTIVITY</span></strong></text>
+      {lines.map((line, index) => {
+        const color = getActivityToneColor(line.tone)
+        return (
+          <box key={`${line.label}-${index}`} flexDirection="row" gap={1}>
+            <text fg={color} content={line.marker} />
+            <text
+              fg={color}
+              attributes={TextAttributes.BOLD}
+              content={truncateTaskLine(line.label, labelWidth).padEnd(labelWidth)}
+            />
+            <text fg={theme.assistantFg} content={truncateTaskLine(line.content, contentWidth)} />
+          </box>
+        )
+      })}
+    </box>
+  )
+}
+
+function OutputDetail({ task, preview, lineWidth }: {
+  task: TaskRecord
+  preview: TaskPreview
+  lineWidth: number
+}) {
+  return (
+    <box flexDirection="column" gap={0}>
+      <box
+        flexDirection="column"
+        minHeight={6}
+        border
+        borderStyle="rounded"
+        borderColor={theme.bodyBorder}
+        paddingLeft={1}
+        paddingRight={1}
+        backgroundColor={theme.codeBlockBg}
+      >
+        <text><strong><span fg={theme.codeBlockAccent}>OUTPUT TAIL</span></strong></text>
+        {preview.outputLines.length > 0 ? (
+          preview.outputLines.map((line, index) => (
+            <text key={`${index}-${line}`} fg={theme.codeBlockFg} content={truncateTaskLine(line, lineWidth - 4)} />
+          ))
+        ) : (
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No output captured yet." />
+        )}
+      </box>
+      {task.outputPath ? (
+        <text
+          fg={theme.statusFg}
+          attributes={TextAttributes.DIM}
+          content={truncateTaskLine(task.outputPath, lineWidth)}
+        />
+      ) : null}
+    </box>
+  )
+}
+
+function DetailValue({ label, value, lineWidth }: { label: string; value: string; lineWidth: number }) {
+  const labelWidth = 12
+  return (
+    <box flexDirection="row" gap={1}>
+      <text fg={theme.statusFg} content={label.padEnd(labelWidth)} />
+      <text fg={theme.assistantFg} content={truncateTaskLine(value, Math.max(12, lineWidth - labelWidth - 1))} />
+    </box>
+  )
+}
+
+function MetadataDetail({ task, lineWidth }: { task: TaskRecord; lineWidth: number }) {
+  const role = typeof task.metadata?.agentRole === 'string' ? task.metadata.agentRole : null
+  return (
+    <box flexDirection="column" gap={0}>
+      <text><strong><span fg={theme.headingFg}>TASK DETAILS</span></strong></text>
+      <DetailValue label="ID" value={task.id} lineWidth={lineWidth} />
+      <DetailValue label="KIND" value={task.kind} lineWidth={lineWidth} />
+      <DetailValue label="STATUS" value={task.status} lineWidth={lineWidth} />
+      {role ? <DetailValue label="ROLE" value={role} lineWidth={lineWidth} /> : null}
+      <DetailValue label="CREATED" value={task.createdAt} lineWidth={lineWidth} />
+      {task.startedAt ? <DetailValue label="STARTED" value={task.startedAt} lineWidth={lineWidth} /> : null}
+      {task.finishedAt ? <DetailValue label="FINISHED" value={task.finishedAt} lineWidth={lineWidth} /> : null}
+      {task.outputPath ? <DetailValue label="OUTPUT" value={task.outputPath} lineWidth={lineWidth} /> : null}
+      {task.transcriptPath ? <DetailValue label="TRANSCRIPT" value={task.transcriptPath} lineWidth={lineWidth} /> : null}
     </box>
   )
 }
@@ -314,50 +476,59 @@ function TaskDetail({
   task,
   preview,
   lineWidth,
+  detailTab,
 }: {
   task: TaskRecord
   preview: TaskPreview
   lineWidth: number
+  detailTab: TaskDrawerDetailTab
 }) {
   const workflowSnapshot = getWorkflowSnapshot(task)
   const progress = task.error ?? task.progressSummary
 
   return (
     <box flexDirection="column" gap={0}>
-      <box flexDirection="row" justifyContent="space-between" width="100%">
-        <text
-          fg={theme.headingFg}
-          attributes={TextAttributes.BOLD}
-          content={truncateTaskLine(formatTaskTitle(task.title), Math.max(12, lineWidth - 14))}
-        />
-        <text fg={getStatusColor(task.status)} content={task.status} />
+      <box flexDirection="row" justifyContent="space-between" width="100%" gap={2}>
+        <text><strong><span fg={theme.headingFg}>{truncateTaskLine(formatTaskTitle(task.title), Math.max(12, lineWidth - 18))}</span></strong></text>
+        <box paddingLeft={1} paddingRight={1} backgroundColor={theme.background}>
+          <text><strong><span fg={getStatusColor(task.status)}>{`● ${task.status.toUpperCase()}`}</span></strong></text>
+        </box>
       </box>
 
-      <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={truncateTaskLine(task.id, lineWidth)} />
-      <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={truncateTaskLine(metadataText(task), lineWidth)} />
+      <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={truncateTaskLine(`${metadataText(task)} · ${task.id}`, lineWidth)} />
 
       {progress ? (
-        <text
-          fg={task.error ? theme.errorFg : theme.statusFg}
-          content={truncateTaskLine(progress, lineWidth)}
-        />
+        <box marginTop={1} paddingLeft={1} paddingRight={1} backgroundColor={task.error ? theme.errorBg : theme.reasoningBg}>
+          <text fg={task.error ? theme.errorFg : theme.assistantFg} content={truncateTaskLine(progress, lineWidth - 2)} />
+        </box>
       ) : null}
 
-      {workflowSnapshot ? <WorkflowDetail snapshot={workflowSnapshot} lineWidth={lineWidth} /> : null}
+      <box flexDirection="row" gap={2} marginTop={1} border={['bottom']} borderColor={theme.bodyBorder}>
+        {taskDrawerDetailTabs.map((tab) => (
+          <text key={tab}>
+            {tab === detailTab ? (
+              <strong><span fg={theme.headerAccent}>{tab.toUpperCase()}</span></strong>
+            ) : (
+              <span fg={theme.statusFg}>{tab.toUpperCase()}</span>
+            )}
+          </text>
+        ))}
+      </box>
 
-      <DetailSection title="Transcript" lines={preview.transcriptLines} first />
-      <DetailSection title="Output" lines={preview.outputLines} />
+      <box flexDirection="column" marginTop={1}>
+        {detailTab === 'activity' ? (
+          <>
+            {workflowSnapshot ? <WorkflowDetail snapshot={workflowSnapshot} lineWidth={lineWidth} /> : null}
+            <ActivityTimeline lines={preview.transcriptLines} lineWidth={lineWidth} />
+          </>
+        ) : detailTab === 'output' ? (
+          <OutputDetail task={task} preview={preview} lineWidth={lineWidth} />
+        ) : (
+          <MetadataDetail task={task} lineWidth={lineWidth} />
+        )}
+      </box>
 
-      {preview.error ? (
-        <text fg={theme.errorFg} content={truncateTaskLine(preview.error, lineWidth)} />
-      ) : null}
-
-      {task.outputPath ? (
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={truncateTaskLine(`output ${task.outputPath}`, lineWidth)} />
-      ) : null}
-      {task.transcriptPath ? (
-        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={truncateTaskLine(`transcript ${task.transcriptPath}`, lineWidth)} />
-      ) : null}
+      {preview.error ? <text fg={theme.errorFg} content={truncateTaskLine(preview.error, lineWidth)} /> : null}
     </box>
   )
 }
@@ -385,6 +556,9 @@ export function TaskDrawer({
   activeTasks,
   recentTasks,
   selectedTaskIndex,
+  filter,
+  focusPane,
+  detailTab,
   goal,
   terminalWidth,
   terminalHeight,
@@ -393,28 +567,47 @@ export function TaskDrawer({
   activeTasks: TaskRecord[]
   recentTasks: TaskRecord[]
   selectedTaskIndex: number
+  filter: TaskDrawerFilter
+  focusPane: TaskDrawerPane
+  detailTab: TaskDrawerDetailTab
   goal: string | null
   terminalWidth: number
   terminalHeight: number
   onClose: () => void
 }) {
-  const tasks = useMemo(() => [...activeTasks, ...recentTasks], [activeTasks, recentTasks])
+  const tasks = useMemo(
+    () => filterTaskDrawerTasks(activeTasks, recentTasks, filter),
+    [activeTasks, filter, recentTasks],
+  )
   const taskCount = tasks.length
   const bodyHeight = getTaskBodyHeight(terminalHeight, taskCount, Boolean(goal))
   const panelWidth = Math.min(116, Math.max(1, terminalWidth - 2))
   const wide = panelWidth >= 92
-  const leftWidth = wide ? Math.min(42, Math.max(30, Math.floor(panelWidth * 0.36))) : Math.max(24, panelWidth - 8)
-  const leftPaneHeight = wide ? bodyHeight : Math.max(4, Math.floor(bodyHeight * 0.45))
+  const leftWidth = wide ? Math.min(40, Math.max(32, Math.floor(panelWidth * 0.35))) : Math.max(24, panelWidth - 6)
+  const leftPaneHeight = wide ? bodyHeight : Math.max(6, Math.floor(bodyHeight * 0.44))
   const detailPaneHeight = wide ? bodyHeight : Math.max(1, bodyHeight - leftPaneHeight - 1)
-  const listWidth = Math.max(24, leftWidth - 4)
+  const listWidth = Math.max(24, leftWidth - 5)
   const detailWidth = wide
-    ? Math.max(30, panelWidth - leftWidth - 8)
-    : Math.max(24, panelWidth - 8)
+    ? Math.max(30, panelWidth - leftWidth - 7)
+    : Math.max(24, panelWidth - 6)
   const normalizedSelectedIndex = taskCount > 0
     ? Math.min(Math.max(selectedTaskIndex, 0), taskCount - 1)
     : -1
   const selectedTask = normalizedSelectedIndex >= 0 ? tasks[normalizedSelectedIndex] ?? null : null
   const [preview, setPreview] = useState<TaskPreview>(emptyPreview)
+  const [spinnerFrameIndex, setSpinnerFrameIndex] = useState(0)
+
+  useEffect(() => {
+    if (!activeTasks.some((task) => task.status === 'running')) {
+      setSpinnerFrameIndex(0)
+      return
+    }
+
+    const intervalId = setInterval(() => {
+      setSpinnerFrameIndex((current) => (current + 1) % responseSpinnerFrames.length)
+    }, RESPONSE_SPINNER_INTERVAL_MS)
+    return () => clearInterval(intervalId)
+  }, [activeTasks])
 
   useEffect(() => {
     let cancelled = false
@@ -469,65 +662,47 @@ export function TaskDrawer({
 
   const runningCount = activeTasks.filter((task) => task.status === 'running').length
   const pendingCount = activeTasks.filter((task) => task.status === 'pending').length
-  const workflowCount = tasks.filter((task) => task.kind === 'workflow').length
-  const agentCount = tasks.filter((task) => task.kind === 'agent').length
-  const activitySummary = (() => {
-    if (taskCount === 0) {
-      return goal ? 'goal active' : 'no activity'
-    }
-    if (agentCount === taskCount) {
-      return `${agentCount} agent ${agentCount === 1 ? 'task' : 'tasks'}`
-    }
-    if (workflowCount === taskCount) {
-      return `${workflowCount} workflow ${workflowCount === 1 ? 'task' : 'tasks'}`
-    }
+  const allTaskCount = activeTasks.length + recentTasks.length
+  const visibleActiveTasks = filter === 'history' ? [] : activeTasks
+  const visibleRecentTasks = filter === 'active' ? [] : recentTasks
+  const spinnerFrame = responseSpinnerFrames[spinnerFrameIndex] ?? responseSpinnerFrames[0]
 
-    const parts: string[] = []
-    if (runningCount > 0) {
-      parts.push(`${runningCount} running`)
-    }
-    if (pendingCount > 0) {
-      parts.push(`${pendingCount} pending`)
-    }
-    if (workflowCount > 0) {
-      parts.push(`${workflowCount} workflow${workflowCount === 1 ? '' : 's'}`)
-    }
-    if (agentCount > 0) {
-      parts.push(`${agentCount} agent${agentCount === 1 ? '' : 's'}`)
-    }
-    return parts.length > 0 ? parts.join(' / ') : `${taskCount} tasks`
-  })()
-
-  const renderTask = (task: TaskRecord, index: number, tone: 'active' | 'recent') => {
+  const renderTask = (task: TaskRecord, tone: 'active' | 'recent') => {
+    const index = tasks.findIndex((candidate) => candidate.id === task.id)
     const selected = index === normalizedSelectedIndex
-    const fg = selected
-      ? theme.selectedFg
-      : tone === 'active'
-        ? getStatusColor(task.status)
-        : theme.statusFg
     const summary = task.progressSummary ?? task.error
+    const elapsed = getElapsed(task)
+    const statusColor = getStatusColor(task.status)
+    const titleColor = selected ? theme.selectedFg : tone === 'active' ? theme.headingFg : theme.assistantFg
 
     return (
       <box
         key={task.id}
         flexDirection="column"
-        minHeight={summary ? 2 : 1}
-        paddingX={1}
+        minHeight={summary ? 3 : 2}
+        paddingLeft={1}
+        paddingRight={1}
+        border={selected ? ['left'] : undefined}
+        borderColor={selected ? theme.headerAccent : undefined}
         backgroundColor={selected ? theme.selectedBg : theme.background}
       >
+        <box flexDirection="row" justifyContent="space-between" gap={1}>
+          <box flexDirection="row" gap={1} flexShrink={1}>
+            <text fg={statusColor} content={getStatusMarker(task.status, spinnerFrame)} />
+            <text><strong><span fg={titleColor}>{truncateTaskLine(formatTaskTitle(task.title), Math.max(12, listWidth - 9))}</span></strong></text>
+          </box>
+          {elapsed ? <text fg={theme.statusFg} content={truncateTaskLine(elapsed, 7)} /> : null}
+        </box>
         <text
-          fg={fg}
-          attributes={selected || tone === 'active' ? TextAttributes.BOLD : TextAttributes.DIM}
-          content={truncateTaskLine(
-            `${selected ? '*' : ' '} ${getStatusMarker(task.status).padEnd(3)} ${task.kind.padEnd(8)} ${formatTaskTitle(task.title)}`,
-            listWidth,
-          )}
+          fg={statusColor}
+          attributes={TextAttributes.DIM}
+          content={truncateTaskLine(`${task.kind.toUpperCase()} · ${task.status}`, listWidth - 1)}
         />
         {summary ? (
           <text
-            fg={selected ? theme.selectedFg : theme.statusFg}
+            fg={selected ? theme.assistantFg : theme.statusFg}
             attributes={TextAttributes.DIM}
-            content={truncateTaskLine(`    ${summary}`, listWidth)}
+            content={truncateTaskLine(summary, listWidth - 1)}
           />
         ) : null}
       </box>
@@ -535,46 +710,86 @@ export function TaskDrawer({
   }
 
   return (
-    <PopupOverlay size="xlarge" zIndex={90} onClose={onClose}>
-      <box paddingLeft={4} paddingRight={4} paddingBottom={1}>
-        <box flexDirection="row" justifyContent="space-between">
-          <box flexDirection="row" gap={2} flexShrink={1}>
-            <text fg={theme.headerAccent} attributes={TextAttributes.BOLD} content="Agent activity" />
-            <text
-              fg={theme.statusFg}
-              attributes={TextAttributes.DIM}
-              content={truncateTaskLine(activitySummary, Math.max(12, detailWidth - 18))}
-            />
-          </box>
-          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="esc" />
+    <PopupOverlay size="xlarge" zIndex={90} onClose={onClose} framed centered>
+      <box
+        flexDirection="row"
+        justifyContent="space-between"
+        paddingLeft={2}
+        paddingRight={2}
+        paddingTop={1}
+        paddingBottom={1}
+        backgroundColor={theme.header}
+        border={['bottom']}
+        borderColor={theme.headerBorder}
+      >
+        <box flexDirection="column" flexShrink={1}>
+          <text><strong><span fg={theme.headingFg}>Background tasks</span></strong></text>
+          <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Live workspace activity" />
         </box>
+        {wide ? (
+          <box flexDirection="row" alignItems="center" gap={1}>
+            <StatusChip marker={spinnerFrame} label={`${runningCount} RUNNING`} color={theme.headerAccent} backgroundColor={theme.reasoningBg} />
+            <StatusChip marker="○" label={`${pendingCount} QUEUED`} color={theme.infoFg} backgroundColor={theme.systemBg} />
+            <StatusChip marker="✓" label={`${recentTasks.length} RECENT`} color={theme.successFg} backgroundColor={theme.successBg} />
+          </box>
+        ) : (
+          <text fg={theme.statusFg} content={`${runningCount} run · ${pendingCount} queued`} />
+        )}
+        <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="esc" />
       </box>
+
+      {goal ? (
+        <box
+          flexDirection="column"
+          paddingLeft={2}
+          paddingRight={2}
+          paddingTop={1}
+          paddingBottom={1}
+          backgroundColor={theme.background}
+          border={['bottom']}
+          borderColor={theme.bodyBorder}
+        >
+          <text><strong><span fg={theme.headerAccent}>ACTIVE GOAL</span></strong></text>
+          <text fg={theme.assistantFg} content={truncateTaskLine(goal, Math.max(24, panelWidth - 8))} />
+        </box>
+      ) : null}
 
       <box
         flexDirection={wide ? 'row' : 'column'}
         width="100%"
-        paddingLeft={1}
-        paddingRight={1}
+        backgroundColor={theme.background}
       >
         <box
           flexDirection="column"
           width={wide ? leftWidth : '100%'}
           height={leftPaneHeight}
           border={wide ? ['right'] : undefined}
-          paddingRight={wide ? 1 : 0}
+          borderColor={focusPane === 'list' ? theme.headerAccent : theme.bodyBorder}
           backgroundColor={theme.background}
-          style={{ borderColor: theme.bodyBorder }}
         >
-          {goal ? (
-            <box flexDirection="column" paddingLeft={3} paddingRight={3} paddingBottom={1}>
-              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Goal" />
-              <text fg={theme.statusFg} content={truncateTaskLine(goal, listWidth)} />
-            </box>
-          ) : null}
+          <box flexDirection="row" gap={2} paddingLeft={1} paddingRight={1} border={['bottom']} borderColor={theme.bodyBorder}>
+            {taskDrawerFilters.map((candidate) => {
+              const count = candidate === 'all'
+                ? allTaskCount
+                : candidate === 'active'
+                  ? activeTasks.length
+                  : recentTasks.length
+              return (
+                <text key={candidate}>
+                  {candidate === filter ? (
+                    <strong><span fg={theme.headerAccent}>{`${candidate.toUpperCase()} ${count}`}</span></strong>
+                  ) : (
+                    <span fg={theme.statusFg}>{`${candidate.toUpperCase()} ${count}`}</span>
+                  )}
+                </text>
+              )
+            })}
+          </box>
 
           <scrollbox
-            height={goal ? Math.max(1, leftPaneHeight - 3) : leftPaneHeight}
+            height={Math.max(1, leftPaneHeight - 2)}
             scrollY
+            focused={focusPane === 'list'}
             style={{
               rootOptions: {
                 backgroundColor: theme.background,
@@ -587,20 +802,22 @@ export function TaskDrawer({
             }}
           >
             {taskCount === 0 ? (
-              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No task records yet." />
+              <text
+                fg={theme.statusFg}
+                attributes={TextAttributes.DIM}
+                content={filter === 'active' ? 'No active tasks.' : filter === 'history' ? 'No task history.' : 'No task records yet.'}
+              />
             ) : null}
-            {activeTasks.length > 0 ? (
+            {visibleActiveTasks.length > 0 ? (
               <>
-                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Active" />
-                {activeTasks.map((task, index) => renderTask(task, index, 'active'))}
+                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`ACTIVE ${visibleActiveTasks.length}`} />
+                {visibleActiveTasks.map((task) => renderTask(task, 'active'))}
               </>
-            ) : taskCount > 0 ? (
-              <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="No active tasks." />
             ) : null}
-            {recentTasks.length > 0 ? (
+            {visibleRecentTasks.length > 0 ? (
               <>
-                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content="Recent" />
-                {recentTasks.map((task, index) => renderTask(task, activeTasks.length + index, 'recent'))}
+                <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={`HISTORY ${visibleRecentTasks.length}`} />
+                {visibleRecentTasks.map((task) => renderTask(task, 'recent'))}
               </>
             ) : null}
           </scrollbox>
@@ -609,14 +826,15 @@ export function TaskDrawer({
         <box
           flexDirection="column"
           flexGrow={1}
-          paddingLeft={wide ? 2 : 0}
+          paddingLeft={wide ? 2 : 1}
+          paddingRight={1}
           paddingTop={wide ? 0 : 1}
           backgroundColor={theme.background}
         >
           <scrollbox
             height={detailPaneHeight}
             scrollY
-            focused
+            focused={focusPane === 'detail'}
             style={{
               rootOptions: {
                 backgroundColor: theme.background,
@@ -633,6 +851,7 @@ export function TaskDrawer({
                 task={selectedTask}
                 preview={preview.taskId === selectedTask.id ? preview : emptyPreview}
                 lineWidth={detailWidth}
+                detailTab={detailTab}
               />
             ) : (
               <GoalDetail goal={goal} lineWidth={detailWidth} />
@@ -643,19 +862,25 @@ export function TaskDrawer({
 
       <box
         paddingTop={1}
-        paddingLeft={4}
-        paddingRight={4}
+        paddingLeft={2}
+        paddingRight={2}
         paddingBottom={1}
         flexDirection="row"
         justifyContent="space-between"
+        backgroundColor={theme.header}
+        border={['top']}
+        borderColor={theme.headerBorder}
       >
         <box flexDirection="row" gap={2}>
-          <FooterHint title="Up/Down" label="move" />
-          <FooterHint title="Home/End" label="jump" />
+          <FooterHint title="↑↓" label={focusPane === 'list' ? 'select' : 'scroll'} />
+          <FooterHint title="Tab" label="pane" />
+          <FooterHint title="F" label="filter" />
+          {wide ? <FooterHint title="Enter" label="expand" /> : null}
         </box>
         <box flexDirection="row" gap={2}>
-          <FooterHint title="Ctrl+B" label="close" />
-          <FooterHint title="Esc" label="close" />
+          {isTaskCancellable(selectedTask) ? <FooterHint title="C" label="cancel" /> : null}
+          <FooterHint title="A/O/D" label="view" />
+          <FooterHint title="Ctrl+B/Esc" label="close" />
         </box>
       </box>
     </PopupOverlay>

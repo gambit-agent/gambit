@@ -58,6 +58,14 @@ import { useReplStatus } from './hooks/useReplStatus'
 import { useReplSubmit } from './hooks/useReplSubmit'
 import { useSessionPicker } from './hooks/useSessionPicker'
 import { isActiveTaskStatus } from './repl-format'
+import {
+  cycleTaskDrawerFilter,
+  filterTaskDrawerTasks,
+  isTaskCancellable,
+  type TaskDrawerDetailTab,
+  type TaskDrawerFilter,
+  type TaskDrawerPane,
+} from './task-drawer-model'
 
 const textareaKeyBindings: TextareaKeyBinding[] = [
   { name: 'return', action: 'submit' as const },
@@ -128,6 +136,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
   const [taskDrawerSelectedIndex, setTaskDrawerSelectedIndex] = useState(0)
+  const [taskDrawerFilter, setTaskDrawerFilter] = useState<TaskDrawerFilter>('all')
+  const [taskDrawerFocusPane, setTaskDrawerFocusPane] = useState<TaskDrawerPane>('list')
+  const [taskDrawerDetailTab, setTaskDrawerDetailTab] = useState<TaskDrawerDetailTab>('activity')
   const [mcpOverlayOpen, setMcpOverlayOpen] = useState(false)
   const [transcriptMode, setTranscriptMode] = useState(false)
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
@@ -253,14 +264,27 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [conversation.messages],
   )
   const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
-  const drawerTaskCount = useMemo(() => {
-    const activeCount = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status)).length
-    const recentCount = taskSnapshot.tasks
-      .filter((task) => !isActiveTaskStatus(task.status))
-      .slice(0, 8)
-      .length
-    return activeCount + recentCount
-  }, [taskSnapshot.tasks])
+  const drawerActiveTasks = useMemo(
+    () => taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status)),
+    [taskSnapshot.tasks],
+  )
+  const drawerRecentTasks = useMemo(
+    () => taskSnapshot.tasks.filter((task) => !isActiveTaskStatus(task.status)).slice(0, 8),
+    [taskSnapshot.tasks],
+  )
+  const drawerVisibleTasks = useMemo(() => {
+    return filterTaskDrawerTasks(drawerActiveTasks, drawerRecentTasks, taskDrawerFilter)
+  }, [drawerActiveTasks, drawerRecentTasks, taskDrawerFilter])
+  const drawerTaskCount = drawerVisibleTasks.length
+  const selectedDrawerTask = drawerTaskCount > 0
+    ? drawerVisibleTasks[Math.min(taskDrawerSelectedIndex, drawerTaskCount - 1)] ?? null
+    : null
+
+  const changeTaskDrawerFilter = useCallback((filter: TaskDrawerFilter) => {
+    setTaskDrawerFilter(filter)
+    setTaskDrawerSelectedIndex(0)
+    setTaskDrawerFocusPane('list')
+  }, [])
 
   useEffect(() => {
     setTaskDrawerSelectedIndex((current) => {
@@ -279,6 +303,30 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       return (current + delta + drawerTaskCount) % drawerTaskCount
     })
   }, [drawerTaskCount])
+
+  const cycleTaskFilter = useCallback(() => {
+    changeTaskDrawerFilter(cycleTaskDrawerFilter(taskDrawerFilter))
+  }, [changeTaskDrawerFilter, taskDrawerFilter])
+
+  const toggleTaskDrawerPane = useCallback(() => {
+    setTaskDrawerFocusPane((current) => current === 'list' ? 'detail' : 'list')
+  }, [])
+
+  const showTaskDrawerDetail = useCallback((tab: TaskDrawerDetailTab) => {
+    setTaskDrawerDetailTab(tab)
+    setTaskDrawerFocusPane('detail')
+  }, [])
+
+  const cancelSelectedTask = useCallback(async () => {
+    if (!selectedDrawerTask || !isTaskCancellable(selectedDrawerTask)) {
+      return
+    }
+    try {
+      await runtime.taskRuntime.cancelTask(selectedDrawerTask.id)
+    } catch (error) {
+      runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+    }
+  }, [runtime.conversationStore, runtime.taskRuntime, selectedDrawerTask])
 
   const clearComposer = useCallback(() => {
     setInputValue('')
@@ -472,10 +520,19 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setPermissionExplainOpen,
     taskDrawer: {
       isOpen: tasksOpen,
+      focusPane: taskDrawerFocusPane,
       close: () => setTasksOpen(false),
       moveSelection: moveTaskDrawerSelection,
       selectFirst: () => setTaskDrawerSelectedIndex(0),
       selectLast: () => setTaskDrawerSelectedIndex(Math.max(0, drawerTaskCount - 1)),
+      focusList: () => setTaskDrawerFocusPane('list'),
+      focusDetail: () => setTaskDrawerFocusPane('detail'),
+      togglePane: toggleTaskDrawerPane,
+      cycleFilter: cycleTaskFilter,
+      showActivity: () => showTaskDrawerDetail('activity'),
+      showOutput: () => showTaskDrawerDetail('output'),
+      showDetails: () => showTaskDrawerDetail('details'),
+      cancelSelected: cancelSelectedTask,
     },
     fileMentionCompletion: {
       isOpen: fileMentionState.isOpen,
@@ -734,6 +791,9 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         activeTasks={activeTasks}
         recentTasks={recentTasks}
         selectedTaskIndex={taskDrawerSelectedIndex}
+        taskFilter={taskDrawerFilter}
+        taskFocusPane={taskDrawerFocusPane}
+        taskDetailTab={taskDrawerDetailTab}
         goal={currentGoal}
         terminalWidth={terminalWidth}
         terminalHeight={terminalHeight}
