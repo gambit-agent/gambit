@@ -385,7 +385,46 @@ export function createFileTools(): AnyToolDefinition[] {
         throw new Error('Patch modifies multiple files. Omit the path parameter to allow this.')
       }
 
-      const results: string[] = []
+      // Two phases on purpose. Applying a multi-file patch file-by-file left
+      // earlier files written when a later hunk failed to apply, and recovering
+      // from that half-applied state was manual. Resolve, validate, and apply
+      // every hunk in memory first; only touch the disk once all of them hold.
+      type PlannedPatch =
+        | { kind: 'delete'; resolvedOld: string; message: string }
+        | {
+            kind: 'write'
+            resolvedNew: string
+            updated: string
+            renameFrom: string | null
+            message: string
+          }
+
+      const planned: PlannedPatch[] = []
+
+      // Later entries in a patch routinely build on earlier ones — a rename
+      // A -> B followed by an edit to B, or two hunks against the same file
+      // emitted as separate entries. Phase 1 therefore reads through this
+      // planned state rather than raw disk; validating everything against
+      // pre-patch disk would reject the first case and silently drop the
+      // earlier edit in the second.
+      const plannedContent = new Map<string, string>()
+      const plannedDeletions = new Set<string>()
+
+      const readPlannedBase = async (
+        resolvedPath: string,
+      ): Promise<{ exists: boolean; text: string }> => {
+        const pending = plannedContent.get(resolvedPath)
+        if (pending !== undefined) {
+          return { exists: true, text: pending }
+        }
+        if (plannedDeletions.has(resolvedPath)) {
+          return { exists: false, text: '' }
+        }
+        const file = Bun.file(resolvedPath)
+        return (await file.exists())
+          ? { exists: true, text: await file.text() }
+          : { exists: false, text: '' }
+      }
 
       for (const filePatch of perFilePatches) {
         const { patchText, oldPath, newPath } = filePatch
@@ -406,51 +445,86 @@ export function createFileTools(): AnyToolDefinition[] {
             throw new Error('Patch missing target path for deletion.')
           }
 
-          const file = Bun.file(resolvedOld)
-          if (!(await file.exists())) {
+          if (!(await readPlannedBase(resolvedOld)).exists) {
             throw new Error(`Cannot delete non-existent file: ${relativeOld}`)
           }
-          await unlink(resolvedOld)
-          results.push(`Deleted ${relativeOld} via patch.`)
+          plannedContent.delete(resolvedOld)
+          plannedDeletions.add(resolvedOld)
+          planned.push({
+            kind: 'delete',
+            resolvedOld,
+            message: `Deleted ${relativeOld} via patch.`,
+          })
           continue
         }
 
         const basePath = resolvedOld ?? resolvedNew
-        const baseFile = Bun.file(basePath)
-        const baseExists = await baseFile.exists()
+        const base = await readPlannedBase(basePath)
+        const baseExists = base.exists
 
         if (!resolvedOld && baseExists) {
           throw new Error(`Cannot create ${relativeNew}: file already exists.`)
         }
 
-        if (resolvedOld && !(await Bun.file(resolvedOld).exists())) {
+        if (resolvedOld && !baseExists) {
           throw new Error(`Base file not found: ${relativeOld}`)
         }
 
-        const baseText = baseExists ? await baseFile.text() : ''
-        const updated = applyUnifiedDiff(baseText, patchText)
-
-        await mkdir(path.dirname(resolvedNew), { recursive: true })
-        await Bun.write(resolvedNew, updated)
+        // Throws here on a bad hunk, before anything has been written. Name the
+        // file: with nothing on disk to inspect, a bare "context mismatch near
+        // line 42" in a ten-file patch is not actionable.
+        let updated: string
+        try {
+          updated = applyUnifiedDiff(base.text, patchText)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new Error(`Cannot apply patch to ${relativeNew ?? relativeOld}: ${detail}`)
+        }
 
         const isRename = Boolean(resolvedOld && resolvedOld !== resolvedNew)
         const relativeResolvedNew = relativeWorkspacePath(resolvedNew)
         const toPosix = (value: string) => value.split(path.sep).join('/')
 
+        const message =
+          isRename && relativeOld
+            ? `Moved ${toPosix(relativeOld)} -> ${toPosix(relativeResolvedNew)} via patch.`
+            : baseExists
+              ? `Updated ${relativeResolvedNew} via patch.`
+              : `Created ${relativeResolvedNew} via patch.`
+
+        plannedContent.set(resolvedNew, updated)
+        plannedDeletions.delete(resolvedNew)
         if (isRename && resolvedOld) {
-          const existingOld = Bun.file(resolvedOld)
-          if (await existingOld.exists()) {
-            await unlink(resolvedOld)
-          }
+          plannedContent.delete(resolvedOld)
+          plannedDeletions.add(resolvedOld)
         }
 
-        if (isRename && relativeOld) {
-          results.push(`Moved ${toPosix(relativeOld)} -> ${toPosix(relativeResolvedNew)} via patch.`)
-        } else if (baseExists) {
-          results.push(`Updated ${relativeResolvedNew} via patch.`)
-        } else {
-          results.push(`Created ${relativeResolvedNew} via patch.`)
+        planned.push({
+          kind: 'write',
+          resolvedNew,
+          updated,
+          renameFrom: isRename ? resolvedOld : null,
+          message,
+        })
+      }
+
+      const results: string[] = []
+
+      for (const operation of planned) {
+        if (operation.kind === 'delete') {
+          await unlink(operation.resolvedOld)
+          results.push(operation.message)
+          continue
         }
+
+        await mkdir(path.dirname(operation.resolvedNew), { recursive: true })
+        await Bun.write(operation.resolvedNew, operation.updated)
+
+        if (operation.renameFrom && (await Bun.file(operation.renameFrom).exists())) {
+          await unlink(operation.renameFrom)
+        }
+
+        results.push(operation.message)
       }
 
       return results.length === 1 ? (results[0] ?? '') : results.join('\n')

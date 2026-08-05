@@ -7,6 +7,11 @@ import { setWorkspaceRootForTesting, workspaceRoot as originalWorkspaceRoot } fr
 import { DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS, ShellTaskRunner } from './shell-task-runner'
 import { TaskRuntime } from './task-runtime'
 
+/**
+ * Note for Windows readers: `$$` and `$!` inside Git Bash report msys pids,
+ * which have no relationship to the Windows pids `process.kill` inspects. Tests
+ * that assert on a shell-reported pid are POSIX-only and skipped there.
+ */
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -155,7 +160,7 @@ describe('shell task runner', () => {
     expect(result.task.progressSummary).toContain('timed out')
   }, 30_000)
 
-  test('background tasks ignore the external turn signal', async () => {
+  test.skipIf(process.platform === 'win32')('background tasks ignore the external turn signal', async () => {
     const runner = new ShellTaskRunner(runtime)
 
     // An already-aborted signal must not prevent a background task from starting.

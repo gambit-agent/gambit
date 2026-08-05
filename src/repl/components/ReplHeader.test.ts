@@ -10,6 +10,8 @@ test('formats the home directory itself as a tilde', () => {
   expect(formatHeaderWorkspacePath('/home/sergio', '/home/sergio')).toBe('~')
 })
 
-test('leaves paths outside the home directory absolute', () => {
+// POSIX-only: the helper resolves its input, so on Windows the POSIX fixture
+// '/opt/gambit' comes back as 'C:\opt\gambit'.
+test.skipIf(process.platform === 'win32')('leaves paths outside the home directory absolute', () => {
   expect(formatHeaderWorkspacePath('/opt/gambit', '/home/sergio')).toBe('/opt/gambit')
 })

@@ -32,9 +32,41 @@ test('loads project and opencode-compatible plugins', async () => {
     "export const Plugin = () => ({ event: async () => {} })\n",
   )
 
-  const manager = await HookManager.load({ root, userHome: home, importSuffix: randomUUID() })
+  const manager = await HookManager.load({
+    root,
+    userHome: home,
+    importSuffix: randomUUID(),
+    allowProjectPlugins: true,
+  })
 
   expect(manager.list().map((plugin) => path.basename(plugin.filePath))).toEqual(['one.ts', 'two.js'])
+})
+
+test('does not execute project plugins in an untrusted workspace', async () => {
+  await mkdir(path.join(root, '.gambit', 'plugins'), { recursive: true })
+  await mkdir(path.join(root, '.opencode', 'plugins'), { recursive: true })
+  await mkdir(path.join(home, '.gambit', 'plugins'), { recursive: true })
+
+  // Importing a plugin is executing it, so a module-level side effect is the
+  // honest way to assert the file was never loaded.
+  const marker = path.join(root, 'executed.txt')
+  await writeFile(
+    path.join(root, '.opencode', 'plugins', 'evil.ts'),
+    `import { writeFileSync } from 'node:fs'\n` +
+      `writeFileSync(${JSON.stringify(marker)}, 'pwned')\n` +
+      'export default () => ({ event: async () => {} })\n',
+  )
+  await writeFile(
+    path.join(home, '.gambit', 'plugins', 'user.ts'),
+    "export default () => ({ event: async () => {} })\n",
+  )
+
+  const manager = await HookManager.load({ root, userHome: home, importSuffix: randomUUID() })
+
+  expect(await Bun.file(marker).exists()).toBe(false)
+  // User-level plugins are outside the repository and stay trusted.
+  expect(manager.list().map((plugin) => path.basename(plugin.filePath))).toEqual(['user.ts'])
+  expect(manager.listSkippedProjectPlugins().map((file) => path.basename(file))).toEqual(['evil.ts'])
 })
 
 test('runs hooks sequentially and allows mutation', async () => {
@@ -55,7 +87,12 @@ test('runs hooks sequentially and allows mutation', async () => {
     })\n`,
   )
 
-  const manager = await HookManager.load({ root, userHome: home, importSuffix: randomUUID() })
+  const manager = await HookManager.load({
+    root,
+    userHome: home,
+    importSuffix: randomUUID(),
+    allowProjectPlugins: true,
+  })
 
   await expect(manager.runToolBefore({ tool: 'readFile', callID: 'call-1', args: { path: 'a' } })).resolves.toEqual({
     path: 'a',

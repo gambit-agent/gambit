@@ -12,12 +12,31 @@ export function isTerminalTaskStatus(status: TaskStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
+/**
+ * Reconciliation cancels every pending/running record in the shared workspace
+ * store, which is only correct for tasks orphaned by a previous process. ACP
+ * builds a fresh runtime per session, so running it per runtime meant opening
+ * session B marked session A's live tasks cancelled (without stopping them).
+ * Run it at most once per process instead.
+ */
+let reconciliation: Promise<unknown> | null = null
+
+function reconcileInterruptedTasksOnce(): Promise<unknown> {
+  reconciliation ??= reconcileInterruptedTasks()
+  return reconciliation
+}
+
+/** Test-only: forget that this process already reconciled. */
+export function resetTaskReconciliationForTests(): void {
+  reconciliation = null
+}
+
 export class TaskRuntime {
   private readonly store = createObservableStore<TaskRuntimeSnapshot>({ tasks: [] })
   private readonly controllers = new Map<string, AbortController>()
 
   async initialize(): Promise<void> {
-    await reconcileInterruptedTasks()
+    await reconcileInterruptedTasksOnce()
     await this.refresh()
   }
 

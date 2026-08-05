@@ -103,6 +103,29 @@ test('persists recalled memory context as a single superseding hidden user messa
   expect(persistedMemory[0]?.content).toContain('fact-two')
 })
 
+test('an empty recall clears the previous turn\'s memory context', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'memory-context-empty-test' })
+  const runner = new ConversationRunner({
+    store,
+    baseSystemPrompt: 'Base prompt',
+    memoryStore: new MemoryStore(),
+    createToolContext: () => ({ workspaceRoot: tempRoot }),
+  })
+  const appendMemoryContext = (context: string) =>
+    (runner as unknown as { appendMemoryContext(context: string): Promise<void> }).appendMemoryContext(context)
+
+  await appendMemoryContext('Relevant memory context:\n\n## fact-one')
+  expect(store.getSnapshot().messages.filter((message) => message.metadata?.memoryContext)).toHaveLength(1)
+
+  // A later, unrelated turn recalls nothing. The earlier memory must not keep
+  // riding along in the prompt.
+  await appendMemoryContext('')
+  expect(store.getSnapshot().messages.filter((message) => message.metadata?.memoryContext)).toHaveLength(0)
+
+  const persisted = await store.loadMessages()
+  expect(persisted.filter((message) => message.metadata?.memoryContext)).toHaveLength(0)
+})
+
 test('collapses legacy transcripts with multiple memory-context messages to one', async () => {
   const store = createConversationStore({ rootPath: tempRoot, conversationId: 'memory-context-legacy-test' })
   await store.initialize()

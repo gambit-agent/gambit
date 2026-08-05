@@ -20,6 +20,14 @@ export interface UserConfig {
   maxDepth: number | null
   theme: string | null
   providers: Record<string, UserConfigProviderCredential>
+  /**
+   * Workspace roots whose `.gambit/plugins` and `.opencode/plugins` directories
+   * may execute. Project plugins are repository-controlled code that runs at
+   * startup, so they stay disabled until the user trusts the checkout here.
+   * This lives in user config on purpose: a project-level setting would be
+   * writable by the same repository it is meant to gate.
+   */
+  trustedProjectPluginRoots: string[]
 }
 
 export function getUserConfigPath(home: string = homedir()): string {
@@ -27,7 +35,7 @@ export function getUserConfigPath(home: string = homedir()): string {
 }
 
 function emptyUserConfig(): UserConfig {
-  return { maxDepth: null, theme: null, providers: {} }
+  return { maxDepth: null, theme: null, providers: {}, trustedProjectPluginRoots: [] }
 }
 
 function parseProviderCredential(value: unknown): UserConfigProviderCredential | null {
@@ -71,6 +79,16 @@ function parseProviders(value: unknown): Record<string, UserConfigProviderCreden
   return result
 }
 
+function parseTrustedProjectPluginRoots(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const roots = value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => path.resolve(entry.trim()))
+  return [...new Set(roots)]
+}
+
 function parseUserConfig(value: unknown): UserConfig {
   if (!isRecord(value)) {
     return emptyUserConfig()
@@ -85,7 +103,44 @@ function parseUserConfig(value: unknown): UserConfig {
       ? value.theme.trim()
       : null,
     providers: parseProviders(value.providers),
+    trustedProjectPluginRoots: parseTrustedProjectPluginRoots(
+      value.trustedProjectPluginRoots ?? value.trusted_project_plugin_roots,
+    ),
   }
+}
+
+/**
+ * Whether repository-controlled plugins under `root` are allowed to execute.
+ * `GAMBIT_TRUST_PROJECT_PLUGINS=1` is an escape hatch for non-interactive use
+ * (CI, containers) where editing user config is impractical.
+ */
+export function isProjectPluginRootTrusted(root: string, config: UserConfig | null): boolean {
+  if (process.env.GAMBIT_TRUST_PROJECT_PLUGINS === '1') {
+    return true
+  }
+  const resolved = path.resolve(root)
+  return (config?.trustedProjectPluginRoots ?? []).some((trusted) => trusted === resolved)
+}
+
+export async function trustProjectPluginRoot(
+  root: string,
+  configPath: string = getUserConfigPath(),
+): Promise<void> {
+  return enqueueConfigUpdate(async () => {
+    const current = await readUserConfigRecord(configPath)
+    const existing = parseTrustedProjectPluginRoots(
+      current.trustedProjectPluginRoots ?? current.trusted_project_plugin_roots,
+    )
+    const resolved = path.resolve(root)
+    if (existing.includes(resolved)) {
+      return
+    }
+    const { trusted_project_plugin_roots: _legacy, ...rest } = current
+    await writeUserConfigRecord(configPath, {
+      ...rest,
+      trustedProjectPluginRoots: [...existing, resolved],
+    })
+  })
 }
 
 async function readUserConfigRecord(configPath: string): Promise<Record<string, unknown>> {

@@ -116,6 +116,38 @@ function toPosixPath(filePath: string): string {
   return filePath.split(path.sep).join('/')
 }
 
+/**
+ * ripgrep prints native separators, so on Windows it returns `src\app.ts` while
+ * the builtin fallback returns `src/app.ts`. Callers should not have to care
+ * which backend answered, so normalize rg's paths to POSIX form.
+ */
+function normalizeRipgrepFileList(stdout: string): string {
+  if (path.sep === '/') {
+    return stdout
+  }
+  return stdout.replaceAll('\\', '/')
+}
+
+/**
+ * Same normalization for `path:line:content` match lines, but only the path
+ * segment is rewritten — backslashes inside matched source lines are content.
+ */
+function normalizeRipgrepMatches(stdout: string): string {
+  if (path.sep === '/') {
+    return stdout
+  }
+  // Paths here are always workspace-relative, so they carry no drive-letter
+  // colon and the first `:<digits>:` reliably ends the path segment.
+  return stdout
+    .split('\n')
+    .map((line) =>
+      line.replace(/^([^:]+):(\d+):/, (_match, filePath: string, lineNumber: string) =>
+        `${filePath.replaceAll('\\', '/')}:${lineNumber}:`,
+      ),
+    )
+    .join('\n')
+}
+
 function matchesFallbackGlob(relativePath: string, searchPath: string, glob: Glob): boolean {
   const normalizedSearchPath = toPosixPath(searchPath)
   const normalizedRelativePath = toPosixPath(relativePath)
@@ -171,6 +203,17 @@ function compileFallbackSearchPattern(pattern: string): RegExp {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Invalid grep pattern: ${message}`)
   }
+}
+
+/**
+ * Falling back is invisible in the result otherwise, which turns "why are these
+ * results different from ripgrep's?" into a long afternoon. Annotate only when
+ * rg was actually expected to run and could not.
+ */
+const RIPGREP_FALLBACK_NOTICE = '[ripgrep unavailable; used builtin search]'
+
+function withFallbackNotice(output: string): string {
+  return `${output}\n\n${RIPGREP_FALLBACK_NOTICE}`
 }
 
 async function runFallbackSearch(input: { pattern: string; searchPath: string; glob?: string }): Promise<string> {
@@ -240,15 +283,18 @@ export async function runRipgrepSearch(input: { pattern: string; path?: string; 
 
   const result = await runExecutable('rg', args, workspaceRoot)
   if (result === null) {
-    return runFallbackSearch({ pattern, searchPath, glob: input.glob })
+    return withFallbackNotice(await runFallbackSearch({ pattern, searchPath, glob: input.glob }))
   }
   if (result.exitCode === 0) {
-    return truncate(result.stdout, MAX_SHELL_OUTPUT)
+    return truncate(normalizeRipgrepMatches(result.stdout), MAX_SHELL_OUTPUT)
   }
   if (result.exitCode === 1) {
     return 'No matches found.'
   }
-  throw new Error(result.stderr.trim() || `rg exited with code ${result.exitCode}`)
+  // Exit >= 2 means rg itself failed (a bad ripgrep.conf, an unsupported flag on
+  // an old build, a sandbox shim). That is an environment problem, not a search
+  // result, so fall back instead of surfacing it to the model as a tool error.
+  return withFallbackNotice(await runFallbackSearch({ pattern, searchPath, glob: input.glob }))
 }
 
 export async function runRipgrepGlob(input: { pattern: string; path?: string }): Promise<string> {
@@ -262,15 +308,16 @@ export async function runRipgrepGlob(input: { pattern: string; path?: string }):
 
   const result = await runExecutable('rg', args, workspaceRoot)
   if (result === null) {
-    return runFallbackGlob({ pattern, searchPath })
+    return withFallbackNotice(await runFallbackGlob({ pattern, searchPath }))
   }
   if (result.exitCode === 0) {
-    return truncate(result.stdout.trimEnd(), MAX_SHELL_OUTPUT) || 'No files found.'
+    return truncate(normalizeRipgrepFileList(result.stdout).trimEnd(), MAX_SHELL_OUTPUT) || 'No files found.'
   }
   if (result.exitCode === 1) {
     return 'No files found.'
   }
-  throw new Error(result.stderr.trim() || `rg exited with code ${result.exitCode}`)
+  // See runRipgrepSearch: a broken rg falls back rather than failing the tool.
+  return withFallbackNotice(await runFallbackGlob({ pattern, searchPath }))
 }
 
 export function summarizeTask(task: TaskRecord): Record<string, unknown> {

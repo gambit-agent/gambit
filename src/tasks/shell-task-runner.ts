@@ -7,6 +7,27 @@ import { appendTaskOutput, writeTaskOutput } from './task-output'
 import type { TaskRecord } from './task-types'
 import { TaskRuntime } from './task-runtime'
 
+/**
+ * Terminate a process and every descendant on Windows.
+ *
+ * `taskkill /T /F` is unconditionally forceful — Windows has no console-app
+ * equivalent of the SIGTERM grace period — so the POSIX SIGTERM/SIGKILL
+ * escalation collapses into a single call here. Repeat calls on an
+ * already-dead tree are harmless no-ops.
+ */
+function killWindowsProcessTree(pid: number): void {
+  try {
+    const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    // taskkill exits non-zero when the tree is already gone; nothing to do.
+    killer.on('error', () => {})
+  } catch {
+    // Spawning the killer failed; the process may already have exited.
+  }
+}
+
 export interface ShellTaskResult {
   task: TaskRecord
   stdout: string
@@ -34,6 +55,8 @@ export const DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS = 10 * 60_000
 
 /** Grace period between SIGTERM and SIGKILL when tearing down a process group. */
 const KILL_ESCALATION_GRACE_MS = 2_000
+/** How long to keep draining stdio after the shell exits before giving up on the pipes. */
+const OUTPUT_DRAIN_GRACE_MS = 250
 
 function formatTimeoutDuration(ms: number): string {
   if (ms >= 60_000 && ms % 60_000 === 0) {
@@ -120,6 +143,14 @@ export class ShellTaskRunner {
         if (typeof pid !== 'number') {
           return
         }
+        // Windows has no process groups: process.kill(-pid) throws, and killing
+        // only the direct bash child leaves grandchildren holding the stdout and
+        // stderr write-ends open, so collectBoundedText never resolves and the
+        // cancelled turn hangs. taskkill /T terminates the whole tree.
+        if (process.platform === 'win32') {
+          killWindowsProcessTree(pid)
+          return
+        }
         try {
           process.kill(-pid, signal)
         } catch {
@@ -147,10 +178,26 @@ export class ShellTaskRunner {
         controller.signal.addEventListener('abort', onAbort, { once: true })
       }
 
+      // 'exit' fires as soon as the shell itself is gone. 'close' additionally
+      // waits for every stdio pipe to close, which never happens while a
+      // surviving grandchild holds a write end — the cause of cancelled turns
+      // hanging on Windows, where the msys grandchild outlives taskkill /T.
       const exited = new Promise<number | null>((resolve, reject) => {
         child.once('error', reject)
-        child.once('close', (code) => resolve(code))
+        child.once('exit', (code) => resolve(code))
       })
+
+      // Once the shell has exited, give buffered output a brief window to drain
+      // and then stop reading rather than waiting on pipes nobody will close.
+      const stopCollecting = new AbortController()
+      let drain: ReturnType<typeof setTimeout> | null = null
+      void exited.then(
+        () => {
+          drain = setTimeout(() => stopCollecting.abort(), OUTPUT_DRAIN_GRACE_MS)
+          drain.unref?.()
+        },
+        () => stopCollecting.abort(),
+      )
 
       try {
         const stdoutStream = child.stdout
@@ -159,9 +206,10 @@ export class ShellTaskRunner {
         const stderrStream = child.stderr
           ? (Readable.toWeb(child.stderr) as unknown as ReadableStream<Uint8Array>)
           : null
+        const collectOptions = { stopSignal: stopCollecting.signal }
         const [stdout, stderr, exitCode] = await Promise.all([
-          collectBoundedText(stdoutStream, MAX_SHELL_OUTPUT),
-          collectBoundedText(stderrStream, MAX_SHELL_OUTPUT),
+          collectBoundedText(stdoutStream, MAX_SHELL_OUTPUT, collectOptions),
+          collectBoundedText(stderrStream, MAX_SHELL_OUTPUT, collectOptions),
           exited,
         ])
         const boundedStdout = appendTruncationNotice(stdout, 'stdout')
@@ -203,6 +251,9 @@ export class ShellTaskRunner {
         }
       } finally {
         controller.signal.removeEventListener('abort', onAbort)
+        if (drain) {
+          clearTimeout(drain)
+        }
         if (escalation) {
           clearTimeout(escalation)
         }

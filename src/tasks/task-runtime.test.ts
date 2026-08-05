@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { setWorkspaceRootForTesting } from '../config'
 import { createTask, getTask } from './task-store'
-import { TaskRuntime } from './task-runtime'
+import { TaskRuntime, resetTaskReconciliationForTests } from './task-runtime'
 
 describe('task runtime', () => {
   let root = ''
@@ -13,6 +13,7 @@ describe('task runtime', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'gambit-task-runtime-'))
     setWorkspaceRootForTesting(root)
+    resetTaskReconciliationForTests()
   })
 
   test('initialize cancels incomplete tasks from a previous session', async () => {
@@ -65,6 +66,30 @@ describe('task runtime', () => {
     })
 
     expect(runtime.getSnapshot().tasks).toHaveLength(3)
+  })
+
+  test('a second runtime in the same process leaves live tasks alone', async () => {
+    const first = new TaskRuntime()
+    await first.initialize()
+
+    // Session A starts work after startup reconciliation has already run.
+    const liveTask = await createTask({
+      kind: 'shell',
+      title: 'Session A background command',
+      background: true,
+      status: 'running',
+      startedAt: '2026-04-01T00:00:00.000Z',
+    })
+
+    // Session B opens and builds its own runtime.
+    const second = new TaskRuntime()
+    await second.initialize()
+
+    await expect(getTask(liveTask.id)).resolves.toMatchObject({
+      id: liveTask.id,
+      status: 'running',
+    })
+    expect((await getTask(liveTask.id))?.finishedAt).toBeFalsy()
   })
 
   test('cancelTask aborts a registered running task', async () => {

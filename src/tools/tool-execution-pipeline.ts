@@ -375,8 +375,32 @@ export class DefaultToolExecutionPipeline implements ToolExecutionPipeline {
 
   private async writeArtifact(toolCallId: string, content: string, outputDirectory: string): Promise<string> {
     await mkdir(outputDirectory, { recursive: true })
-    const artifactPath = path.join(outputDirectory, `${toolCallId}.txt`)
+    const artifactPath = resolveArtifactPath(outputDirectory, toolCallId)
     await Bun.write(artifactPath, content)
     return artifactPath
   }
+}
+
+/**
+ * Build the artifact path for a tool call.
+ *
+ * `toolCallId` originates from the model provider, so it is untrusted input: a
+ * compromised provider could return an id containing path separators or `..`
+ * and steer the write outside the tool-results directory. The id is reduced to
+ * a single safe filename segment, and the resolved path is re-checked against
+ * the output directory before it is handed back to the caller.
+ */
+export function resolveArtifactPath(outputDirectory: string, toolCallId: string): string {
+  const artifactPath = path.resolve(outputDirectory, `${sanitizeArtifactName(toolCallId)}.txt`)
+  const root = path.resolve(outputDirectory)
+  const relative = path.relative(root, artifactPath)
+  if (relative !== path.basename(artifactPath) || path.isAbsolute(relative)) {
+    throw new Error('Refusing to write tool result artifact outside the tool-results directory.')
+  }
+  return artifactPath
+}
+
+function sanitizeArtifactName(toolCallId: string): string {
+  const sanitized = toolCallId.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '')
+  return sanitized.length > 0 ? sanitized.slice(0, 128) : generateId()
 }

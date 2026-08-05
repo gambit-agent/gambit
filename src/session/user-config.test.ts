@@ -24,12 +24,12 @@ afterEach(async () => {
 })
 
 test('returns an empty config when the user config file is missing or malformed', async () => {
-  await expect(readUserConfig(configPath)).resolves.toEqual({ maxDepth: null, theme: null, providers: {} })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ maxDepth: null, theme: null, providers: {}, trustedProjectPluginRoots: [] })
 
   await mkdir(path.dirname(configPath), { recursive: true })
   await writeFile(configPath, '{bad json', 'utf8')
 
-  await expect(readUserConfig(configPath)).resolves.toEqual({ maxDepth: null, theme: null, providers: {} })
+  await expect(readUserConfig(configPath)).resolves.toEqual({ maxDepth: null, theme: null, providers: {}, trustedProjectPluginRoots: [] })
 })
 
 test('reads max_depth from the user config', async () => {
@@ -40,6 +40,7 @@ test('reads max_depth from the user config', async () => {
     maxDepth: 7,
     theme: null,
     providers: {},
+    trustedProjectPluginRoots: [],
   })
 })
 
@@ -51,6 +52,7 @@ test('reads the theme preference from the user config', async () => {
     maxDepth: null,
     theme: 'dracula',
     providers: {},
+    trustedProjectPluginRoots: [],
   })
 })
 
@@ -71,6 +73,7 @@ test('preserves unrelated fields when saving the theme preference', async () => 
     maxDepth: 3,
     theme: 'gruvbox-dark',
     providers: { openrouter: { apiKey: 'sk-existing', baseURL: null } },
+    trustedProjectPluginRoots: [],
   })
 })
 
@@ -125,7 +128,9 @@ test('writes and reads an oauth provider credential', async () => {
   })
 })
 
-test('writes the user config with owner-only permissions', async () => {
+// POSIX-only: Windows does not implement Unix permission bits, so stat() always
+// reports 0o666 here regardless of the mode passed to writeFile.
+test.skipIf(process.platform === 'win32')('writes the user config with owner-only permissions', async () => {
   await writeProviderCredential('openai', { apiKey: 'sk-openai', baseURL: null }, configPath)
 
   const mode = (await stat(configPath)).mode & 0o777

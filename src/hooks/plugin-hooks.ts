@@ -53,15 +53,25 @@ export interface HookManagerOptions {
   userHome?: string
   pluginDirectories?: string[]
   importSuffix?: string
+  /**
+   * Allow plugins that live inside the workspace to execute. These are
+   * repository-controlled (`.opencode/plugins` in particular is commonly
+   * tracked), and loading runs them at startup before the permission engine
+   * exists — so opening an untrusted checkout would execute its code. Defaults
+   * to false; the caller opts in per workspace root.
+   */
+  allowProjectPlugins?: boolean
 }
 
 const PLUGIN_EXTENSIONS = new Set(['.js', '.mjs', '.ts'])
 
 export class HookManager {
   private readonly plugins: LoadedGambitPlugin[]
+  private readonly skippedProjectPluginFiles: string[]
 
-  private constructor(plugins: LoadedGambitPlugin[]) {
+  private constructor(plugins: LoadedGambitPlugin[], skippedProjectPluginFiles: string[] = []) {
     this.plugins = plugins
+    this.skippedProjectPluginFiles = skippedProjectPluginFiles
   }
 
   static fromHooks(plugins: LoadedGambitPlugin[]): HookManager {
@@ -71,15 +81,27 @@ export class HookManager {
   static async load(options: HookManagerOptions = {}): Promise<HookManager> {
     const root = options.root ?? workspaceRoot
     const userHome = options.userHome ?? homedir()
-    const directories = options.pluginDirectories ?? [
+    const projectDirectories = [
       path.join(root, '.gambit', 'plugins'),
       path.join(root, '.opencode', 'plugins'),
+    ]
+    const directories = options.pluginDirectories ?? [
+      ...projectDirectories,
       path.join(userHome, '.gambit', 'plugins'),
     ]
+    const allowProjectPlugins = options.allowProjectPlugins ?? false
+    const projectDirectorySet = new Set(projectDirectories.map((directory) => path.resolve(directory)))
+    const isProjectDirectory = (directory: string) => projectDirectorySet.has(path.resolve(directory))
 
     const plugins: LoadedGambitPlugin[] = []
+    const skippedProjectPluginFiles: string[] = []
     for (const directory of directories) {
       const files = await collectFiles(directory, { extensions: PLUGIN_EXTENSIONS })
+      if (!allowProjectPlugins && isProjectDirectory(directory)) {
+        // Discover but do not import: importing is execution.
+        skippedProjectPluginFiles.push(...files)
+        continue
+      }
       for (const filePath of files) {
         const hooks = await loadPlugin(filePath, root, options.importSuffix)
         if (hooks) {
@@ -88,11 +110,16 @@ export class HookManager {
       }
     }
 
-    return new HookManager(plugins)
+    return new HookManager(plugins, skippedProjectPluginFiles)
   }
 
   list(): LoadedGambitPlugin[] {
     return [...this.plugins]
+  }
+
+  /** Project plugin files that were found but not executed because the workspace is untrusted. */
+  listSkippedProjectPlugins(): string[] {
+    return [...this.skippedProjectPluginFiles]
   }
 
   async emit(event: Omit<GambitHookEvent, 'timestamp'> & { timestamp?: string }): Promise<void> {

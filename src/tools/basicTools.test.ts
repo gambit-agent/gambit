@@ -84,7 +84,10 @@ test("read rejects arbitrary absolute paths outside workspace and skill director
   }
 });
 
-test("bash can run scripts from absolute paths inside user skill directories", async () => {
+// POSIX-only: bash cannot execute a Windows-style absolute path (`C:\...`),
+// and Git Bash reports msys paths (`/tmp/...`) from pwd rather than the
+// Windows path these assertions build.
+test.skipIf(process.platform === "win32")("bash can run scripts from absolute paths inside user skill directories", async () => {
   const scriptPath = path.join(userSkillsDir, "example", "scripts", "hello.sh");
   await mkdir(path.dirname(scriptPath), { recursive: true });
   await writeFile(scriptPath, "printf 'hello from skill script\\n'");
@@ -95,7 +98,7 @@ test("bash can run scripts from absolute paths inside user skill directories", a
   expect(output).toContain("hello from skill script");
 });
 
-test("bash can run in a workspace-relative workdir", async () => {
+test.skipIf(process.platform === "win32")("bash can run in a workspace-relative workdir", async () => {
   await mkdir(path.join(workspaceDir, "pkg"), { recursive: true });
   await writeFile(path.join(workspaceDir, "pkg", "package.txt"), "pkg\n");
 
