@@ -57,7 +57,14 @@ import { useReplSessionLaunch } from './hooks/useReplSessionLaunch'
 import { useReplStatus } from './hooks/useReplStatus'
 import { useReplSubmit } from './hooks/useReplSubmit'
 import { useSessionPicker } from './hooks/useSessionPicker'
-import { isActiveTaskStatus } from './repl-format'
+import {
+  buildActivityRows,
+  cycleActivityFilter,
+  isCancellableTask,
+  splitTaskLists,
+  type ActivityFilter,
+} from './task-activity-model'
+import { copyTextWithRendererClipboard } from '../lib/clipboard'
 
 const textareaKeyBindings: TextareaKeyBinding[] = [
   { name: 'return', action: 'submit' as const },
@@ -128,6 +135,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
   const [taskDrawerSelectedIndex, setTaskDrawerSelectedIndex] = useState(0)
+  const [taskFilter, setTaskFilter] = useState<ActivityFilter>('all')
+  const [taskSearchQuery, setTaskSearchQuery] = useState('')
+  const [taskSearchActive, setTaskSearchActive] = useState(false)
+  const [taskDetailFocused, setTaskDetailFocused] = useState(false)
+  const [taskOutputExpanded, setTaskOutputExpanded] = useState(false)
   const [mcpOverlayOpen, setMcpOverlayOpen] = useState(false)
   const [transcriptMode, setTranscriptMode] = useState(false)
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
@@ -253,14 +265,16 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [conversation.messages],
   )
   const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
-  const drawerTaskCount = useMemo(() => {
-    const activeCount = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status)).length
-    const recentCount = taskSnapshot.tasks
-      .filter((task) => !isActiveTaskStatus(task.status))
-      .slice(0, 8)
-      .length
-    return activeCount + recentCount
-  }, [taskSnapshot.tasks])
+  // Built from the same helper the drawer renders from, so the highlighted
+  // index can never point at a row the filter or search has hidden.
+  const drawerRows = useMemo(() => {
+    const { activeTasks: active, recentTasks: recent } = splitTaskLists(taskSnapshot.tasks)
+    return buildActivityRows(active, recent, taskFilter, taskSearchQuery)
+  }, [taskSnapshot.tasks, taskFilter, taskSearchQuery])
+  const drawerTaskCount = drawerRows.length
+  const selectedDrawerTask = drawerTaskCount > 0
+    ? drawerRows[Math.min(Math.max(taskDrawerSelectedIndex, 0), drawerTaskCount - 1)]?.task ?? null
+    : null
 
   useEffect(() => {
     setTaskDrawerSelectedIndex((current) => {
@@ -279,6 +293,49 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       return (current + delta + drawerTaskCount) % drawerTaskCount
     })
   }, [drawerTaskCount])
+
+  const closeTaskDrawer = useCallback(() => {
+    setTasksOpen(false)
+    setTaskSearchActive(false)
+    setTaskDetailFocused(false)
+    setTaskOutputExpanded(false)
+  }, [])
+
+  const cycleTaskFilter = useCallback((delta: number) => {
+    setTaskFilter((current) => cycleActivityFilter(current, delta))
+    setTaskDrawerSelectedIndex(0)
+  }, [])
+
+  const closeTaskSearch = useCallback((options?: { clear?: boolean }) => {
+    setTaskSearchActive(false)
+    if (options?.clear) {
+      setTaskSearchQuery('')
+      setTaskDrawerSelectedIndex(0)
+    }
+  }, [])
+
+  const copySelectedTaskPath = useCallback(() => {
+    const path = selectedDrawerTask?.outputPath ?? selectedDrawerTask?.transcriptPath
+    if (!path) {
+      return
+    }
+    void copyTextWithRendererClipboard(renderer, path).catch((error: unknown) => {
+      runtime.conversationStore.setError(
+        error instanceof Error ? error.message : 'Failed to copy task path to clipboard.',
+      )
+    })
+  }, [renderer, runtime.conversationStore, selectedDrawerTask])
+
+  const killSelectedTask = useCallback(() => {
+    if (!selectedDrawerTask || !isCancellableTask(selectedDrawerTask)) {
+      return
+    }
+    void runtime.taskRuntime.cancelTask(selectedDrawerTask.id).catch((error: unknown) => {
+      runtime.conversationStore.setError(
+        error instanceof Error ? error.message : 'Failed to cancel task.',
+      )
+    })
+  }, [runtime.conversationStore, runtime.taskRuntime, selectedDrawerTask])
 
   const clearComposer = useCallback(() => {
     setInputValue('')
@@ -472,10 +529,19 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     setPermissionExplainOpen,
     taskDrawer: {
       isOpen: tasksOpen,
-      close: () => setTasksOpen(false),
+      searchActive: taskSearchActive,
+      detailFocused: taskDetailFocused,
+      close: closeTaskDrawer,
       moveSelection: moveTaskDrawerSelection,
       selectFirst: () => setTaskDrawerSelectedIndex(0),
       selectLast: () => setTaskDrawerSelectedIndex(Math.max(0, drawerTaskCount - 1)),
+      cycleFilter: cycleTaskFilter,
+      openSearch: () => setTaskSearchActive(true),
+      closeSearch: closeTaskSearch,
+      setDetailFocused: setTaskDetailFocused,
+      toggleOutputExpanded: () => setTaskOutputExpanded((current) => !current),
+      copySelectedPath: copySelectedTaskPath,
+      killSelected: killSelectedTask,
     },
     fileMentionCompletion: {
       isOpen: fileMentionState.isOpen,
@@ -735,6 +801,15 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         recentTasks={recentTasks}
         selectedTaskIndex={taskDrawerSelectedIndex}
         goal={currentGoal}
+        taskFilter={taskFilter}
+        taskSearchQuery={taskSearchQuery}
+        taskSearchActive={taskSearchActive}
+        taskDetailFocused={taskDetailFocused}
+        taskOutputExpanded={taskOutputExpanded}
+        onTaskSearchChange={(value) => {
+          setTaskSearchQuery(value)
+          setTaskDrawerSelectedIndex(0)
+        }}
         terminalWidth={terminalWidth}
         terminalHeight={terminalHeight}
         onModelFilterChange={handleModelFilterChange}
@@ -753,7 +828,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
           applyModelOptionsSelection(index)
         }}
         onModelClose={closeModelPicker}
-        onTasksClose={() => setTasksOpen(false)}
+        onTasksClose={closeTaskDrawer}
         onSessionFilterChange={handleSessionFilterChange}
         onSessionFilterSubmit={handleSessionFilterSubmit}
         onSessionOptionChange={setSessionSelection}

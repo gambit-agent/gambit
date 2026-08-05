@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Background task overlay (`Ctrl+B`) redesigned as an "Activity" panel: framed popup, live status counters, `all/running/done/failed` filter tabs, `/` search, ruled group headers with counts, animated running spinners, and inline workflow progress bars.
+- Task actions from the overlay: `x` cancels the selected in-flight task, `c` copies its output path, `o` expands the output tail, and `←/→` moves focus between the list and detail panes.
+- `mutedFg` theme token for secondary data text in every palette.
+- Render tests for the task overlay and unit tests for the new task activity view model.
 - Windows PowerShell installer (`install.ps1`) with release download, SHA256 verification, PATH updates, local binary installs, and `gambit update` support.
 - Windows release artifacts for `windows-x64`.
 - ACP v1 stdio server, available through `gambit acp`, for Zed and other ACP clients.
@@ -19,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zed custom-agent setup and ACP capability/limitation documentation in `docs/acp.md`.
 
 ### Changed
+- Task rows in the overlay use laid-out columns (status glyph, kind, title, right-aligned elapsed) instead of a single padded string, and transcript entries render with a coloured glyph gutter rather than `tool start …` prose prefixes.
+- `selectedBg` in the Gambit Dark palette lightened from `#1a1a1a` to `#241E22` so selection is visible against the `#131313` background.
+- The active/recent task split is shared between the footer panel and the overlay so their row order cannot drift.
 - Shared Gambit's model catalog loading between the interactive picker and ACP sessions.
 - Runtime bootstrap and tool execution now accept ACP-scoped workspace, cancellation, permission, and disabled-tool configuration.
 
