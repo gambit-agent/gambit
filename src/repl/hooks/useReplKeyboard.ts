@@ -72,6 +72,7 @@ interface ReplKeyboardOptions {
     moveSelection: (delta: number) => void
     selectFirst: () => void
     selectLast: () => void
+    cancelSelected?: () => void
   }
   fileMentionCompletion?: {
     isOpen: boolean
@@ -117,6 +118,10 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
           }
           if (key.name === 'end') {
             options.taskDrawer.selectLast()
+            return
+          }
+          if (key.name === 'x' && !key.ctrl && !key.meta && !key.shift) {
+            options.taskDrawer.cancelSelected?.()
             return
           }
           return

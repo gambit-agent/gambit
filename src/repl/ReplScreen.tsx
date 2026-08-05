@@ -253,14 +253,14 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [conversation.messages],
   )
   const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
-  const drawerTaskCount = useMemo(() => {
-    const activeCount = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status)).length
-    const recentCount = taskSnapshot.tasks
+  const drawerTasks = useMemo(() => {
+    const active = taskSnapshot.tasks.filter((task) => isActiveTaskStatus(task.status))
+    const recent = taskSnapshot.tasks
       .filter((task) => !isActiveTaskStatus(task.status))
       .slice(0, 8)
-      .length
-    return activeCount + recentCount
+    return [...active, ...recent]
   }, [taskSnapshot.tasks])
+  const drawerTaskCount = drawerTasks.length
 
   useEffect(() => {
     setTaskDrawerSelectedIndex((current) => {
@@ -279,6 +279,20 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       return (current + delta + drawerTaskCount) % drawerTaskCount
     })
   }, [drawerTaskCount])
+
+  const cancelSelectedDrawerTask = useCallback(() => {
+    if (drawerTaskCount === 0) {
+      return
+    }
+    const index = Math.min(Math.max(taskDrawerSelectedIndex, 0), drawerTaskCount - 1)
+    const task = drawerTasks[index]
+    if (!task || !isActiveTaskStatus(task.status)) {
+      return
+    }
+    void runtime.taskRuntime.cancelTask(task.id).catch((error: unknown) => {
+      runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
+    })
+  }, [drawerTasks, drawerTaskCount, taskDrawerSelectedIndex, runtime])
 
   const clearComposer = useCallback(() => {
     setInputValue('')
@@ -476,6 +490,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
       moveSelection: moveTaskDrawerSelection,
       selectFirst: () => setTaskDrawerSelectedIndex(0),
       selectLast: () => setTaskDrawerSelectedIndex(Math.max(0, drawerTaskCount - 1)),
+      cancelSelected: cancelSelectedDrawerTask,
     },
     fileMentionCompletion: {
       isOpen: fileMentionState.isOpen,
