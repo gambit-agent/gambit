@@ -105,6 +105,12 @@ function Invoke-DownloadFile {
     [string]$Output
   )
 
+  # Windows PowerShell 5.1 repaints the progress bar on every read, which
+  # throttles large downloads by roughly 50x (the ~109 MB release binary takes
+  # ~110s with the bar and ~2s without). This assignment is function-scoped, so
+  # it is restored on return and never leaks into an `irm | iex` caller session.
+  $ProgressPreference = 'SilentlyContinue'
+
   $parameters = @{
     Uri = $Url
     OutFile = $Output
