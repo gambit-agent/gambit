@@ -173,6 +173,10 @@ export function buildWindowsUpdateScript(
 
   lines.push('param()')
   lines.push("$ErrorActionPreference = 'Stop'")
+  // Windows PowerShell 5.1 repaints the Invoke-WebRequest progress bar on every
+  // read, which throttles large downloads by roughly 50x (a 109 MB release asset
+  // takes ~110s with the bar and ~2s without). Suppress it for the whole script.
+  lines.push("$ProgressPreference = 'SilentlyContinue'")
   lines.push('')
   lines.push(`$logFile = Join-Path "${cleanupPath}" "update.log"`)
   lines.push('function Log {')
@@ -347,8 +351,14 @@ export function buildWindowsUpdateScript(
   lines.push('')
   lines.push(`  $downloadPath = Join-Path "${cleanupPath}" $binaryName`)
   lines.push('  Log "Downloading $binaryUrl ..."')
+  lines.push('  $downloadTimer = [System.Diagnostics.Stopwatch]::StartNew()')
   lines.push('  Invoke-WebRequest -UseBasicParsing -Uri $binaryUrl -OutFile $downloadPath')
-  lines.push('  Log "Downloaded $binaryName."')
+  lines.push('  $downloadTimer.Stop()')
+  lines.push('  $downloadedMb = [math]::Round((Get-Item -LiteralPath $downloadPath).Length / 1MB, 1)')
+  lines.push('  $downloadSeconds = [math]::Round($downloadTimer.Elapsed.TotalSeconds, 1)')
+  // Use $(...) rather than ${...} so the generated script never trips the
+  // "no leaked JS template syntax" guard in update.test.ts.
+  lines.push('  Log "Downloaded $binaryName ($downloadedMb MB in $($downloadSeconds)s)."')
   lines.push('')
   lines.push('  $actualChecksum = Get-FileSha256 -Path $downloadPath')
   lines.push('  if ($actualChecksum -ne $checksum.ToLowerInvariant()) {')
@@ -376,6 +386,12 @@ export function buildWindowsUpdateScript(
   lines.push('')
 
   return lines.join('\n')
+}
+
+// PowerShell 7 is faster and better behaved than Windows PowerShell 5.1, but it
+// is not always installed. Fall back to powershell.exe, which ships with Windows.
+export function resolveWindowsPowerShell(which: (bin: string) => string | null = Bun.which): string {
+  return which('pwsh.exe') ? 'pwsh.exe' : 'powershell.exe'
 }
 
 async function runWindowsUpdate(options: UpdateOptions): Promise<number> {
@@ -407,13 +423,18 @@ async function runWindowsUpdate(options: UpdateOptions): Promise<number> {
     // Use cmd /c start to properly create a new process group independent
     // of the parent's job object. This ensures the PowerShell helper
     // survives when Gambit exits (unlike Bun.spawn detached: true on Windows).
+    //
+    // The empty string after /min is the window title. Without it, `start`
+    // would treat a quoted executable path as the title and open a bare
+    // console instead of running the helper.
     const child = Bun.spawn(
       [
         'cmd.exe',
         '/c',
         'start',
         '/min',
-        'powershell.exe',
+        '',
+        resolveWindowsPowerShell(),
         '-NoProfile',
         '-ExecutionPolicy',
         'Bypass',

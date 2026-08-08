@@ -8,6 +8,7 @@ import {
   buildWindowsUpdateScript,
   parseUpdateArgs,
   patchInstallerScript,
+  resolveWindowsPowerShell,
 } from './update'
 
 test('parses update defaults', () => {
@@ -148,6 +149,33 @@ test('buildWindowsUpdateScript with noModifyPath skips PATH modification', () =>
   // With noModifyPath=true, the function body should be just 'return'
   expect(addToUserPathSection).not.toContain('SetEnvironmentVariable')
   expect(addToUserPathSection).not.toContain('Test-PathContainsDirectory $env:Path')
+})
+
+test('buildWindowsUpdateScript suppresses the PowerShell progress bar', () => {
+  // Windows PowerShell 5.1 repaints the Invoke-WebRequest progress bar on every
+  // read, which turns a ~2s download of the release binary into ~110s and makes
+  // the update look hung. The preference must be set before any download runs.
+  for (const version of ['latest', 'stable', 'v1.2.3']) {
+    const script = buildWindowsUpdateScript(1, '/tmp/x', 'r/o', version, '', false)
+
+    expect(script).toContain("$ProgressPreference = 'SilentlyContinue'")
+    expect(script.indexOf("$ProgressPreference = 'SilentlyContinue'")).toBeLessThan(
+      script.indexOf('Invoke-WebRequest'),
+    )
+  }
+})
+
+test('buildWindowsUpdateScript logs download size and duration', () => {
+  const script = buildWindowsUpdateScript(1, '/tmp/x', 'r/o', 'latest', '', false)
+
+  expect(script).toContain('$downloadTimer = [System.Diagnostics.Stopwatch]::StartNew()')
+  expect(script).toContain('$downloadTimer.Stop()')
+  expect(script).toContain('$downloadedMb MB in $($downloadSeconds)s')
+})
+
+test('resolveWindowsPowerShell prefers pwsh and falls back to powershell.exe', () => {
+  expect(resolveWindowsPowerShell(() => 'C:\\Program Files\\PowerShell\\7\\pwsh.exe')).toBe('pwsh.exe')
+  expect(resolveWindowsPowerShell(() => null)).toBe('powershell.exe')
 })
 
 test('buildWindowsUpdateScript does not leak JS template syntax', () => {
