@@ -11,6 +11,7 @@ import {
 import { maxDelegationDepth as defaultMaxDelegationDepth } from '../../config'
 import { createSerialQueue } from '../../lib/serial-queue'
 import { writeTaskOutput } from '../../tasks/task-output'
+import { isTerminalTaskStatus } from '../../tasks/task-runtime'
 import type { TaskRecord, UpdateTaskInput } from '../../tasks/task-types'
 import { parseWorkflowScript } from '../../workflows/workflow-parser'
 import { runWorkflow } from '../../workflows/workflow-runtime'
@@ -140,6 +141,19 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     }
   }
 
+  // The workflow needs its own controller so cancelTask has something to abort.
+  // Without it, cancelling a workflow only rewrote the record to 'cancelled'
+  // while the script and its subagents kept running.
+  const workflowController = new AbortController()
+  const abortWorkflow = () => workflowController.abort()
+  if (context.signal?.aborted) {
+    abortWorkflow()
+  } else {
+    context.signal?.addEventListener('abort', abortWorkflow, { once: true })
+  }
+  const workflowSignal = workflowController.signal
+  let unregisterController: (() => void) | null = null
+
   if (context.taskRuntime) {
     workflowTask = await context.taskRuntime.createTask({
       kind: 'workflow',
@@ -150,6 +164,29 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
       progressSummary: parsed.meta.description || 'Workflow running',
       metadata: workflowMetadata(),
     })
+    unregisterController = context.taskRuntime.registerController(workflowTask.id, workflowController)
+  }
+
+  const releaseWorkflowSignal = () => {
+    context.signal?.removeEventListener('abort', abortWorkflow)
+    unregisterController?.()
+    unregisterController = null
+  }
+
+  /**
+   * cancelTask writes a terminal 'cancelled' record. The success and failure
+   * paths must not resurrect the task after that, so re-read the record and
+   * leave it alone once it is already terminal.
+   */
+  const finalizeWorkflowTask = async (patch: UpdateTaskInput): Promise<void> => {
+    if (!context.taskRuntime || !workflowTask) {
+      return
+    }
+    const current = await context.taskRuntime.getTask(workflowTask.id)
+    if (current && isTerminalTaskStatus(current.status)) {
+      return
+    }
+    await context.taskRuntime.updateTask(workflowTask.id, patch)
   }
 
   const agent = {
@@ -172,7 +209,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
           maxDelegationDepth: maxDepth,
         },
         extraTools,
-        signal: options.signal ?? context.signal,
+        signal: options.signal ?? workflowSignal,
       })
 
       if (options.schema) {
@@ -191,7 +228,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
       cwd: context.cwd ?? context.workspaceRoot,
       args: input.args,
       agent,
-      signal: context.signal,
+      signal: workflowSignal,
       concurrency: input.concurrency,
       tokenBudget: input.tokenBudget,
       onLog(message) {
@@ -246,7 +283,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     await flushWorkflowTaskUpdates()
     if (context.taskRuntime && workflowTask) {
       await writeTaskOutput(workflowTask.id, output)
-      await context.taskRuntime.updateTask(workflowTask.id, {
+      await finalizeWorkflowTask({
         status: 'completed',
         finishedAt: new Date().toISOString(),
         progressSummary: formatWorkflowProgressSummary(snapshot),
@@ -257,16 +294,17 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
     return output
   } catch (error) {
     await flushWorkflowTaskUpdates()
-    if (context.taskRuntime && workflowTask) {
-      await context.taskRuntime.updateTask(workflowTask.id, {
-        status: context.signal?.aborted ? 'cancelled' : 'failed',
-        finishedAt: new Date().toISOString(),
-        progressSummary: context.signal?.aborted ? 'Workflow cancelled' : 'Workflow failed',
-        error: context.signal?.aborted ? null : error instanceof Error ? error.message : String(error),
-        metadata: workflowMetadata(),
-      })
-    }
+    const aborted = workflowSignal.aborted
+    await finalizeWorkflowTask({
+      status: aborted ? 'cancelled' : 'failed',
+      finishedAt: new Date().toISOString(),
+      progressSummary: aborted ? 'Workflow cancelled' : 'Workflow failed',
+      error: aborted ? null : error instanceof Error ? error.message : String(error),
+      metadata: workflowMetadata(),
+    })
     throw error
+  } finally {
+    releaseWorkflowSignal()
   }
 }
 

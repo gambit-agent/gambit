@@ -5,9 +5,22 @@ export interface BoundedTextResult {
 
 const DEFAULT_MAX_CHARS = 20_000
 
+export interface CollectBoundedTextOptions {
+  /**
+   * Stop reading when this aborts, even though the stream has not reached EOF.
+   *
+   * A pipe stays open as long as *any* process holds its write end, so a
+   * surviving grandchild keeps the reader pending forever after the direct
+   * child is gone. Callers that know the process has exited use this to stop
+   * waiting on output that will never arrive.
+   */
+  stopSignal?: AbortSignal
+}
+
 export async function collectBoundedText(
   stream: ReadableStream<Uint8Array> | null | undefined,
   maxChars: number = DEFAULT_MAX_CHARS,
+  options: CollectBoundedTextOptions = {},
 ): Promise<BoundedTextResult> {
   if (!stream || maxChars <= 0) {
     return { text: '', truncated: Boolean(stream) }
@@ -17,6 +30,18 @@ export async function collectBoundedText(
   const decoder = new TextDecoder()
   let text = ''
   let truncated = false
+
+  const { stopSignal } = options
+  // Cancelling the reader settles the in-flight read() with done: true, which
+  // is what unblocks the loop below.
+  const onStop = () => {
+    void reader.cancel().catch(() => undefined)
+  }
+  if (stopSignal?.aborted) {
+    onStop()
+  } else {
+    stopSignal?.addEventListener('abort', onStop, { once: true })
+  }
 
   try {
     while (true) {
@@ -50,6 +75,7 @@ export async function collectBoundedText(
       }
     }
   } finally {
+    stopSignal?.removeEventListener('abort', onStop)
     reader.releaseLock()
   }
 

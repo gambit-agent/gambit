@@ -256,6 +256,13 @@ const callMCPToolTool: ToolDefinition<typeof callMCPToolSchema, string> = {
     const result = await client.callTool({ name: toolName, arguments: args })
     return flattenCallToolResult(result)
   },
+  // Must mirror the auto-discovered wrapper's permission request: without it the
+  // execution pipeline skips permission evaluation entirely and this generic
+  // caller becomes an unapproved path to every configured MCP tool.
+  getPermissionRequest: ({ serverName, toolName, arguments: args }) => ({
+    subject: `Call MCP tool ${serverName}:${toolName}`,
+    metadata: { serverName, toolName, arguments: args },
+  }),
 }
 
 const listMCPServersSchema = z.object({
@@ -375,6 +382,12 @@ const toggleMCPServerTool: ToolDefinition<typeof toggleMCPServerSchema, string> 
     updateMCPServer(name, { enabled })
     return `MCP server '${name}' ${enabled ? 'enabled' : 'disabled'}.`
   },
+  // Enabling a server the user deliberately disabled makes all of its tools
+  // reachable again, so this needs the same gate as add/remove-mcp-server.
+  getPermissionRequest: ({ name, enabled }) => ({
+    subject: `${enabled ? 'Enable' : 'Disable'} MCP server ${name}`,
+    metadata: { name, enabled },
+  }),
 }
 
 export const mcpManagementTools: ToolDefinition<any, any>[] = [

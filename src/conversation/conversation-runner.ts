@@ -406,12 +406,22 @@ export class ConversationRunner {
    * ever-growing pile of them. Skipped when empty or unchanged.
    */
   private async appendMemoryContext(memoryContext: string): Promise<void> {
+    const messages = this.dependencies.store.getSnapshot().messages
+    const priorMemoryMessages = messages.filter((message) => message.metadata?.memoryContext)
+
     if (!memoryContext) {
+      // An empty recall is a real result: this turn matched no memory. Returning
+      // early here used to leave an earlier turn's memory in the prompt, so it
+      // kept being injected into later, unrelated turns.
+      if (priorMemoryMessages.length === 0) {
+        return
+      }
+      await this.dependencies.store.replaceMessages(
+        messages.filter((message) => !message.metadata?.memoryContext),
+      )
       return
     }
 
-    const messages = this.dependencies.store.getSnapshot().messages
-    const priorMemoryMessages = messages.filter((message) => message.metadata?.memoryContext)
     const latest = priorMemoryMessages[priorMemoryMessages.length - 1]
 
     if (priorMemoryMessages.length === 1 && latest?.content === memoryContext) {

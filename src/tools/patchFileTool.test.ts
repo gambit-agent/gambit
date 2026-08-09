@@ -179,3 +179,87 @@ test("patch tool tolerates hunk offset backward by a few lines", async () => {
   expect(result).toContain(`Updated ${relativePath} via patch.`);
   expect(await Bun.file(absolutePath).text()).toBe("a\nb\nC\nd\ne\n");
 });
+
+test("patch tool leaves every file untouched when a later hunk fails", async () => {
+  const firstPath = "atomic-first.txt";
+  const secondPath = "atomic-second.txt";
+  const firstAbsolute = path.join(workspaceDir, firstPath);
+  const secondAbsolute = path.join(workspaceDir, secondPath);
+  await writeFile(firstAbsolute, "keep\noriginal\n");
+  await writeFile(secondAbsolute, "unrelated\ncontent\n");
+
+  // The first file patches cleanly; the second references context that is not
+  // present, so the whole patch must be rejected without writing the first.
+  const diff =
+    `diff --git a/${firstPath} b/${firstPath}\n` +
+    `--- a/${firstPath}\n` +
+    `+++ b/${firstPath}\n` +
+    "@@ -1,2 +1,2 @@\n" +
+    " keep\n" +
+    "-original\n" +
+    "+rewritten\n" +
+    `diff --git a/${secondPath} b/${secondPath}\n` +
+    `--- a/${secondPath}\n` +
+    `+++ b/${secondPath}\n` +
+    "@@ -1,2 +1,2 @@\n" +
+    " this context\n" +
+    "-does not exist\n" +
+    "+neither does this\n";
+
+  await expect(patchTool({ patch: diff })).rejects.toThrow();
+
+  expect(await Bun.file(firstAbsolute).text()).toBe("keep\noriginal\n");
+  expect(await Bun.file(secondAbsolute).text()).toBe("unrelated\ncontent\n");
+});
+
+test("patch tool applies a rename followed by an edit to the renamed file", async () => {
+  const oldPath = "dep-rename-old.txt";
+  const newPath = "dep-rename-new.txt";
+  await writeFile(path.join(workspaceDir, oldPath), "one\ntwo\n");
+
+  // A later entry building on an earlier one is ordinary patch input; planning
+  // must read through pending state, not pre-patch disk.
+  const diff =
+    `diff --git a/${oldPath} b/${newPath}\n--- a/${oldPath}\n+++ b/${newPath}\n` +
+    "@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n" +
+    `diff --git a/${newPath} b/${newPath}\n--- a/${newPath}\n+++ b/${newPath}\n` +
+    "@@ -1,2 +1,2 @@\n-one\n+ONE\n TWO\n";
+
+  const result = await patchTool({ patch: diff });
+
+  expect(result).toContain(`Moved ${oldPath} -> ${newPath} via patch.`);
+  expect(await Bun.file(path.join(workspaceDir, newPath)).text()).toBe("ONE\nTWO\n");
+  expect(await Bun.file(path.join(workspaceDir, oldPath)).exists()).toBe(false);
+});
+
+test("patch tool applies two separate entries targeting the same file", async () => {
+  const relativePath = "dep-same-target.txt";
+  const absolutePath = path.join(workspaceDir, relativePath);
+  await writeFile(absolutePath, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n");
+
+  const diff =
+    `diff --git a/${relativePath} b/${relativePath}\n--- a/${relativePath}\n+++ b/${relativePath}\n` +
+    "@@ -1,3 +1,3 @@\n-l1\n+L1\n l2\n l3\n" +
+    `diff --git a/${relativePath} b/${relativePath}\n--- a/${relativePath}\n+++ b/${relativePath}\n` +
+    "@@ -6,3 +6,3 @@\n l6\n-l7\n+L7\n l8\n";
+
+  await patchTool({ patch: diff });
+
+  // Neither edit may be silently dropped by planning both against the original.
+  expect(await Bun.file(absolutePath).text()).toBe("L1\nl2\nl3\nl4\nl5\nl6\nL7\nl8\n");
+});
+
+test("patch tool names the offending file when a hunk fails to apply", async () => {
+  const goodPath = "named-error-good.txt";
+  const badPath = "named-error-bad.txt";
+  await writeFile(path.join(workspaceDir, goodPath), "keep\noriginal\n");
+  await writeFile(path.join(workspaceDir, badPath), "unrelated\ncontent\n");
+
+  const diff =
+    `diff --git a/${goodPath} b/${goodPath}\n--- a/${goodPath}\n+++ b/${goodPath}\n` +
+    "@@ -1,2 +1,2 @@\n keep\n-original\n+rewritten\n" +
+    `diff --git a/${badPath} b/${badPath}\n--- a/${badPath}\n+++ b/${badPath}\n` +
+    "@@ -1,2 +1,2 @@\n this context\n-does not exist\n+neither does this\n";
+
+  await expect(patchTool({ patch: diff })).rejects.toThrow(badPath);
+});

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { z } from 'zod'
@@ -86,7 +86,14 @@ function loadMCPConfig(): MCPConfig {
 function saveMCPConfig(config: MCPConfig): void {
   const configPath = getConfigPath()
   mkdirSync(path.dirname(configPath), { recursive: true })
-  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+  // This file holds bearer tokens and API keys, so it must not be created
+  // world-readable under the usual 022 umask. Mirrors src/session/user-config.ts.
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 })
+  try {
+    chmodSync(configPath, 0o600)
+  } catch {
+    // Filesystems without POSIX modes (Windows, some network mounts).
+  }
 }
 
 export function addMCPServer(server: MCPServerConfig): void {
