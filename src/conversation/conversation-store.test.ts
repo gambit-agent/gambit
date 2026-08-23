@@ -5,14 +5,17 @@ import path from 'node:path'
 
 import { toCoreMessages } from '../lib/messages'
 import { createConversationStore } from './conversation-store'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-conversation-store-'))
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {
+  setUserGambitDirectoryForTesting(null)
   await rm(tempRoot, { recursive: true, force: true })
 })
 
@@ -255,7 +258,7 @@ test('round-trips tool calls through persistence into model messages', async () 
 
 test('legacy transcripts without persisted tool results replay an honest placeholder', async () => {
   const conversationId = 'legacy-transcript'
-  const directory = path.join(tempRoot, '.gambit', 'conversations', conversationId)
+  const directory = path.join(tempRoot, 'conversations', conversationId)
   await mkdir(directory, { recursive: true })
   const legacyEntries = [
     { kind: 'message', id: 'u1', role: 'user', content: 'run it', timestamp: '2026-01-01T00:00:00.000Z' },

@@ -1,9 +1,10 @@
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
+import { getUserDataRoot } from './user-data-paths'
 
 export function getConversationsDirectory(root: string = workspaceRoot): string {
-  return path.join(root, '.gambit', 'conversations')
+  return path.join(getUserDataRoot(root), 'conversations')
 }
 
 export function getConversationDirectory(conversationId: string, root: string = workspaceRoot): string {

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { setWorkspaceRootForTesting } from '../config'
 import { getTaskOutputPath, getTaskStorePath, getTaskTranscriptPath } from '../session/session-paths'
 import { createTask, getTask, listTasks, removeTask, updateTask } from './task-store'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 describe('task store', () => {
   let root = ''
@@ -13,6 +14,7 @@ describe('task store', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'gambit-task-store-'))
     setWorkspaceRootForTesting(root)
+    setUserGambitDirectoryForTesting(root)
   })
 
   test('creates, updates, lists, and removes task records', async () => {
@@ -27,7 +29,7 @@ describe('task store', () => {
     expect(created.transcriptPath).toBe(getTaskTranscriptPath(created.id, root))
     expect(await getTask(created.id)).toEqual(created)
     expect(await listTasks()).toHaveLength(1)
-    expect(getTaskStorePath(root)).toContain('.gambit')
+    expect(getTaskStorePath(root)).toBe(path.join(root, 'tasks', 'tasks.jsonl'))
 
     const updated = await updateTask(created.id, {
       status: 'running',

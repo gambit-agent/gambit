@@ -5,11 +5,13 @@ import path from 'node:path'
 
 import { createConversationStore } from '../conversation/conversation-store'
 import { listConversationSessions } from './conversation-sessions'
+import { setUserGambitDirectoryForTesting } from './user-data-paths'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-session-list-'))
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {

@@ -7,7 +7,7 @@ export function createMemoryTool(): AnyToolDefinition {
     id: 'writeMemory',
     displayName: 'Write Memory',
     description:
-      'Write durable, typed memory to `.gambit/memory/`. Save only non-derivable context that will matter in future turns.',
+      'Write durable, typed memory to `~/.gambit/memory/`. Save only non-derivable context that will matter in future turns.',
     inputSchema: writeMemorySchema,
     requiredCapabilities: ['memory'],
     summarize: (result, context) =>

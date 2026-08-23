@@ -1,9 +1,9 @@
-﻿import { generateId } from "../id"
+import { generateId } from "../id"
 import { mkdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { Glob, JSONL } from "bun"
 
-import { workspaceRoot } from "../../config"
+import { getUserGambitDirectory } from "../../session/user-data-paths"
 import { appendJsonlEntry } from "../jsonl"
 
 const HISTORY_FILE_PREFIX = "history-"
@@ -34,11 +34,11 @@ export interface SessionHistoryEntry {
 let sessionPromise: Promise<SessionInfo> | null = null
 
 function getSessionsDirectory(): string {
-  return path.join(workspaceRoot, ".gambit", "sessions")
+  return path.join(getUserGambitDirectory(), "sessions")
 }
 
 function getLegacyHistoryPath(): string {
-  return path.join(workspaceRoot, ".gambit", "history.json")
+  return path.join(getUserGambitDirectory(), "history.json")
 }
 
 async function ensureSessionsDirectory(): Promise<string> {

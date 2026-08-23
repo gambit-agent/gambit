@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { MAX_INLINE_TOOL_RESULT_CHARS, workspaceRoot as defaultWorkspaceRoot } from '../config'
 import { generateId } from '../lib/id'
+import { getUserGambitDirectory } from '../session/user-data-paths'
 import { PermissionPolicy } from '../permissions/permission-policy'
 import type { AnyToolDefinition, ToolCapability, ToolDefinition, ToolEventRecord, ToolExecutionContext } from './tool-types'
 import type { ToolRegistry } from './tool-registry'
@@ -60,7 +61,7 @@ export class DefaultToolExecutionPipeline implements ToolExecutionPipeline {
     options: ToolExecutionPipelineOptions = {},
   ) {
     this.workspaceRoot = options.workspaceRoot ?? defaultWorkspaceRoot
-    this.outputDirectory = options.outputDirectory ?? path.join(this.workspaceRoot, '.gambit', 'tool-results')
+    this.outputDirectory = options.outputDirectory ?? path.join(getUserGambitDirectory(), 'tool-results')
     this.maxInlineResultChars = options.maxInlineResultChars ?? MAX_INLINE_TOOL_RESULT_CHARS
     this.onEvent = options.onEvent
   }

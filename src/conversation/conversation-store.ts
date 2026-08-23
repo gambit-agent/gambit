@@ -5,6 +5,7 @@ import path from 'node:path'
 import { workspaceRoot } from '../config'
 import { createObservableStore, type ObservableStore } from '../lib/observable-store'
 import { appendJsonlEntries, appendJsonlEntry, readRawJsonlEntries, writeJsonlEntries } from '../session/jsonl'
+import { getConversationDirectory } from '../session/conversation-paths'
 import type { ConversationMessage } from './conversation-types'
 
 export interface ConversationStoreOptions {
@@ -95,7 +96,7 @@ export class ConversationStore {
   constructor(options: ConversationStoreOptions = {}) {
     this.rootPath = options.rootPath ?? workspaceRoot
     this.currentConversationId = options.conversationId ?? generateId()
-    this.currentDirectory = path.join(this.rootPath, '.gambit', 'conversations', this.currentConversationId)
+    this.currentDirectory = getConversationDirectory(this.currentConversationId, this.rootPath)
     this.currentTranscriptPath = path.join(this.currentDirectory, 'transcript.jsonl')
     this.store = createObservableStore(this.createSnapshot())
   }
@@ -252,7 +253,7 @@ export class ConversationStore {
 
   private assignConversationPaths(conversationId: string): void {
     this.currentConversationId = conversationId
-    this.currentDirectory = path.join(this.rootPath, '.gambit', 'conversations', conversationId)
+    this.currentDirectory = getConversationDirectory(conversationId, this.rootPath)
     this.currentTranscriptPath = path.join(this.currentDirectory, 'transcript.jsonl')
   }
 

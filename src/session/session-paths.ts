@@ -1,9 +1,10 @@
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
+import { getUserDataRoot } from './user-data-paths'
 
-function getGambitDirectory(root: string = workspaceRoot): string {
-  return path.join(root, '.gambit')
+function getGambitDirectory(_root: string): string {
+  return getUserDataRoot(_root)
 }
 
 export function getCurrentSessionDirectory(root: string = workspaceRoot): string {

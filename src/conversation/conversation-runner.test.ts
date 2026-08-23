@@ -11,15 +11,18 @@ import { buildDelegatedAgentBaseSystemPrompt, ConversationRunner } from './conve
 import { buildGoalSystemPrompt, createGoalMessage } from './goal'
 import { createConversationStore, type ConversationStore } from './conversation-store'
 import { MemoryStore } from '../memory/memory-store'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-conversation-'))
   setWorkspaceRootForTesting(tempRoot)
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {
+  setUserGambitDirectoryForTesting(null)
   setWorkspaceRootForTesting(originalWorkspaceRoot)
   await rm(tempRoot, { recursive: true, force: true })
 })

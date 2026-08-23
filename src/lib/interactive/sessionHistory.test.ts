@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { setWorkspaceRootForTesting } from "../../config"
+import { setUserGambitDirectoryForTesting } from "../../session/user-data-paths"
 import {
   appendSessionEntry,
   getCurrentSession,
@@ -17,6 +18,7 @@ describe("sessionHistory", () => {
   beforeEach(async () => {
     workspaceDir = await mkdtemp(path.join(tmpdir(), "gambit-session-history-"))
     setWorkspaceRootForTesting(workspaceDir)
+    setUserGambitDirectoryForTesting(workspaceDir)
     resetSessionHistoryForTesting()
   })
 
@@ -55,7 +57,7 @@ describe("sessionHistory", () => {
   })
 
   it("includes legacy history entries when present", async () => {
-    const legacyDir = path.join(workspaceDir, ".gambit")
+    const legacyDir = workspaceDir
     await mkdir(legacyDir, { recursive: true })
     await writeFile(
       path.join(legacyDir, "history.json"),

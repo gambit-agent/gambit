@@ -24,6 +24,7 @@ import {
   type ConversationSessionSummary,
 } from '../session/conversation-sessions'
 import { forkConversation as forkConversationImpl, buildConversationTree, type ForkResult } from '../session/conversation-fork'
+import { migrateProjectGambitData } from '../session/migrate-project-data'
 import { readUserConfig } from '../session/user-config'
 import { applyTheme } from '../ui/theme'
 import { primeProviderCredentials } from '../lib/provider-credentials'
@@ -97,6 +98,11 @@ function extractShellTaskId(output: string): string | null {
  */
 export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = {}): Promise<AppRuntime> {
   const runtimeRoot = options.rootPath ?? workspaceRoot
+  try {
+    await migrateProjectGambitData(runtimeRoot)
+  } catch {
+    // Migration is best-effort; never block startup.
+  }
   const baseSystemPrompt = await loadSystemPrompt()
   const systemMessage = buildSystemMessage(baseSystemPrompt)
   const userConfig = await readUserConfig().catch(() => null)

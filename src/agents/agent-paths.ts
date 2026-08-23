@@ -1,9 +1,10 @@
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
+import { getUserDataRoot } from '../session/user-data-paths'
 
 function getAgentRootPath(rootPath: string = workspaceRoot): string {
-  return path.join(rootPath, '.gambit', 'agents')
+  return path.join(getUserDataRoot(rootPath), 'agents')
 }
 
 function getAgentRunDirectory(runId: string, rootPath: string = workspaceRoot): string {

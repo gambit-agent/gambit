@@ -5,6 +5,7 @@ import path from 'node:path'
 
 import { forkConversation, readConversationMeta, buildConversationTree } from './conversation-fork'
 import { writeJsonlEntries } from './jsonl'
+import { setUserGambitDirectoryForTesting } from './user-data-paths'
 import type { ConversationMessage } from '../conversation/conversation-types'
 
 function makeMessage(id: string, role: 'user' | 'assistant', content: string): ConversationMessage & { kind: string } {
@@ -22,6 +23,7 @@ describe('forkConversation', () => {
 
   beforeEach(async () => {
     tmpRoot = await mkdtemp(path.join(tmpdir(), 'gambit-fork-'))
+    setUserGambitDirectoryForTesting(tmpRoot)
   })
 
   afterEach(async () => {
@@ -30,7 +32,7 @@ describe('forkConversation', () => {
 
   it('forks all messages by default', async () => {
     const sourceId = 'source-id-1234'
-    const dir = path.join(tmpRoot, '.gambit', 'conversations', sourceId)
+    const dir = path.join(tmpRoot, 'conversations', sourceId)
     await mkdir(dir, { recursive: true })
 
     const messages = [
@@ -53,7 +55,7 @@ describe('forkConversation', () => {
 
   it('forks at a specific message', async () => {
     const sourceId = 'source-id-5678'
-    const dir = path.join(tmpRoot, '.gambit', 'conversations', sourceId)
+    const dir = path.join(tmpRoot, 'conversations', sourceId)
     await mkdir(dir, { recursive: true })
 
     const messages = [
@@ -71,7 +73,7 @@ describe('forkConversation', () => {
 
   it('throws for unknown message id', async () => {
     const sourceId = 'source-id-bad'
-    const dir = path.join(tmpRoot, '.gambit', 'conversations', sourceId)
+    const dir = path.join(tmpRoot, 'conversations', sourceId)
     await mkdir(dir, { recursive: true })
 
     await writeJsonlEntries(path.join(dir, 'transcript.jsonl'), [
@@ -89,9 +91,11 @@ describe('buildConversationTree', () => {
 
   beforeEach(async () => {
     tmpRoot = await mkdtemp(path.join(tmpdir(), 'gambit-tree-'))
+    setUserGambitDirectoryForTesting(tmpRoot)
   })
 
   afterEach(async () => {
+    setUserGambitDirectoryForTesting(null)
     await rm(tmpRoot, { recursive: true, force: true })
   })
 
@@ -103,7 +107,7 @@ describe('buildConversationTree', () => {
   it('renders a tree with forks', async () => {
     // Create parent conversation
     const parentId = 'parent-0001'
-    const parentDir = path.join(tmpRoot, '.gambit', 'conversations', parentId)
+    const parentDir = path.join(tmpRoot, 'conversations', parentId)
     await mkdir(parentDir, { recursive: true })
     await writeJsonlEntries(path.join(parentDir, 'transcript.jsonl'), [
       makeMessage('m1', 'user', 'Start'),

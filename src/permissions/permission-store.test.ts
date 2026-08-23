@@ -5,6 +5,7 @@ import path from 'node:path'
 
 import { setWorkspaceRootForTesting } from '../config'
 import { enqueuePermissionRequest, dequeuePermissionRequest, listPermissionRequests, resolvePermissionRequest } from './permission-store'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 describe('permission store', () => {
   let root = ''
@@ -12,6 +13,7 @@ describe('permission store', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'gambit-permission-store-'))
     setWorkspaceRootForTesting(root)
+    setUserGambitDirectoryForTesting(root)
   })
 
   test('enqueues, dequeues, and resolves permission requests', async () => {

@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
-import { workspaceRoot } from '../config'
+import { getUserGambitDirectory } from '../session/user-data-paths'
 
 const WORD_LIST = [
   'amber', 'anchor', 'arrow', 'basin', 'blade', 'bloom', 'bolt', 'bridge',
@@ -33,7 +33,7 @@ const MAX_SLUG_RETRIES = 10
 const slugCache = new Map<string, string>()
 
 function getPlansDirectory(): string {
-  return path.join(workspaceRoot, '.gambit', 'plans')
+  return path.join(getUserGambitDirectory(), 'plans')
 }
 
 function getPlanSlug(sessionId: string): string {

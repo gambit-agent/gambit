@@ -5,11 +5,13 @@ import path from 'node:path'
 
 import { getModelSelectionPath } from './session-paths'
 import { readModelSelection, writeModelSelection } from './model-selection'
+import { setUserGambitDirectoryForTesting } from './user-data-paths'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-model-selection-'))
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {

@@ -2,7 +2,7 @@ import { generateId } from "./id"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 
-import { workspaceRoot } from "../config"
+import { getUserGambitDirectory } from "../session/user-data-paths"
 import { appendJsonlEntry } from "./jsonl"
 
 const MEMORIES_FILE_NAME = "memories.jsonl"
@@ -19,7 +19,7 @@ export async function appendMemoryEntry(content: string): Promise<MemoryEntry | 
     return null
   }
 
-  const memoriesDirectory = path.join(workspaceRoot, ".gambit", "memories")
+  const memoriesDirectory = path.join(getUserGambitDirectory(), "memories")
   await mkdir(memoriesDirectory, { recursive: true })
   const entry: MemoryEntry = {
     id: generateId(),

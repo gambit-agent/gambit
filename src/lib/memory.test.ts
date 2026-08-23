@@ -5,6 +5,7 @@ import path from "node:path"
 
 import { workspaceRoot, setWorkspaceRootForTesting } from "../config"
 import { appendMemoryEntry } from "./memory"
+import { setUserGambitDirectoryForTesting } from "../session/user-data-paths"
 
 describe("appendMemoryEntry", () => {
   let originalWorkspaceRoot: string
@@ -14,10 +15,12 @@ describe("appendMemoryEntry", () => {
     originalWorkspaceRoot = workspaceRoot
     tempWorkspace = await mkdtemp(path.join(tmpdir(), "gambit-memory-"))
     setWorkspaceRootForTesting(tempWorkspace)
+    setUserGambitDirectoryForTesting(tempWorkspace)
   })
 
   afterEach(async () => {
     setWorkspaceRootForTesting(originalWorkspaceRoot)
+    setUserGambitDirectoryForTesting(null)
     await rm(tempWorkspace, { recursive: true, force: true })
   })
 
@@ -28,7 +31,7 @@ describe("appendMemoryEntry", () => {
     const entry = result!
     expect(entry.content).toBe("remember to add tests")
 
-    const memoryFilePath = path.join(tempWorkspace, ".gambit", "memories", "memories.jsonl")
+    const memoryFilePath = path.join(tempWorkspace, "memories", "memories.jsonl")
     const fileContents = await readFile(memoryFilePath, "utf8")
     const lines = fileContents.trim().split(/\r?\n/)
     expect(lines).toHaveLength(1)
@@ -48,7 +51,7 @@ describe("appendMemoryEntry", () => {
     const result = await appendMemoryEntry("   ")
     expect(result).toBeNull()
 
-    const memoryFilePath = path.join(tempWorkspace, ".gambit", "memories", "memories.jsonl")
+    const memoryFilePath = path.join(tempWorkspace, "memories", "memories.jsonl")
     await expect(readFile(memoryFilePath, "utf8")).rejects.toHaveProperty("code", "ENOENT")
   })
 })

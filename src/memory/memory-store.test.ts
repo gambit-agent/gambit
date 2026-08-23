@@ -5,12 +5,14 @@ import path from 'node:path'
 
 import { findRelevantMemoryRecords, loadRelevantMemoryRecords } from './memory-retrieval'
 import { getMemoryIndexPath } from './memory-paths'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 import { readMemoryRecord, refreshMemoryIndex, writeMemoryRecord } from './memory-store'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-memory-store-'))
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {
@@ -90,9 +92,9 @@ test('selects relevant memories by query terms', async () => {
 })
 
 test('refreshes the index after manual file updates', async () => {
-  await mkdir(path.join(tempRoot, '.gambit', 'memory'), { recursive: true })
+  await mkdir(path.join(tempRoot, 'memory'), { recursive: true })
   await writeFile(
-    path.join(tempRoot, '.gambit', 'memory', 'manual.feedback.md'),
+    path.join(tempRoot, 'memory', 'manual.feedback.md'),
     [
       '---',
       'name: Manual',

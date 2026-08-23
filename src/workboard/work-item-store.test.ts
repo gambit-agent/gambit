@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { setWorkspaceRootForTesting } from '../config'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 import { getTaskStorePath } from '../session/session-paths'
 import { createTask } from '../tasks/task-store'
 import { createWorkItem, getWorkItem, listWorkItems, removeWorkItem, updateWorkItem } from './work-item-store'
@@ -14,6 +15,12 @@ describe('work item store', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'gambit-workboard-store-'))
     setWorkspaceRootForTesting(root)
+    setUserGambitDirectoryForTesting(root)
+  })
+
+  afterEach(async () => {
+    setUserGambitDirectoryForTesting(null)
+    await rm(root, { recursive: true, force: true })
   })
 
   test('keeps work items separate from task records', async () => {
@@ -28,7 +35,7 @@ describe('work item store', () => {
       metadata: { source: 'Plan' },
     })
 
-    expect(getTaskStorePath(root)).toContain('.gambit')
+    expect(getTaskStorePath(root)).toBe(path.join(root, 'tasks', 'tasks.jsonl'))
     expect(await getWorkItem(workItem.id)).toEqual(workItem)
     expect(await listWorkItems()).toHaveLength(1)
     expect(task.id).not.toBe(workItem.id)

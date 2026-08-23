@@ -19,7 +19,7 @@ Source lives in `src/` organized by feature:
 - `ui/` - `@opentui/react` components
 - `workboard/` - Workboard UI
 
-Entry points: `src/index.tsx` (dev UI) and `src/gambit.tsx` (CLI binary). Runtime data stored in `.gambit/` (conversations, tasks, memories, skills). Configuration in `tsconfig.json` and `package.json`. Use `.env` for secrets (not committed).
+Entry points: `src/index.tsx` (dev UI) and `src/gambit.tsx` (CLI binary). Runtime data (conversations, tasks, memory, plans) lives in the user-level `~/.gambit/`; project-level `.gambit/` holds customization only (skills, prompts, commands, plugins). Configuration in `tsconfig.json` and `package.json`. Use `.env` for secrets (not committed).
 
 ## Build, Test, and Development Commands
 
@@ -64,7 +64,7 @@ PRs require:
 - Handle user data and network calls carefully; add tests when changing permission logic
 
 Memory policy:
-- Memory lives in `.gambit/memory/` as typed markdown files plus `MEMORY.md` index
+- Memory lives in `~/.gambit/memory/` as typed markdown files plus `MEMORY.md` index
 - Save only non-derivable context that will matter in future turns
 - Use only the relevant memory files for the current request
 - Prefer `user`, `feedback`, `project`, or `reference` memory types

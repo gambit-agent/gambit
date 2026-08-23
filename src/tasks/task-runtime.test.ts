@@ -6,6 +6,7 @@ import path from 'node:path'
 import { setWorkspaceRootForTesting } from '../config'
 import { createTask, getTask } from './task-store'
 import { TaskRuntime } from './task-runtime'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 describe('task runtime', () => {
   let root = ''
@@ -13,6 +14,11 @@ describe('task runtime', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'gambit-task-runtime-'))
     setWorkspaceRootForTesting(root)
+    setUserGambitDirectoryForTesting(root)
+  })
+
+  afterEach(() => {
+    setUserGambitDirectoryForTesting(null)
   })
 
   test('initialize cancels incomplete tasks from a previous session', async () => {
