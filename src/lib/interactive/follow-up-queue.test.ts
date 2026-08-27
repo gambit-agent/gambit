@@ -90,4 +90,24 @@ describe("FollowUpQueue", () => {
 
     expect(queue.snapshot).toEqual(["only"])
   })
+
+  it("drainWhile takes the leading run and stops at the first mismatch", () => {
+    const queue = new FollowUpQueue<string>()
+    queue.enqueue("one")
+    queue.enqueue("two")
+    queue.enqueue("SKIP")
+    queue.enqueue("three")
+
+    // "three" must not jump the queue past "SKIP".
+    expect(queue.drainWhile((value) => value !== "SKIP")).toEqual(["one", "two"])
+    expect(queue.snapshot).toEqual(["SKIP", "three"])
+
+    expect(queue.drainWhile((value) => value !== "SKIP")).toEqual([])
+    expect(queue.snapshot).toEqual(["SKIP", "three"])
+
+    expect(queue.drainWhile(() => true)).toEqual(["SKIP", "three"])
+    expect(queue.size).toBe(0)
+    expect(queue.drainWhile(() => true)).toEqual([])
+  })
+
 })

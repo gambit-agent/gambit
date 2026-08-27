@@ -6,6 +6,19 @@ import { consumeModelStream, type ModelStreamHandlers } from './stream-model-tur
 type NonSystemModelMessage = Exclude<ModelMessage, { role: 'system' }>
 type WarningLoggerOptions = Parameters<LogWarningsFunction>[0]
 
+export interface ModelStreamSteering {
+  /**
+   * Text the user typed while this turn was already running, oldest first.
+   * Called once per step boundary; whatever it returns is consumed.
+   */
+  pull: () => string[]
+  /**
+   * Notified with the texts that were actually injected, in order, before they
+   * reach the model. Used to record them in the transcript.
+   */
+  onSteered?: (texts: readonly string[]) => void | Promise<void>
+}
+
 export interface ModelStreamRunOptions {
   streamId: string
   model: LanguageModel
@@ -20,6 +33,12 @@ export interface ModelStreamRunOptions {
    * routing (OpenAI `prompt_cache_key`, including the ChatGPT connector).
    */
   promptCacheKey?: string
+  /**
+   * Mid-turn user input. Without this the whole multi-step loop runs against
+   * the message array captured when the turn started, so anything typed during
+   * it can only be answered by a later turn.
+   */
+  steering?: ModelStreamSteering
 }
 
 export interface ModelStreamRunResult {
@@ -120,6 +139,80 @@ export function reannotateCacheBreakpoints(messages: readonly NonSystemModelMess
   return withCacheBreakpoints(stripCacheBreakpoints(messages))
 }
 
+/**
+ * Marker prefixed to injected text. Steering arrives in the middle of work the
+ * model already committed to, so it has to be told this is a course
+ * correction to apply now rather than a fresh request queued behind the
+ * current one.
+ */
+export const STEERING_MESSAGE_PREFIX =
+  '[Steering — the user sent this while you were working. Take it into account now; do not finish the previous plan first if this changes it.]'
+
+export function formatSteeringMessage(text: string): string {
+  return `${STEERING_MESSAGE_PREFIX}\n\n${text}`
+}
+
+/**
+ * True when a user message may be appended after `messages`.
+ *
+ * An assistant message whose tool calls have no results yet must be followed
+ * by those results; slipping a user turn in between produces a request the
+ * provider rejects. In the normal step loop `prepareStep` runs after the
+ * previous step's tool results were appended, so this only rules out the
+ * edge cases (a step that ended on tool calls the loop has not resolved).
+ */
+export function acceptsSteeringInjection(messages: readonly ModelMessage[]): boolean {
+  const last = messages[messages.length - 1]
+  if (!last) {
+    return false
+  }
+  if (last.role !== 'assistant' || typeof last.content === 'string') {
+    return true
+  }
+  return !last.content.some((part) => part.type === 'tool-call')
+}
+
+export function appendSteeringMessages(
+  messages: readonly NonSystemModelMessage[],
+  texts: readonly string[],
+): NonSystemModelMessage[] {
+  if (texts.length === 0) {
+    return [...messages]
+  }
+  return [
+    ...messages,
+    ...texts.map((text) => ({ role: 'user' as const, content: formatSteeringMessage(text) })),
+  ]
+}
+
+/**
+ * Drain pending steering into the step's message array. Nothing is pulled when
+ * the array cannot accept a user message — pulling and then discarding would
+ * lose input the user typed.
+ */
+export async function applySteering(
+  messages: readonly NonSystemModelMessage[],
+  steering: ModelStreamSteering | undefined,
+): Promise<NonSystemModelMessage[]> {
+  if (!steering || !acceptsSteeringInjection(messages)) {
+    return [...messages]
+  }
+
+  const texts = steering.pull()
+  if (texts.length === 0) {
+    return [...messages]
+  }
+
+  try {
+    await steering.onSteered?.(texts)
+  } catch {
+    // Recording the steer in the transcript is best-effort; the model must
+    // still see input that has already been taken off the queue.
+  }
+
+  return appendSteeringMessages(messages, texts)
+}
+
 export function filterKnownAiSdkWarnings(warnings: readonly Warning[]): Warning[] {
   return warnings.filter((warning) => {
     if (warning.type !== 'other') {
@@ -200,13 +293,21 @@ export class ModelStreamRunner {
         tools: options.tools,
         stopWhen: stepCountIs(options.maxSteps),
         abortSignal: options.signal,
-        // (Re-)annotate the trailing messages on every step: the loop appends
-        // tool traffic after the previous step's breakpoints, and a frozen
-        // breakpoint would re-send all intra-turn messages uncached on each
-        // step. The strip inside `reannotateCacheBreakpoints` stays required:
-        // the SDK carries the returned messages into the next step's input.
-        prepareStep: ({ messages }) => ({
-          messages: reannotateCacheBreakpoints(messages as NonSystemModelMessage[]),
+        // Runs before every step, and the messages returned here carry forward
+        // into later steps. Two jobs:
+        //
+        // 1. Inject anything the user typed since the last step, so mid-turn
+        //    input reaches the model without waiting for the turn to end.
+        // 2. (Re-)annotate the trailing messages as cache breakpoints: the
+        //    loop appends tool traffic after the previous step's breakpoints,
+        //    and a frozen breakpoint would re-send all intra-turn messages
+        //    uncached on each step. The strip inside
+        //    `reannotateCacheBreakpoints` stays required because the returned
+        //    messages become the next step's input.
+        prepareStep: async ({ messages }) => ({
+          messages: reannotateCacheBreakpoints(
+            await applySteering(messages as NonSystemModelMessage[], options.steering),
+          ),
         }),
         providerOptions: options.promptCacheKey
           ? { openai: { promptCacheKey: options.promptCacheKey } }

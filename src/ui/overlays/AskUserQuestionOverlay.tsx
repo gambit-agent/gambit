@@ -24,7 +24,8 @@ export function AskUserQuestionOverlay({ controller, hasFocus }: AskUserQuestion
     focusedIndex,
     selectedIndices,
     otherText,
-    isInOther,
+    isOtherFocused,
+    otherResetToken,
     showHelp,
     handleOtherInput,
   } = controller
@@ -93,20 +94,19 @@ export function AskUserQuestionOverlay({ controller, hasFocus }: AskUserQuestion
                 key={`${option.label}-${index}`}
                 option={option}
                 index={index}
-                isFocused={!isInOther && focusedIndex === index}
+                isFocused={focusedIndex === index}
                 isSelected={currentQuestion.multiSelect && selectedIndices.has(index)}
                 multiSelect={currentQuestion.multiSelect}
               />
             ))}
             <OtherRow
               index={currentQuestion.options.length}
-              isFocused={!isInOther && focusedIndex === currentQuestion.options.length}
-              isSelected={currentQuestion.multiSelect && selectedIndices.has(currentQuestion.options.length)}
+              isFocused={isOtherFocused}
               multiSelect={currentQuestion.multiSelect}
               otherText={otherText}
-              isInOther={isInOther}
               onInput={handleOtherInput}
-              hasFocus={hasFocus && isInOther}
+              hasFocus={hasFocus && isOtherFocused}
+              resetToken={otherResetToken}
             />
           </box>
 
@@ -140,9 +140,11 @@ export function AskUserQuestionOverlay({ controller, hasFocus }: AskUserQuestion
 
         <box flexDirection="column" gap={0}>
           <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
-            {currentQuestion.multiSelect
-              ? 'Space toggles · Enter submits · ↑/↓ navigate · Tab next · Esc cancel · ? help'
-              : 'Enter selects · ↑/↓ navigate · 1-4 quick pick · Tab next · Esc cancel · ? help'}
+            {isOtherFocused
+              ? 'Type your answer · Enter submits · ↑/↓ navigate · Esc clears then cancels'
+              : currentQuestion.multiSelect
+                ? 'Space toggles · Enter submits · ↑/↓ navigate · Tab next · Esc cancel · ? help'
+                : 'Enter selects · ↑/↓ navigate · 1-4 quick pick · Tab next · Esc cancel · ? help'}
           </text>
           {showHelp ? <HelpPanel multiSelect={currentQuestion.multiSelect} /> : null}
         </box>
@@ -191,25 +193,18 @@ function OptionRow({ option, index, isFocused, isSelected, multiSelect }: Option
 interface OtherRowProps {
   index: number
   isFocused: boolean
-  isSelected: boolean
   multiSelect: boolean
   otherText: string
-  isInOther: boolean
   onInput: (value: string) => void
   hasFocus: boolean
+  resetToken: number
 }
 
-function OtherRow({
-  index,
-  isFocused,
-  isSelected,
-  multiSelect,
-  otherText,
-  isInOther,
-  onInput,
-  hasFocus,
-}: OtherRowProps) {
-  const prefix = multiSelect ? (isSelected ? '[✓]' : '[ ]') : isFocused ? '›' : ' '
+function OtherRow({ index, isFocused, multiSelect, otherText, onInput, hasFocus, resetToken }: OtherRowProps) {
+  // In multi-select, typed text is what selects Other — there is no separate
+  // box to tick, so the marker follows the field's contents.
+  const hasText = otherText.trim().length > 0
+  const prefix = multiSelect ? (hasText ? '[✓]' : '[ ]') : isFocused ? '›' : ' '
   const labelColor = isFocused ? theme.headerAccent : theme.userFg
 
   return (
@@ -224,15 +219,16 @@ function OtherRow({
         <text fg={labelColor} attributes={isFocused ? TextAttributes.BOLD : undefined}>
           Other
         </text>
-        {otherText && !isInOther ? (
+        {hasText && !isFocused ? (
           <text fg={theme.statusFg} attributes={TextAttributes.DIM}>
             — {otherText}
           </text>
         ) : null}
       </box>
-      {isInOther ? (
+      {isFocused ? (
         <box paddingLeft={5} paddingTop={0}>
           <input
+            key={`other-input-${resetToken}`}
             value={otherText}
             onInput={onInput}
             focused={hasFocus}
@@ -268,8 +264,9 @@ function HelpPanel({ multiSelect }: { multiSelect: boolean }) {
     ['Enter', multiSelect ? 'Submit current selections' : 'Pick focused option and advance'],
     ['1-4', 'Quick-pick option by number'],
     ['Tab / Shift+Tab', 'Advance or go back between questions'],
-    ['Space', multiSelect ? 'Toggle focused option' : 'Toggle Other input (when focused)'],
-    ['Esc', 'Cancel this question request'],
+    ['Space', multiSelect ? 'Toggle focused option' : 'Insert a space when typing in Other'],
+    ['Other', 'Focus it and type — no extra key needed'],
+    ['Esc', 'Clear a typed Other answer, or cancel the request'],
     ['?', 'Toggle this help'],
   ]
   return (

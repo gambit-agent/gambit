@@ -107,3 +107,44 @@ test('does not group tool messages in transcript mode', () => {
     { type: 'message', message: expect.objectContaining({ id: 'tool-2' }) },
   ])
 })
+
+test('an assistant message absorbed as a tool preamble is not also rendered as prose', () => {
+  const preamble: ConversationMessage = {
+    id: 'assistant-preamble',
+    role: 'assistant',
+    content: 'checking how submit routes input',
+    timestamp: '2026-04-01T12:00:00.000Z',
+  }
+  const toolMessage: ConversationMessage = {
+    ...createToolMessage('tool-1', 'executeShell', { command: 'ls' }),
+    metadata: {
+      toolCallId: 'tool-1',
+      toolName: 'executeShell',
+      toolArgs: { command: 'ls' },
+      toolStatus: 'completed',
+      toolPreamble: 'checking how submit routes input',
+      toolPreambleSourceId: 'assistant-preamble',
+    },
+  }
+  const messages = [createMessage('user', 'look around'), preamble, toolMessage]
+
+  const items = groupConversationRenderItems(messages, false)
+
+  expect(items.some((item) => item.type === 'message' && item.message.id === 'assistant-preamble')).toBe(false)
+  expect(items).toHaveLength(2)
+
+  // Transcript mode is the raw view: nothing is folded away there.
+  const transcript = groupConversationRenderItems(messages, true)
+  expect(transcript).toHaveLength(3)
+})
+
+test('assistant messages no tool claimed as a preamble still render', () => {
+  const messages = [
+    createMessage('assistant', 'checking how submit routes input'),
+    createToolMessage('tool-1', 'executeShell', { command: 'ls' }),
+  ]
+
+  const items = groupConversationRenderItems(messages, false)
+
+  expect(items.some((item) => item.type === 'message' && item.message.role === 'assistant')).toBe(true)
+})

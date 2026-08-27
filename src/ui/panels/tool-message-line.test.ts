@@ -158,3 +158,37 @@ test('does not render failed patch inputs as completed edits', () => {
   expect(presentation.heading).toBe('patchFile failed')
   expect(presentation.detailLines).toEqual([{ text: '  └ Patch failed.', kind: 'normal' }])
 })
+
+test('the call reason is shown first, above the tool own detail', () => {
+  const running = formatToolMessagePresentation(
+    createToolMessage('started', { toolPreamble: 'checking how submit routes input' }),
+  )
+
+  expect(running.detailLines[0]).toEqual({
+    text: '  └ checking how submit routes input',
+    kind: 'normal',
+  })
+})
+
+test('the call reason survives failure and cancellation', () => {
+  const failed = formatToolMessagePresentation(
+    createToolMessage('failed', {
+      toolPreamble: 'running the type checker',
+      toolResult: 'Error: boom',
+    }),
+  )
+  const cancelled = formatToolMessagePresentation(
+    createToolMessage('cancelled', { toolPreamble: 'running the type checker' }),
+  )
+
+  expect(failed.detailLines[0]?.text).toBe('  └ running the type checker')
+  expect(cancelled.detailLines[0]?.text).toBe('  └ running the type checker')
+  expect(cancelled.heading).toContain('(cancelled)')
+})
+
+test('a tool call with no stated reason renders unchanged', () => {
+  const withoutPreamble = formatToolMessagePresentation(createToolMessage('completed'))
+  const blankPreamble = formatToolMessagePresentation(createToolMessage('completed', { toolPreamble: '   ' }))
+
+  expect(blankPreamble.detailLines).toEqual(withoutPreamble.detailLines)
+})

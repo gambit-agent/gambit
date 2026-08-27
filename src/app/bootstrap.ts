@@ -4,6 +4,7 @@ import { generateId } from '../lib/id'
 import { ConversationRunner } from '../conversation/conversation-runner'
 import { createConversationStore, type ConversationStore } from '../conversation/conversation-store'
 import type { ConversationMessage } from '../conversation/conversation-types'
+import { SteeringBridge } from '../conversation/steering'
 import { resolveMaxDelegationDepth, workspaceRoot } from '../config'
 import { AgentRunner } from '../agents/agent-runner'
 import { agentToolIds } from '../agents/agent-tool-policy'
@@ -34,6 +35,12 @@ export interface ConversationRuntimeServices {
   systemMessage: ConversationMessage
   conversationStore: ConversationStore
   conversationRunner: ConversationRunner
+  /**
+   * Carries composer input into a turn that is already running. The REPL
+   * registers its follow-up queue as the source; other front ends leave it
+   * unconnected, which falls back to queueing until the turn ends.
+   */
+  steering: SteeringBridge
   memoryStore: MemoryStore
   resetConversation: () => Promise<string>
   resumeConversation: (conversationId: string) => Promise<ConversationSessionSummary>
@@ -177,9 +184,11 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     await conversationStore.initialize()
   }
 
+  const steering = new SteeringBridge()
   const conversationRunner = new ConversationRunner({
     store: conversationStore,
     baseSystemPrompt,
+    steering,
     maxDelegationDepth: runtimeMaxDelegationDepth,
     memoryStore,
     createToolContext: (options) => ({
@@ -195,6 +204,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     systemMessage,
     conversationStore,
     conversationRunner,
+    steering,
     memoryStore,
     permissionEngine,
     questionEngine,

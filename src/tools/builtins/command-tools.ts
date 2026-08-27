@@ -88,7 +88,11 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
   // consumed by the matching execute call. Executing from the captured
   // preview guarantees the shell directives that run are exactly the ones the
   // user approved, even if the command file changes on disk in between.
-  const approvedPreviews = new Map<string, SlashCommandPreview>()
+  // Entries expire after a short window so denied permissions don't leak
+  // stale approvals, and the map is capped to bound memory growth.
+  const PREVIEW_TTL_MS = 60_000
+  const MAX_APPROVED_PREVIEWS = 50
+  const approvedPreviews = new Map<string, { preview: SlashCommandPreview; createdAt: number }>()
   const previewKey = (name: string, args: string | undefined) =>
     JSON.stringify([name.replace(/^\//, '').trim(), args?.trim() ?? ''])
 
@@ -100,9 +104,9 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
     execute: async ({ name, arguments: args }) => {
       const key = previewKey(name, args)
       const approved = approvedPreviews.get(key)
-      if (approved) {
-        approvedPreviews.delete(key)
-        return executeSlashCommandFromPreview(approved)
+      approvedPreviews.delete(key)
+      if (approved && Date.now() - approved.createdAt <= PREVIEW_TTL_MS) {
+        return executeSlashCommandFromPreview(approved.preview)
       }
       // No captured preview (e.g. no permission engine in this context):
       // resolve from disk as before.
@@ -141,7 +145,10 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
       // Capture the resolved preview (even when directive-free) so execute
       // runs what was inspected here rather than re-reading the file — a file
       // that gains directives after approval cannot run them unapproved.
-      approvedPreviews.set(previewKey(name, args), preview)
+      approvedPreviews.set(previewKey(name, args), { preview, createdAt: Date.now() })
+      while (approvedPreviews.size > MAX_APPROVED_PREVIEWS) {
+        approvedPreviews.delete(approvedPreviews.keys().next().value!)
+      }
 
       if (preview.shellDirectives.length === 0) {
         return null

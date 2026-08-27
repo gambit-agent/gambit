@@ -105,9 +105,10 @@ export class PermissionEngine {
     const dequeued = await dequeuePermissionRequest()
     await this.refresh()
 
-    const active = dequeued ?? record
+    // Key by this caller's own request id so decisions map 1:1 to waiters,
+    // even if a concurrent caller's request was dequeued instead.
     return new Promise<Exclude<PermissionDecision, 'ask'>>((resolve) => {
-      this.pendingResolvers.set(active.id, resolve)
+      this.pendingResolvers.set(record.id, resolve)
     })
   }
 

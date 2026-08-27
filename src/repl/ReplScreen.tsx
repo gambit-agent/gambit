@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction 
 
 import type { LaunchOptions } from '../app/launch-options'
 import { getConversationGoal } from '../conversation/goal'
+import { countSteerableEntries } from '../conversation/steering'
 import {
   useAppRuntime,
   useConversationSnapshot,
@@ -132,7 +133,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [inputValue, setInputValue] = useState('')
   const [inputPreview, setInputPreview] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
-  const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [thinkingEnabled, setThinkingEnabled] = useState(true)
   const [tasksOpen, setTasksOpen] = useState(false)
   const [taskDrawerSelectedIndex, setTaskDrawerSelectedIndex] = useState(0)
   const [taskFilter, setTaskFilter] = useState<ActivityFilter>('all')
@@ -144,6 +145,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const [transcriptMode, setTranscriptMode] = useState(false)
   const [permissionExplainOpen, setPermissionExplainOpen] = useState(false)
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null)
+  const planScrollboxRef = useRef<ScrollBoxRenderable | null>(null)
   const textareaRef = useRef<TextareaRenderable | null>(null)
   const fileMentionRequestIdRef = useRef(0)
   const slashCompletionRequestIdRef = useRef(0)
@@ -491,6 +493,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   useReplKeyboard({
     runtime,
     scrollboxRef,
+    planScrollboxRef,
     conversation,
     permissionSnapshot,
     questionSnapshot,
@@ -691,6 +694,16 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     submit: interactive.submitFollowUp,
   })
 
+  // Hand the composer's queue to the running turn. Registered here rather than
+  // inside the controller because the bridge belongs to the runtime, which the
+  // controller does not see.
+  useEffect(() => {
+    runtime.steering.setSource(interactive.drainSteerable)
+    return () => {
+      runtime.steering.setSource(null)
+    }
+  }, [interactive.drainSteerable, runtime.steering])
+
   useEffect(() => {
     setPermissionExplainOpen(false)
   }, [permissionSnapshot.activeRequest])
@@ -731,6 +744,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     conversation.conversationId,
   )
   const followUpCount = interactive.followUpQueue.length
+  // Entries at the head of the queue that the running turn will pick up at its
+  // next step boundary, rather than after it finishes.
+  const steeringCount =
+    conversation.status === 'running' && runtime.steering.isConnected
+      ? countSteerableEntries(interactive.followUpQueue)
+      : 0
   const {
     shortModelDisplay,
     activeTasks,
@@ -742,11 +761,11 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     modelId,
     reasoningEffort,
     providerSlug,
-    thinkingEnabled,
     permissionMode: permissionSnapshot.mode,
     isLight,
     terminalWidth,
     followUpCount,
+    steeringCount,
   })
   const handleConversationClipboardError = useCallback((error: Error) => {
     runtime.conversationStore.setError(error.message)
@@ -794,6 +813,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         permissionRequest={permissionSnapshot.activeRequest}
         permissionExplainOpen={permissionExplainOpen}
         activePlanContent={activePlanContent}
+        planScrollboxRef={planScrollboxRef}
         questionOpen={Boolean(questionSnapshot.activeRequest)}
         questionController={questionController}
         tasksOpen={tasksOpen}

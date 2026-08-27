@@ -1,5 +1,5 @@
 import type { ParsedKey } from '@opentui/core'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
   Question,
@@ -16,7 +16,14 @@ export interface AskUserQuestionController {
   focusedIndex: number
   selectedIndices: Set<number>
   otherText: string
-  isInOther: boolean
+  /** True while the Other row holds focus, which is also when it is typeable. */
+  isOtherFocused: boolean
+  /**
+   * Changes whenever the Other field is reset from code. OpenTUI's `<input>`
+   * keeps its own text and ignores later `value` props, so the overlay uses
+   * this as a React key to remount the field.
+   */
+  otherResetToken: number
   showHelp: boolean
   handleKey: (key: ParsedKey) => boolean
   handleOtherInput: (value: string) => void
@@ -43,15 +50,20 @@ export function useAskUserQuestionController(
   const [currentIndex, setCurrentIndex] = useState(0)
   const [focusedIndex, setFocusedIndex] = useState(0)
   const [perQuestionState, setPerQuestionState] = useState<Record<string, QuestionState>>({})
-  const [isInOther, setIsInOther] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [otherResetToken, setOtherResetToken] = useState(0)
+  // Mirrors the focused question's Other text synchronously. Key events can
+  // arrive before React re-renders — typing then immediately pressing Enter —
+  // and reading the render closure there would submit stale text.
+  const otherTextRef = useRef('')
 
   useEffect(() => {
     setCurrentIndex(0)
     setFocusedIndex(0)
     setPerQuestionState({})
-    setIsInOther(false)
     setShowHelp(false)
+    otherTextRef.current = ''
+    setOtherResetToken((token) => token + 1)
   }, [record?.id])
 
   const currentQuestion = record?.questions[currentIndex] ?? null
@@ -64,6 +76,10 @@ export function useAskUserQuestionController(
     return currentQuestion.options.length + 1
   }, [currentQuestion])
 
+  // The Other row is the last one. Focusing it is all it takes to type into
+  // it, so there is no separate "editing Other" mode to track.
+  const isOtherFocused = currentQuestion !== null && focusedIndex === currentQuestion.options.length
+
   const ensureStateBucket = useCallback(
     (updater: (current: QuestionState) => QuestionState) => {
       setPerQuestionState((prev) => {
@@ -74,12 +90,33 @@ export function useAskUserQuestionController(
     [questionKey],
   )
 
+  const handleOtherInput = useCallback(
+    (value: string) => {
+      otherTextRef.current = value
+      ensureStateBucket((current) => ({ ...current, otherText: value }))
+    },
+    [ensureStateBucket],
+  )
+
+  /** Reset the field and remount it, since the input ignores value changes. */
+  const clearOtherText = useCallback(() => {
+    otherTextRef.current = ''
+    ensureStateBucket((current) => ({ ...current, otherText: '' }))
+    setOtherResetToken((token) => token + 1)
+  }, [ensureStateBucket])
+
+  /** Point the field at another question's stored answer. */
+  const adoptOtherTextFor = useCallback((questionText: string, states: Record<string, QuestionState>) => {
+    otherTextRef.current = states[questionText]?.otherText ?? ''
+    setOtherResetToken((token) => token + 1)
+  }, [])
+
   const commitCurrent = useCallback((overrideIndex?: number): { values: string[]; preview?: string; otherUsed: boolean } | null => {
     if (!currentQuestion) return null
     const effectiveIndex = overrideIndex ?? focusedIndex
-    const isOtherFocused = effectiveIndex === currentQuestion.options.length
+    const committingOther = effectiveIndex === currentQuestion.options.length
     const selected = state.selected
-    const otherText = state.otherText.trim()
+    const otherText = otherTextRef.current.trim()
 
     if (currentQuestion.multiSelect) {
       const values: string[] = []
@@ -89,8 +126,9 @@ export function useAskUserQuestionController(
           values.push(option.label)
         }
       }
-      if (selected.has(currentQuestion.options.length)) {
-        if (!otherText) return null
+      // Text in the Other field counts as selecting it: having to also tick a
+      // box for something you just typed is the step this flow removes.
+      if (otherText) {
         values.push(otherText)
         otherUsed = true
       }
@@ -98,7 +136,7 @@ export function useAskUserQuestionController(
       return { values, otherUsed }
     }
 
-    if (isOtherFocused) {
+    if (committingOther) {
       if (!otherText) return null
       return { values: [otherText], otherUsed: true }
     }
@@ -150,16 +188,19 @@ export function useAskUserQuestionController(
       ...perQuestionState,
       [currentQuestion.question]: {
         selected: state.selected,
-        otherText: state.otherText,
+        otherText: otherTextRef.current,
         confirmed: confirmedValue,
       },
     }
     setPerQuestionState(nextStates)
-    setIsInOther(false)
 
     if (currentIndex + 1 < record.questions.length) {
+      const nextQuestion = record.questions[currentIndex + 1]
       setCurrentIndex(currentIndex + 1)
       setFocusedIndex(0)
+      if (nextQuestion) {
+        adoptOtherTextFor(nextQuestion.question, nextStates)
+      }
       return
     }
 
@@ -176,14 +217,18 @@ export function useAskUserQuestionController(
   ])
 
   const goPrev = useCallback(() => {
-    if (currentIndex === 0) return
-    setIsInOther(false)
+    if (currentIndex === 0 || !record) return
+    const previousQuestion = record.questions[currentIndex - 1]
     setCurrentIndex(currentIndex - 1)
     setFocusedIndex(0)
-  }, [currentIndex])
+    if (previousQuestion) {
+      adoptOtherTextFor(previousQuestion.question, perQuestionState)
+    }
+  }, [adoptOtherTextFor, currentIndex, perQuestionState, record])
 
   const toggleMultiSelectCurrent = useCallback(() => {
     if (!currentQuestion || !currentQuestion.multiSelect) return
+    if (focusedIndex >= currentQuestion.options.length) return
     ensureStateBucket((current) => {
       const next = new Set(current.selected)
       if (next.has(focusedIndex)) {
@@ -195,37 +240,43 @@ export function useAskUserQuestionController(
     })
   }, [currentQuestion, ensureStateBucket, focusedIndex])
 
-  const handleOtherInput = useCallback(
-    (value: string) => {
-      ensureStateBucket((current) => ({ ...current, otherText: value }))
-    },
-    [ensureStateBucket],
-  )
-
   const handleKey = useCallback(
     (key: ParsedKey): boolean => {
       if (!record || !currentQuestion) return false
 
-      if (isInOther) {
+      // The Other row's input is live whenever the row is focused, so only the
+      // keys that would otherwise be lost are intercepted here. Everything
+      // else — digits, '?', space — must reach the field as typed text rather
+      // than firing the shortcut it triggers on the other rows.
+      if (isOtherFocused) {
         if (key.name === 'escape') {
-          setIsInOther(false)
+          // Clear a draft first so a stray Esc cannot discard typing along
+          // with the whole request.
+          if (otherTextRef.current) {
+            clearOtherText()
+            return true
+          }
+          onReject(record.id, 'User cancelled the question.')
+          return true
+        }
+        if (key.name === 'up') {
+          setFocusedIndex((current) => Math.max(0, current - 1))
+          return true
+        }
+        if (key.name === 'down') {
+          setFocusedIndex((current) => Math.min(totalOptionsForCurrent - 1, current + 1))
+          return true
+        }
+        if (key.name === 'tab') {
+          if (key.shift) {
+            goPrev()
+          } else if (currentIndex + 1 < totalQuestions) {
+            confirmAndAdvance()
+          }
           return true
         }
         if (key.name === 'return') {
-          if (!currentQuestion.multiSelect) {
-            confirmAndAdvance()
-          } else {
-            ensureStateBucket((current) => {
-              const next = new Set(current.selected)
-              if (current.otherText.trim()) {
-                next.add(currentQuestion.options.length)
-              } else {
-                next.delete(currentQuestion.options.length)
-              }
-              return { ...current, selected: next }
-            })
-            setIsInOther(false)
-          }
+          confirmAndAdvance()
           return true
         }
         return false
@@ -252,18 +303,10 @@ export function useAskUserQuestionController(
         return true
       }
       if (key.name === 'space' && currentQuestion.multiSelect) {
-        if (focusedIndex === currentQuestion.options.length) {
-          setIsInOther(true)
-        } else {
-          toggleMultiSelectCurrent()
-        }
+        toggleMultiSelectCurrent()
         return true
       }
       if (key.name === 'return') {
-        if (!currentQuestion.multiSelect && focusedIndex === currentQuestion.options.length) {
-          setIsInOther(true)
-          return true
-        }
         confirmAndAdvance()
         return true
       }
@@ -288,9 +331,9 @@ export function useAskUserQuestionController(
       confirmAndAdvance,
       currentIndex,
       currentQuestion,
-      ensureStateBucket,
+      clearOtherText,
       goPrev,
-      isInOther,
+      isOtherFocused,
       focusedIndex,
       onReject,
       record,
@@ -308,7 +351,8 @@ export function useAskUserQuestionController(
     focusedIndex,
     selectedIndices: state.selected,
     otherText: state.otherText,
-    isInOther,
+    isOtherFocused,
+    otherResetToken,
     showHelp,
     handleKey,
     handleOtherInput,

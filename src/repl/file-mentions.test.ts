@@ -2,13 +2,18 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import {
   expandFileMentions,
   findActiveFileMention,
+  getFileMentionMatches,
   replaceActiveFileMention,
 } from './file-mentions'
+
+mock.module('../lib/workspace-files', () => ({
+  getWorkspaceFiles: async () => ['src/app.ts'],
+}))
 
 let tempRoot: string | null = null
 
@@ -67,5 +72,11 @@ describe('file mentions', () => {
 
     expect(result.files).toEqual([])
     expect(result.content).toBe('@template arg')
+  })
+
+  test('treats backslash queries as invalid and lists all files', async () => {
+    const matches = await getFileMentionMatches('src\\foo')
+    const baseline = await getFileMentionMatches('')
+    expect(matches).toEqual(baseline)
   })
 })

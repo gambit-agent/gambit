@@ -30,21 +30,12 @@ const READ_ONLY_TOOLS = new Set([
   'enterPlanMode',
 ])
 
-/** Tool IDs that perform write or execution operations. */
-const WRITE_TOOLS = new Set([
-  'write',
-  'writeFile',
-  'edit',
-  'editFile',
-  'patchFile',
-  'bash',
-  'executeShell',
-  'spawnAgent',
-  'runAgents',
-  'workflow',
-  'cancelTask',
-  'writeMemory',
-])
+/**
+ * Delegation tools Plan mode runs without prompting. Explorer subagents are the
+ * main way a plan gets researched, and every tool the child calls goes through
+ * this same gate, so allowing the spawn itself grants no extra reach.
+ */
+const DELEGATION_TOOLS = new Set(['spawnAgent', 'runAgents', 'workflow'])
 
 export function evaluatePermissionMode(
   mode: PermissionMode,
@@ -81,12 +72,14 @@ export function evaluatePermissionMode(
       return 'allow'
     }
 
-    // Block all other write/execute tools in Plan mode
-    if (WRITE_TOOLS.has(input.toolId)) {
-      return 'deny'
+    if (DELEGATION_TOOLS.has(input.toolId)) {
+      return 'allow'
     }
 
-    // Default: ask for unknown tools
+    // Plan mode has the full tool set: research commands, builds, and even
+    // edits are available, they just stay behind the same prompt Normal mode
+    // uses. Nothing is hard-denied, so the model never hits a dead end
+    // mid-plan.
     return 'ask'
   }
 

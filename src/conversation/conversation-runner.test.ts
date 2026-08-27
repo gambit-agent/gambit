@@ -10,6 +10,7 @@ import { createRuntimeToolSuite } from '../tools/index'
 import { buildDelegatedAgentBaseSystemPrompt, ConversationRunner } from './conversation-runner'
 import { buildGoalSystemPrompt, createGoalMessage } from './goal'
 import { createConversationStore, type ConversationStore } from './conversation-store'
+import { SteeringBridge } from './steering'
 import { MemoryStore } from '../memory/memory-store'
 import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
@@ -145,6 +146,7 @@ test('collapses legacy transcripts with multiple memory-context messages to one'
 function makeRunnerWithStream(
   store: ConversationStore,
   run: (options: ModelStreamRunOptions) => Promise<ModelStreamRunResult>,
+  steering?: SteeringBridge,
 ): ConversationRunner {
   return new ConversationRunner({
     store,
@@ -154,6 +156,7 @@ function makeRunnerWithStream(
     createToolSuite: () =>
       createRuntimeToolSuite({ includeSpawnAgent: false, discoverMCPServerTools: false, workspaceRoot: tempRoot }),
     createModelStreamRunner: () => ({ run }),
+    steering,
   })
 }
 
@@ -315,4 +318,139 @@ test('appends a visible truncation note when the model stops at max output lengt
 
   const assistant = [...store.getSnapshot().messages].reverse().find((message) => message.role === 'assistant')
   expect(assistant?.content).toContain('truncated')
+})
+
+test('mid-turn steering reaches the stream and lands in the transcript', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'steering-test' })
+  await store.initialize()
+
+  const pending = ['actually check the tests first']
+  const steering = new SteeringBridge()
+  steering.setSource(() => pending.splice(0, pending.length))
+
+  let injected: readonly string[] = []
+  const runner = makeRunnerWithStream(
+    store,
+    async (options) => {
+      // Stands in for a step boundary inside the SDK loop.
+      const texts = options.steering?.pull() ?? []
+      injected = texts
+      await options.steering?.onSteered?.(texts)
+      return { text: 'checking the tests', streamedText: '', reasoning: '', aborted: false, stepCount: 1 }
+    },
+    steering,
+  )
+
+  await runner.runTurn({ userInput: 'refactor the queue', apiKey: '', modelId: 'test-model' })
+
+  expect(injected).toEqual(['actually check the tests first'])
+
+  const persisted = await store.loadMessages()
+  const steered = persisted.find((message) => message.metadata?.steering === true)
+  expect(steered?.role).toBe('user')
+  expect(steered?.content).toBe('actually check the tests first')
+})
+
+test('steering typed before a failing turn survives on disk', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'steering-error-test' })
+  await store.initialize()
+
+  const steering = new SteeringBridge()
+  steering.setSource(() => ['stop and run the tests'])
+
+  const runner = makeRunnerWithStream(
+    store,
+    async (options) => {
+      await options.steering?.onSteered?.(options.steering.pull())
+      throw new Error('provider exploded')
+    },
+    steering,
+  )
+
+  await expect(
+    runner.runTurn({ userInput: 'refactor the queue', apiKey: '', modelId: 'test-model' }),
+  ).rejects.toThrow('provider exploded')
+
+  // The user really typed this; a failed turn must not swallow it.
+  const persisted = await store.loadMessages()
+  const steered = persisted.find((message) => message.metadata?.steering === true)
+  expect(steered?.content).toBe('stop and run the tests')
+})
+
+test('a turn with no steering bridge runs unchanged', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'no-steering-test' })
+  await store.initialize()
+
+  let steeringOption: unknown = 'unset'
+  const runner = makeRunnerWithStream(store, async (options) => {
+    steeringOption = options.steering
+    return { text: 'done', streamedText: '', reasoning: '', aborted: false, stepCount: 1 }
+  })
+
+  await runner.runTurn({ userInput: 'hello', apiKey: '', modelId: 'test-model' })
+
+  expect(steeringOption).toBeUndefined()
+  const persisted = await store.loadMessages()
+  expect(persisted.some((message) => message.metadata?.steering)).toBe(false)
+})
+
+test('the line before a tool call becomes that call preamble', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'preamble-test' })
+  await store.initialize()
+
+  const runner = makeRunnerWithStream(store, async (options) => {
+    await options.handlers?.onTextDelta?.('checking how submit routes input', { type: 'text-delta' })
+    await options.handlers?.onToolCall?.({
+      type: 'tool-call',
+      toolCallId: 'tc-preamble',
+      toolName: 'bash',
+      input: { command: 'ls' },
+    })
+    await options.handlers?.onToolResult?.({
+      type: 'tool-result',
+      toolCallId: 'tc-preamble',
+      toolName: 'bash',
+      input: { command: 'ls' },
+      output: 'src',
+    })
+    return { text: 'done', streamedText: '', reasoning: '', aborted: false, stepCount: 1 }
+  })
+
+  await runner.runTurn({ userInput: 'look around', apiKey: '', modelId: 'test-model' })
+
+  const persisted = await store.loadMessages()
+  const toolMessage = persisted.find((message) => message.metadata?.toolCallId === 'tc-preamble')
+  expect(toolMessage?.metadata?.toolPreamble).toBe('checking how submit routes input')
+  // The result rewrites the tool message's metadata; the preamble must survive.
+  expect(toolMessage?.metadata?.toolStatus).toBe('completed')
+
+  // The assistant message stays in the transcript so replay is faithful.
+  const source = persisted.find((message) => message.id === toolMessage?.metadata?.toolPreambleSourceId)
+  expect(source?.role).toBe('assistant')
+  expect(source?.content).toBe('checking how submit routes input')
+})
+
+test('prose before a tool call is left as a normal message', async () => {
+  const store = createConversationStore({ rootPath: tempRoot, conversationId: 'preamble-prose-test' })
+  await store.initialize()
+
+  const prose = `## Findings\n\nThe queue drains only while idle, so anything typed mid-run waits.`
+  const runner = makeRunnerWithStream(store, async (options) => {
+    await options.handlers?.onTextDelta?.(prose, { type: 'text-delta' })
+    await options.handlers?.onToolCall?.({
+      type: 'tool-call',
+      toolCallId: 'tc-prose',
+      toolName: 'bash',
+      input: { command: 'ls' },
+    })
+    return { text: 'done', streamedText: '', reasoning: '', aborted: false, stepCount: 1 }
+  })
+
+  await runner.runTurn({ userInput: 'look around', apiKey: '', modelId: 'test-model' })
+
+  const toolMessage = store
+    .getSnapshot()
+    .messages.find((message) => message.metadata?.toolCallId === 'tc-prose')
+  expect(toolMessage?.metadata?.toolPreamble).toBeUndefined()
+  expect(toolMessage?.metadata?.toolPreambleSourceId).toBeUndefined()
 })

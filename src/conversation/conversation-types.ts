@@ -29,6 +29,16 @@ export interface ConversationMessage {
     compactionSummary?: boolean
     /** Images supplied with a user message. */
     attachments?: ImageAttachment[]
+    /** Marks a user message injected into a turn that was already running. */
+    steering?: boolean
+    /** One-line reason the model gave for this tool call, shown with it. */
+    toolPreamble?: string
+    /**
+     * Id of the assistant message the preamble was taken from. The message is
+     * kept in the transcript for replay fidelity; the panel hides it so the
+     * text is not shown twice.
+     */
+    toolPreambleSourceId?: string
   }
 }
 

@@ -201,7 +201,7 @@ function trimMentionToken(token: string): string {
 function normalizeMentionPath(value: string): string | null {
   const trimmed = value.trim().replace(/^\.?\//, '')
   if (!trimmed || trimmed.includes('\\')) {
-    return trimmed || null
+    return null
   }
 
   const normalized = path.posix.normalize(trimmed)

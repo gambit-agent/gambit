@@ -70,6 +70,9 @@ function serializeMessageForTranscript(message: ConversationMessage): Conversati
         memoryContext: metadata.memoryContext,
         compactionSummary: metadata.compactionSummary,
         attachments: metadata.attachments,
+        steering: metadata.steering,
+        toolPreamble: metadata.toolPreamble,
+        toolPreambleSourceId: metadata.toolPreambleSourceId,
       }
     : undefined
 

@@ -37,6 +37,24 @@ export class FollowUpQueue<T = string> {
     return next
   }
 
+  /**
+   * Removes and returns the longest run of entries at the head that satisfy
+   * `predicate`. Counting stops at the first entry that does not, so the
+   * user's messages are never delivered out of order by reaching past one.
+   */
+  drainWhile(predicate: (value: T) => boolean): T[] {
+    let count = 0
+    while (count < this.items.length && predicate(this.items[count] as T)) {
+      count += 1
+    }
+    if (count === 0) {
+      return []
+    }
+    const taken = this.items.slice(0, count)
+    this.items = this.items.slice(count)
+    return taken
+  }
+
   /** Removes and returns the newest entry (LIFO). */
   pop(): T | undefined {
     if (this.items.length === 0) return undefined
@@ -66,6 +84,14 @@ export function useFollowUpQueue<T = string>() {
     return next
   }, [])
 
+  const drainFollowUpsWhile = useCallback((predicate: (value: T) => boolean) => {
+    const taken = queueRef.current!.drainWhile(predicate)
+    if (taken.length > 0) {
+      setFollowUpQueue(queueRef.current!.snapshot)
+    }
+    return taken
+  }, [])
+
   const popFollowUp = useCallback(() => {
     const last = queueRef.current!.pop()
     if (last !== undefined) {
@@ -88,6 +114,7 @@ export function useFollowUpQueue<T = string>() {
     followUpQueue,
     enqueueFollowUp,
     drainFollowUp,
+    drainFollowUpsWhile,
     popFollowUp,
     requeueFrontFollowUp,
     getFollowUpQueueSize,

@@ -13,8 +13,9 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
   description: [
     'Enter Plan mode for complex tasks requiring exploration and design.',
     'Use this proactively when a task has multiple valid approaches, requires architectural decisions,',
-    'or involves multi-file changes. In Plan mode you explore the codebase read-only and write your',
-    'Plan to the Plan file using write only. When ready, call exitPlanMode to request user approval.',
+    'or involves multi-file changes. Plan mode keeps the full tool set — run commands, delegate explorer',
+    'subagents, read anything — but the goal is research, not implementation: write your Plan to the Plan',
+    'file and call exitPlanMode to request user approval before you start changing code.',
   ].join(' '),
   inputSchema: enterPlanModeSchema,
   execute: async (_input, context) => {
@@ -35,7 +36,7 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
     const planFilePath = getPlanFilePath(sessionId)
 
     return [
-      'Entered Plan mode. You are now in a read-only exploration phase.',
+      'Entered Plan mode. You are in a research phase — investigate now, implement after approval.',
       '',
       `Plan file: ${planFilePath}`,
       '',
@@ -46,8 +47,11 @@ export const enterPlanModeTool: ToolDefinition<typeof enterPlanModeSchema, strin
       '4. Write your implementation Plan to the Plan file using write',
       '5. When ready, call exitPlanMode to present your Plan for user approval',
       '',
-      'IMPORTANT: Do NOT write or edit any files except the Plan file.',
-      'All write/execute tools are blocked except for writing to the Plan file.',
+      'You keep the full tool set here: bash, delegated explorer agents, and every read tool are',
+      'available, and writing to the Plan file needs no approval. Use them to research.',
+      'IMPORTANT: do NOT implement the task yet. Do not edit files other than the Plan file, and keep',
+      'shell commands to inspection (searching, reading, git history, running existing checks) rather',
+      'than anything that changes the workspace.',
     ].join('\n')
   },
   summarize: (result) => 'Entered Plan mode',

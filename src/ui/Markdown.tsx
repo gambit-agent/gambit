@@ -1,8 +1,16 @@
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { SyntaxStyle, TextAttributes } from '@opentui/core'
+import { TextAttributes } from '@opentui/core'
+import { useTerminalDimensions } from '@opentui/react'
 import { marked, type Token, type Tokens } from 'marked'
 
+import {
+  buildBorderLine,
+  buildRowLines,
+  layoutMarkdownTable,
+  type ColumnAlign,
+} from './markdown-table'
+import { isMermaidLanguage, renderMermaid } from './mermaid'
 import { layout, theme } from './theme'
 
 marked.use({
@@ -14,20 +22,23 @@ interface MarkdownProps {
   content: string
   textColor?: string
   strongColor?: string
+  /**
+   * Columns available to block content. Defaults to the terminal width less
+   * the conversation's own padding; diagrams need it to decide whether they
+   * fit or must fall back to source.
+   */
+  availableWidth?: number
 }
 
 interface RenderOptions {
   textColor: string
   strongColor: string
+  availableWidth: number
 }
 
 const HORIZONTAL_RULE = '─'.repeat(40)
-const markdownTableSyntaxStyle = SyntaxStyle.fromStyles({
-  default: { fg: theme.tableFg },
-  'markup.heading': { fg: theme.tableFg, bold: true },
-  'markup.raw': { fg: theme.codeInlineFg },
-})
-
+/** Screen padding plus message padding on both sides of a rendered block. */
+const CONVERSATION_CHROME_WIDTH = (layout.screenPadding + layout.messagePaddingX) * 2
 const headingSizeToAttributes: Record<number, number> = {
   1: TextAttributes.BOLD,
   2: TextAttributes.BOLD,
@@ -146,21 +157,79 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string, options: R
   return nodes
 }
 
-function renderTable(token: Tokens.Table, key: string): ReactNode {
-  return (
-    <markdown
-      key={key}
-      content={token.raw.trimEnd()}
-      syntaxStyle={markdownTableSyntaxStyle}
-      internalBlockMode="top-level"
-      tableOptions={{
-        style: 'grid',
-        borderColor: theme.divider,
-        selectable: true,
-      }}
-      fg={theme.tableFg}
-      bg={theme.tableBg}
+function toColumnAlign(value: string | null | undefined): ColumnAlign {
+  return value === 'center' || value === 'right' ? value : 'left'
+}
+
+/**
+ * Flatten a table cell's inline tokens to plain text. The token's own `text`
+ * still carries markdown syntax, so a cell holding `` `~/.gambit/` `` would
+ * otherwise render with its backticks visible.
+ */
+function cellPlainText(cell: Tokens.TableCell): string {
+  const collect = (tokens: Token[] | undefined): string => {
+    if (!tokens?.length) {
+      return ''
+    }
+    return tokens
+      .map((token) => {
+        if (token.type === 'br') {
+          return ' '
+        }
+        if ('tokens' in token && token.tokens?.length) {
+          return collect(token.tokens as Token[])
+        }
+        return (token as { text?: string }).text ?? token.raw ?? ''
+      })
+      .join('')
+  }
+
+  const flattened = collect(cell.tokens as Token[] | undefined)
+  return (flattened || cell.text).replace(/\s+/gu, ' ').trim()
+}
+
+/**
+ * Draw a GFM table with the same `<box>`/`<text>` primitives as every other
+ * block. Cells are rendered as plain text: wrapping styled inline spans across
+ * lines is not worth the complexity here, and the header carries the emphasis.
+ */
+function renderTable(token: Tokens.Table, key: string, options: RenderOptions): ReactNode {
+  const header = token.header.map(cellPlainText)
+  const rows = token.rows.map((row) => row.map(cellPlainText))
+  const aligns = token.align.map(toColumnAlign)
+
+  const layout = layoutMarkdownTable(header, rows, aligns, options.availableWidth)
+  const { columnWidths, aligns: resolvedAligns } = layout
+
+  const line = (content: string, lineKey: string, bold = false): ReactNode => (
+    <text
+      selectable
+      key={lineKey}
+      content={content}
+      fg={bold ? theme.headingFg : theme.tableFg}
+      attributes={bold ? TextAttributes.BOLD : undefined}
     />
+  )
+
+  const elements: ReactNode[] = [line(buildBorderLine(columnWidths, 'top'), `${key}-top`)]
+
+  buildRowLines(layout.header, columnWidths, resolvedAligns).forEach((rowLine, index) => {
+    elements.push(line(rowLine, `${key}-header-${index}`, true))
+  })
+  elements.push(line(buildBorderLine(columnWidths, 'middle'), `${key}-header-rule`))
+
+  layout.rows.forEach((row, rowIndex) => {
+    buildRowLines(row, columnWidths, resolvedAligns).forEach((rowLine, index) => {
+      elements.push(line(rowLine, `${key}-row-${rowIndex}-${index}`))
+    })
+  })
+
+  elements.push(line(buildBorderLine(columnWidths, 'bottom'), `${key}-bottom`))
+
+  return (
+    <box key={key} flexDirection="column" gap={0}>
+      {elements}
+    </box>
   )
 }
 
@@ -237,6 +306,38 @@ function renderBlocks(
         break
       }
       case 'code': {
+        // Mermaid blocks are drawn as diagrams when they fit; anything we
+        // cannot draw falls through to the normal code block below, so the
+        // source is always still readable.
+        if (isMermaidLanguage(token.lang)) {
+          const diagram = renderMermaid(token.text, options.availableWidth)
+          if (diagram) {
+            elements.push(
+              <box
+                key={key}
+                flexDirection="column"
+                gap={0}
+                style={{
+                  border: ['left'],
+                  borderColor: theme.codeBlockBorder,
+                  paddingLeft: 1,
+                  paddingRight: 1,
+                }}
+              >
+                {diagram.map((line: string, lineIndex: number) => (
+                  <text
+                    selectable
+                    key={`${key}-diagram-${lineIndex}`}
+                    content={line.length > 0 ? line : ' '}
+                    fg={theme.tableFg}
+                  />
+                ))}
+              </box>,
+            )
+            break
+          }
+        }
+
         const lines = token.text.replace(/\n$/u, '').split('\n')
         elements.push(
           <box
@@ -303,7 +404,7 @@ function renderBlocks(
         break
       }
       case 'table': {
-        elements.push(renderTable(token as Tokens.Table, key))
+        elements.push(renderTable(token as Tokens.Table, key, options))
         break
       }
       case 'html':
@@ -337,18 +438,21 @@ function renderBlocks(
   return elements
 }
 
-export function Markdown({ content, textColor, strongColor }: MarkdownProps) {
+export function Markdown({ content, textColor, strongColor, availableWidth }: MarkdownProps) {
   const sanitizedContent = content.trimEnd()
   const tokens = useMemo(() => marked.lexer(sanitizedContent), [sanitizedContent])
+  const { width: terminalWidth } = useTerminalDimensions()
   const resolvedColor = textColor ?? theme.assistantFg
   const resolvedStrongColor = strongColor ?? theme.responseStrongFg
+  const resolvedWidth = Math.max(0, availableWidth ?? terminalWidth - CONVERSATION_CHROME_WIDTH)
   const renderedBlocks = useMemo(
     () =>
       renderBlocks(tokens, 'md', 0, {
         textColor: resolvedColor,
         strongColor: resolvedStrongColor,
+        availableWidth: resolvedWidth,
       }),
-    [resolvedColor, resolvedStrongColor, tokens],
+    [resolvedColor, resolvedStrongColor, resolvedWidth, tokens],
   )
 
   if (!tokens.length) {

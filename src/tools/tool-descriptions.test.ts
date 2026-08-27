@@ -59,7 +59,7 @@ test('core tool descriptions document behavior-shaping constraints', () => {
   expect(description(tools, 'workflow')).toContain("isolation: 'worktree' is advisory")
   expect(description(tools, 'writeMemory')).toContain('non-derivable')
   expect(description(tools, 'askUserQuestion')).toContain('Ask only when')
-  expect(description(tools, 'enterPlanMode')).toContain('write only')
+  expect(description(tools, 'enterPlanMode')).toContain('full tool set')
   expect(description(tools, 'exitPlanMode')).toContain('user approval')
 })
 

@@ -134,55 +134,75 @@ export class AgentRunner {
       })
     }
 
-    const result = await (options.streamRunner ?? new ModelStreamRunner()).run({
-      streamId: turnId,
-      model: selectModel(options.modelId, modelSettings),
-      messages: toCoreMessages(
-        history.map((message) => ({
-          ...message,
-          timestamp: new Date(message.timestamp),
-        })),
-      ),
-      tools: mergedTools,
-      maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
-      signal: options.signal,
-      promptCacheKey: turnId,
-      logMetadata: {
-        agentId: options.definition.id,
-        modelId: options.modelId,
-        reasoningEffort: options.reasoningEffort ?? null,
-        providerSlug: options.providerSlug ?? null,
-        messageCount: history.length,
-        toolCount: Object.keys(mergedTools).length,
-      },
-      handlers: {
-        onTextDelta: async (chunk) => {
-          assistantContent += chunk
-          const now = Date.now()
-          if (
-            now - lastTextProgressAt >= AGENT_PROGRESS_INTERVAL_MS ||
-            assistantContent.length - lastTextProgressChars >= AGENT_TEXT_PROGRESS_CHAR_DELTA
-          ) {
-            lastTextProgressAt = now
-            lastTextProgressChars = assistantContent.length
-            await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
-          }
+    // Mark any dangling 'tool-call' entries cancelled so the transcript never
+    // keeps 'started' entries after an abort or an unexpected stream error.
+    const cancelInFlightToolCalls = async () => {
+      if (inFlightToolCalls.size === 0) {
+        return
+      }
+      for (const [toolCallId, call] of inFlightToolCalls) {
+        await options.appendTranscript({
+          type: 'tool-cancelled',
+          toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+          timestamp: new Date().toISOString(),
+        })
+      }
+      inFlightToolCalls.clear()
+    }
+
+    let result
+    try {
+      result = await (options.streamRunner ?? new ModelStreamRunner()).run({
+        streamId: turnId,
+        model: selectModel(options.modelId, modelSettings),
+        messages: toCoreMessages(
+          history.map((message) => ({
+            ...message,
+            timestamp: new Date(message.timestamp),
+          })),
+        ),
+        tools: mergedTools,
+        maxSteps: options.agentExecutionOptions?.maxSteps ?? maxAgentSteps,
+        signal: options.signal,
+        promptCacheKey: turnId,
+        logMetadata: {
+          agentId: options.definition.id,
+          modelId: options.modelId,
+          reasoningEffort: options.reasoningEffort ?? null,
+          providerSlug: options.providerSlug ?? null,
+          messageCount: history.length,
+          toolCount: Object.keys(mergedTools).length,
         },
-        onReasoningDelta: async (text) => {
-          reasoningContent += text
-          const preview = reasoningContent.trim().slice(0, 120)
-          const now = Date.now()
-          if (now - lastReasoningProgressAt >= AGENT_PROGRESS_INTERVAL_MS) {
-            lastReasoningProgressAt = now
-            await options.updateProgress(`Agent reasoning: ${preview}`)
-          }
-        },
-        onToolCall: async (part) => {
-          const summary = formatToolEvent({
-            toolName: part.toolName ?? 'unknown',
-            status: 'started',
-            args: part.input ?? {},
-            toolCallId: part.toolCallId,
+        handlers: {
+          onTextDelta: async (chunk) => {
+            assistantContent += chunk
+            const now = Date.now()
+            if (
+              now - lastTextProgressAt >= AGENT_PROGRESS_INTERVAL_MS ||
+              assistantContent.length - lastTextProgressChars >= AGENT_TEXT_PROGRESS_CHAR_DELTA
+            ) {
+              lastTextProgressAt = now
+              lastTextProgressChars = assistantContent.length
+              await options.updateProgress(`Agent writing response (${assistantContent.length} chars)`)
+            }
+          },
+          onReasoningDelta: async (text) => {
+            reasoningContent += text
+            const preview = reasoningContent.trim().slice(0, 120)
+            const now = Date.now()
+            if (now - lastReasoningProgressAt >= AGENT_PROGRESS_INTERVAL_MS) {
+              lastReasoningProgressAt = now
+              await options.updateProgress(`Agent reasoning: ${preview}`)
+            }
+          },
+          onToolCall: async (part) => {
+            const summary = formatToolEvent({
+              toolName: part.toolName ?? 'unknown',
+              status: 'started',
+              args: part.input ?? {},
+              toolCallId: part.toolCallId,
           })
           await flushReasoning()
           if (part.toolCallId) {
@@ -241,22 +261,24 @@ export class AgentRunner {
           await options.updateProgress(`Tool failed: ${part.toolName ?? 'unknown'}`)
         },
       },
-    })
+      })
+    } catch (error) {
+      // The stream threw (e.g. network/API error): clean up the same way as
+      // the abort path so the transcript has no dangling 'started' entries.
+      await cancelInFlightToolCalls()
+      try {
+        await flushReasoning()
+      } catch {
+        // Never mask the original error with a cleanup failure.
+      }
+      throw error
+    }
 
     // The transcript is append-only JSONL, so in-flight 'tool-call' entries
     // cannot be rewritten in place; append an explicit cancellation entry per
     // dangling call instead so readers see them as cancelled, not running.
-    if (result.aborted && inFlightToolCalls.size > 0) {
-      for (const [toolCallId, call] of inFlightToolCalls) {
-        await options.appendTranscript({
-          type: 'tool-cancelled',
-          toolCallId,
-          toolName: call.toolName,
-          input: call.input,
-          timestamp: new Date().toISOString(),
-        })
-      }
-      inFlightToolCalls.clear()
+    if (result.aborted) {
+      await cancelInFlightToolCalls()
     }
 
     const finalText = result.text || assistantContent.trim()

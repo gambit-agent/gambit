@@ -1,3 +1,6 @@
+import type { ScrollBoxRenderable } from '@opentui/core'
+import type { RefObject } from 'react'
+
 import type { ModelPickerState } from '../../lib/modelPicker'
 import type { ConnectProviderState } from '../hooks/useConnectProvider'
 import type { ThemePickerEntry } from '../../ui/overlays/ThemePickerOverlay'
@@ -39,6 +42,7 @@ export interface ReplOverlayManagerProps {
   permissionRequest: PermissionRequestRecord | null
   permissionExplainOpen: boolean
   activePlanContent: string | null
+  planScrollboxRef: RefObject<ScrollBoxRenderable | null>
   questionOpen: boolean
   questionController: AskUserQuestionController
   tasksOpen: boolean
@@ -135,6 +139,7 @@ export function ReplOverlayManager({
   permissionRequest,
   permissionExplainOpen,
   activePlanContent,
+  planScrollboxRef,
   questionOpen,
   questionController,
   tasksOpen,
@@ -246,7 +251,11 @@ export function ReplOverlayManager({
 
       {permissionRequest ? (
         permissionRequest.metadata?.isPlanApproval ? (
-          <PlanApprovalOverlay request={permissionRequest} planContent={activePlanContent} />
+          <PlanApprovalOverlay
+            request={permissionRequest}
+            planContent={activePlanContent}
+            scrollboxRef={planScrollboxRef}
+          />
         ) : (
           <PermissionOverlay request={permissionRequest} showExplanation={permissionExplainOpen} />
         )

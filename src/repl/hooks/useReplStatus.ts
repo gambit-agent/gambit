@@ -23,11 +23,33 @@ interface UseReplStatusOptions {
   modelId: string | null
   reasoningEffort: ReasoningEffort | null
   providerSlug: string | null
-  thinkingEnabled: boolean
   permissionMode: PermissionMode
   isLight: boolean
   terminalWidth: number
   followUpCount: number
+  /**
+   * Subset of `followUpCount` the running turn will pick up at its next step
+   * boundary. Always <= followUpCount.
+   */
+  steeringCount?: number
+}
+
+/**
+ * Suffix describing composer input waiting on the running turn. Steering and
+ * plain queueing are reported separately because they resolve at different
+ * times — steering lands mid-turn, the rest waits for the turn to end.
+ */
+export function formatPendingInputLabel(followUpCount: number, steeringCount = 0): string {
+  const steering = Math.min(Math.max(steeringCount, 0), followUpCount)
+  const queued = followUpCount - steering
+  const parts: string[] = []
+  if (steering > 0) {
+    parts.push(`${steering} steering`)
+  }
+  if (queued > 0) {
+    parts.push(`${queued} queued`)
+  }
+  return parts.length > 0 ? ` (${parts.join(', ')})` : ''
 }
 
 export function useReplStatus({
@@ -36,11 +58,11 @@ export function useReplStatus({
   modelId,
   reasoningEffort,
   providerSlug,
-  thinkingEnabled,
   permissionMode,
   isLight,
   terminalWidth,
   followUpCount,
+  steeringCount = 0,
 }: UseReplStatusOptions) {
   const [statusElapsed, setStatusElapsed] = useState<string | null>(null)
   const [responseSpinnerFrame, setResponseSpinnerFrame] = useState(0)
@@ -101,7 +123,7 @@ export function useReplStatus({
   const tinyFooter = footerWidth < 88
   const statusDisplay =
     conversation.status === 'running' && statusElapsed
-      ? `running ${statusElapsed}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
+      ? `running ${statusElapsed}${formatPendingInputLabel(followUpCount, steeringCount)}`
       : conversation.status
   const responseSpinner = responseSpinnerFrames[responseSpinnerFrame] ?? responseSpinnerFrames[0]
   const permissionModeColor =
@@ -113,20 +135,10 @@ export function useReplStatus({
           ? theme.warningFg
           : theme.statusFg
   const activityLabel = conversation.status === 'running'
-    ? `${responseSpinner} ${statusElapsed ?? 'running'}${followUpCount > 0 ? ` (${followUpCount} queued)` : ''}`
+    ? `${responseSpinner} ${statusElapsed ?? 'running'}${formatPendingInputLabel(followUpCount, steeringCount)}`
     : statusDisplay
 
   const footerSegments: FooterSegment[] = [
-    ...(tinyFooter
-      ? []
-      : [
-          {
-            key: 'thinking',
-            content: compactFooter ? (thinkingEnabled ? '*' : 'o') : `${thinkingEnabled ? '*' : 'o'} think`,
-            fg: thinkingEnabled ? theme.successFg : theme.statusFg,
-            attributes: thinkingEnabled ? TextAttributes.BOLD : TextAttributes.DIM,
-          },
-        ]),
     {
       key: 'mode',
       content: compactFooter ? permissionMode : `mode ${permissionMode}`,

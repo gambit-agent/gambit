@@ -338,10 +338,30 @@ function extractSkillDirectory(output: unknown): string | null {
  * Render a structured status block for a tool message in the REPL.
  * Normal mode uses this for the compact bullet/tree presentation.
  */
+/**
+ * Prepend the model's stated reason for the call. The assistant message it was
+ * taken from is hidden by the panel, so this is the only place the user sees
+ * it — it goes first, above any detail the tool itself reports.
+ */
+function withPreamble(
+  presentation: ToolMessagePresentation,
+  preamble: string | undefined,
+): ToolMessagePresentation {
+  const text = preamble?.trim()
+  if (!text) {
+    return presentation
+  }
+  return {
+    ...presentation,
+    detailLines: [{ text: `  └ ${text}`, kind: 'normal' }, ...presentation.detailLines],
+  }
+}
+
 export function formatToolMessagePresentation(
   message: ConversationMessage,
   animationFrame = 0,
 ): ToolMessagePresentation {
+  const preamble = message.metadata?.toolPreamble
   const toolName = message.metadata?.toolName ?? 'tool'
   const toolStatus = formatToolStatus(message.metadata?.toolStatus) ?? 'done'
   const args = asRecord(message.metadata?.toolArgs)
@@ -349,11 +369,14 @@ export function formatToolMessagePresentation(
   if (toolStatus === 'done') {
     const changePreview = extractChangePreview(message)
     if (changePreview) {
-      return {
-        indicator: null,
-        heading: changePreview.heading,
-        detailLines: changePreview.lines,
-      }
+      return withPreamble(
+        {
+          indicator: null,
+          heading: changePreview.heading,
+          detailLines: changePreview.lines,
+        },
+        preamble,
+      )
     }
   }
 
@@ -370,36 +393,48 @@ export function formatToolMessagePresentation(
   const exploredDetail = action === 'Explored' ? getExploredDetail(toolName, args) : null
   if (toolName === 'activateSkill') {
     const skillDirectory = extractSkillDirectory(message.metadata?.toolResult)
-    return {
-      indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
-      heading: summary.headline,
-      detailLines: skillDirectory ? [{ text: `  └ ${skillDirectory}`, kind: 'normal' }] : [],
-    }
+    return withPreamble(
+      {
+        indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
+        heading: summary.headline,
+        detailLines: skillDirectory ? [{ text: `  └ ${skillDirectory}`, kind: 'normal' }] : [],
+      },
+      preamble,
+    )
   }
 
   if (toolStatus === 'failed') {
-    return {
-      indicator: null,
-      heading: summary.detail ? `${summary.headline} ${summary.detail}` : summary.headline,
-      detailLines: summary.note ? [{ text: `  └ ${summary.note}`, kind: 'normal' }] : [],
-    }
+    return withPreamble(
+      {
+        indicator: null,
+        heading: summary.detail ? `${summary.headline} ${summary.detail}` : summary.headline,
+        detailLines: summary.note ? [{ text: `  └ ${summary.note}`, kind: 'normal' }] : [],
+      },
+      preamble,
+    )
   }
 
   if (toolStatus === 'cancelled') {
     // A cancelled tool must not render identically to a completed one: mark
     // the heading so it stays visible (and ungrouped) in the conversation.
-    return {
-      indicator: null,
-      heading: `${action === 'Explored' ? 'Explored' : `${action} ${detail}`} (cancelled)`,
-      detailLines: exploredDetail ? [{ text: `  └ ${exploredDetail}`, kind: 'normal' }] : [],
-    }
+    return withPreamble(
+      {
+        indicator: null,
+        heading: `${action === 'Explored' ? 'Explored' : `${action} ${detail}`} (cancelled)`,
+        detailLines: exploredDetail ? [{ text: `  └ ${exploredDetail}`, kind: 'normal' }] : [],
+      },
+      preamble,
+    )
   }
 
-  return {
-    indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
-    heading: action === 'Explored' ? 'Explored' : `${action} ${detail}`,
-    detailLines: exploredDetail ? [{ text: `  └ ${exploredDetail}`, kind: 'normal' }] : [],
-  }
+  return withPreamble(
+    {
+      indicator: toolStatus === 'running' ? getRunningIndicator(animationFrame) : null,
+      heading: action === 'Explored' ? 'Explored' : `${action} ${detail}`,
+      detailLines: exploredDetail ? [{ text: `  └ ${exploredDetail}`, kind: 'normal' }] : [],
+    },
+    preamble,
+  )
 }
 
 /**

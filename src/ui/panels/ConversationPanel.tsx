@@ -412,17 +412,41 @@ function getToolGroupRenderKey(messages: readonly ConversationMessage[]): string
   return `tool-group-${messages[0]?.id ?? 'empty'}`
 }
 
+/**
+ * Ids of assistant messages that a tool call has already absorbed as its
+ * preamble. They stay in the transcript so replay still sees exactly what the
+ * model wrote, but rendering them here as well would print the same sentence
+ * twice — once as prose, once under the tool line.
+ */
+function collectAbsorbedPreambleIds(messages: readonly ConversationMessage[]): Set<string> {
+  const absorbed = new Set<string>()
+  for (const message of messages) {
+    const sourceId = message.metadata?.toolPreambleSourceId
+    if (message.role === 'tool' && sourceId) {
+      absorbed.add(sourceId)
+    }
+  }
+  return absorbed
+}
+
 export function groupConversationRenderItems(
   messages: readonly ConversationMessage[],
   transcriptMode: boolean,
 ): ConversationRenderItem[] {
+  // Transcript mode is the escape hatch for seeing the raw conversation, so it
+  // shows preamble messages in place rather than folded into the tool line.
   if (transcriptMode) {
     return messages.map((message) => ({ type: 'message', message }))
   }
 
   const items: ConversationRenderItem[] = []
+  const absorbedPreambleIds = collectAbsorbedPreambleIds(messages)
 
   for (const message of messages) {
+    if (message.role === 'assistant' && absorbedPreambleIds.has(message.id)) {
+      continue
+    }
+
     const groupKey = getToolGroupKey(message)
     const previous = items.at(-1)
 

@@ -38,7 +38,7 @@ function compactSnapshotMessages(messages: UIMessage[]): UIMessage[] | null {
 }
 
 export class InteractiveSession {
-  private thinking = false
+  private thinking = true
   private permissionMode: PermissionMode = "Normal"
   private abortController: AbortController | null = null
   private readonly snapshots: Snapshot[] = []

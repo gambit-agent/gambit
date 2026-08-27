@@ -20,6 +20,7 @@ import {
   type ComposerCursor,
 } from "./composer-navigation"
 import { useFollowUpQueue } from "./follow-up-queue"
+import { isSteerable } from "../../conversation/steering"
 import type { InteractiveHistory } from "./history"
 import { usePasteDetection } from "./paste-detection"
 import { InteractiveSession, type PermissionMode } from "./session"
@@ -101,6 +102,12 @@ export interface UseInteractiveControllerResult {
   exitHistorySearch: () => void
   drainFollowUp: () => QueuedPrompt | undefined
   submitFollowUp: (prompt: QueuedPrompt, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
+  /**
+   * Hands the queued prompts that can be steered to a turn that is already
+   * running. Registered as the runtime steering source, and called from the
+   * model loop at each step boundary — never during render.
+   */
+  drainSteerable: () => string[]
   /** Synchronous run indicator (flips in `startRun`, before store snapshots update). */
   isRunActive: () => boolean
 }
@@ -144,6 +151,7 @@ export function useInteractiveController({
     followUpQueue,
     enqueueFollowUp,
     drainFollowUp,
+    drainFollowUpsWhile,
     popFollowUp,
     requeueFrontFollowUp,
     getFollowUpQueueSize,
@@ -590,6 +598,10 @@ export function useInteractiveController({
     }),
     [handleSubmit],
   )
+  const drainSteerable = useCallback(
+    () => drainFollowUpsWhile(isSteerable).map((prompt) => prompt.value),
+    [drainFollowUpsWhile],
+  )
 
   return useMemo(
     () => ({
@@ -603,8 +615,9 @@ export function useInteractiveController({
       exitHistorySearch,
       drainFollowUp,
       submitFollowUp,
+      drainSteerable,
       isRunActive,
     }),
-    [drainFollowUp, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, isRunActive, permissionMode, submitFollowUp, thinkingEnabled],
+    [drainFollowUp, drainSteerable, exitHistorySearch, exitPending, followUpQueue, handleInput, handleSubmit, historySearch, isRunActive, permissionMode, submitFollowUp, thinkingEnabled],
   )
 }

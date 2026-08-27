@@ -1,8 +1,17 @@
 import { expect, test } from 'bun:test'
-import type { LanguageModel } from 'ai'
+import { tool, type LanguageModel } from 'ai'
+import { z } from 'zod'
 import type { ModelMessage } from '@ai-sdk/provider-utils'
 
-import { filterKnownAiSdkWarnings, ModelStreamRunner, splitInstructionsFromMessages } from './model-stream-runner'
+import {
+  acceptsSteeringInjection,
+  appendSteeringMessages,
+  applySteering,
+  filterKnownAiSdkWarnings,
+  ModelStreamRunner,
+  splitInstructionsFromMessages,
+  STEERING_MESSAGE_PREFIX,
+} from './model-stream-runner'
 
 test('splits system messages into instructions for the AI SDK', () => {
   const messages: ModelMessage[] = [
@@ -230,4 +239,208 @@ test('passes the prompt cache key and cache breakpoints through to the model cal
   expect(nonSystem[0]?.providerOptions).toBeUndefined()
   expect(nonSystem[1]?.providerOptions).toMatchObject({ anthropic: { cacheControl: { type: 'ephemeral' } } })
   expect(nonSystem[2]?.providerOptions).toMatchObject({ anthropic: { cacheControl: { type: 'ephemeral' } } })
+})
+
+test('a user message may follow tool results but not unanswered tool calls', () => {
+  const toolCall: ModelMessage = {
+    role: 'assistant',
+    content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'bash', input: {} }],
+  }
+  const toolResult: ModelMessage = {
+    role: 'tool',
+    content: [{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'bash', output: { type: 'text', value: 'ok' } }],
+  }
+
+  expect(acceptsSteeringInjection([{ role: 'user', content: 'hi' }])).toBe(true)
+  expect(acceptsSteeringInjection([{ role: 'assistant', content: 'done' }])).toBe(true)
+  expect(acceptsSteeringInjection([toolCall, toolResult])).toBe(true)
+  // Injecting here would separate the tool call from its result.
+  expect(acceptsSteeringInjection([toolCall])).toBe(false)
+  expect(acceptsSteeringInjection([])).toBe(false)
+})
+
+test('steering is appended as marked user messages', () => {
+  const messages = appendSteeringMessages([{ role: 'user', content: 'refactor this' }], ['use grep instead'])
+
+  expect(messages).toHaveLength(2)
+  expect(messages[1]?.role).toBe('user')
+  expect(messages[1]?.content).toBe(`${STEERING_MESSAGE_PREFIX}\n\nuse grep instead`)
+})
+
+test('applySteering injects pending text and reports what was injected', async () => {
+  const steered: string[][] = []
+  const messages = await applySteering([{ role: 'user', content: 'refactor this' }], {
+    pull: () => ['use grep instead'],
+    onSteered: (texts) => {
+      steered.push([...texts])
+    },
+  })
+
+  expect(steered).toEqual([['use grep instead']])
+  expect(messages).toHaveLength(2)
+  expect(messages[1]?.content).toContain('use grep instead')
+})
+
+test('applySteering does not pull when the messages cannot take a user turn', async () => {
+  let pulls = 0
+  const toolCall: ModelMessage = {
+    role: 'assistant',
+    content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'bash', input: {} }],
+  }
+
+  // Pulling here would consume the user's text and then have nowhere to put
+  // it, silently losing what they typed.
+  const messages = await applySteering([toolCall] as never, {
+    pull: () => {
+      pulls += 1
+      return ['stop what you are doing']
+    },
+  })
+
+  expect(pulls).toBe(0)
+  expect(messages).toHaveLength(1)
+})
+
+test('applySteering still injects when recording the steer fails', async () => {
+  const messages = await applySteering([{ role: 'user', content: 'go' }], {
+    pull: () => ['actually stop'],
+    onSteered: () => {
+      throw new Error('store write failed')
+    },
+  })
+
+  expect(messages).toHaveLength(2)
+  expect(messages[1]?.content).toContain('actually stop')
+})
+
+test('no steering source leaves the messages untouched', async () => {
+  const original: ModelMessage[] = [{ role: 'user', content: 'go' }]
+
+  expect(await applySteering(original as never, undefined)).toEqual(original as never)
+  expect(await applySteering(original as never, { pull: () => [] })).toEqual(original as never)
+})
+
+test('steering typed during a step reaches the model on the next one', async () => {
+  ;(globalThis as { AI_SDK_LOG_WARNINGS?: unknown }).AI_SDK_LOG_WARNINGS = false
+
+  const prompts: ModelMessage[][] = []
+  const pending: string[] = []
+  const model = {
+    specificationVersion: 'v2',
+    provider: 'test',
+    modelId: 'test-model',
+    supportedUrls: {},
+    async doStream(options: { prompt: ModelMessage[] }) {
+      prompts.push(options.prompt)
+      const isFirstStep = prompts.length === 1
+      if (isFirstStep) {
+        // The user types while the first step is in flight.
+        pending.push('actually check the tests first')
+      }
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] })
+            if (isFirstStep) {
+              controller.enqueue({
+                type: 'tool-call',
+                toolCallId: 'tc-1',
+                toolName: 'echo',
+                input: '{"value":"hi"}',
+              })
+              controller.enqueue({ type: 'finish', finishReason: 'tool-calls', usage: {} })
+            } else {
+              controller.enqueue({ type: 'text-start', id: 't1' })
+              controller.enqueue({ type: 'text-delta', id: 't1', delta: 'ok' })
+              controller.enqueue({ type: 'text-end', id: 't1' })
+              controller.enqueue({ type: 'finish', finishReason: 'stop', usage: {} })
+            }
+            controller.close()
+          },
+        }),
+        warnings: [],
+      }
+    },
+  } as unknown as LanguageModel
+
+  const steered: string[] = []
+
+  await new ModelStreamRunner().run({
+    streamId: 'steering-e2e',
+    model,
+    messages: [
+      { role: 'system', content: 'Base prompt' },
+      { role: 'user', content: 'refactor the queue' },
+    ],
+    tools: {
+      echo: tool({
+        description: 'echo',
+        inputSchema: z.object({ value: z.string() }),
+        execute: async ({ value }: { value: string }) => value,
+      }),
+    },
+    maxSteps: 3,
+    steering: {
+      pull: () => pending.splice(0, pending.length),
+      onSteered: (texts) => {
+        steered.push(...texts)
+      },
+    },
+  })
+
+  expect(prompts).toHaveLength(2)
+  // Nothing had been typed when the turn started.
+  expect(prompts[0]!.filter((message) => message.role === 'user')).toHaveLength(1)
+
+  // The second step sees it, placed after the tool result rather than between
+  // the tool call and its result.
+  const secondStep = prompts[1]!
+  expect(steered).toEqual(['actually check the tests first'])
+  expect(secondStep.at(-1)?.role).toBe('user')
+  expect(JSON.stringify(secondStep.at(-1)?.content)).toContain('actually check the tests first')
+  expect(secondStep.at(-2)?.role).toBe('tool')
+})
+
+test('input already waiting when a turn starts is injected on the first step', async () => {
+  ;(globalThis as { AI_SDK_LOG_WARNINGS?: unknown }).AI_SDK_LOG_WARNINGS = false
+
+  let capturedPrompt: ModelMessage[] = []
+  const model = {
+    specificationVersion: 'v2',
+    provider: 'test',
+    modelId: 'test-model',
+    supportedUrls: {},
+    async doStream(options: { prompt: ModelMessage[] }) {
+      capturedPrompt = options.prompt
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] })
+            controller.enqueue({ type: 'finish', finishReason: 'stop', usage: {} })
+            controller.close()
+          },
+        }),
+        warnings: [],
+      }
+    },
+  } as unknown as LanguageModel
+
+  const pending = ['and skip the tests']
+
+  await new ModelStreamRunner().run({
+    streamId: 'steering-first-step',
+    model,
+    messages: [
+      { role: 'system', content: 'Base prompt' },
+      { role: 'user', content: 'refactor the queue' },
+    ],
+    tools: {},
+    maxSteps: 1,
+    steering: { pull: () => pending.splice(0, pending.length) },
+  })
+
+  // Typed between submitting and the first model call: no reason to make it
+  // wait a whole step.
+  expect(capturedPrompt.at(-1)?.role).toBe('user')
+  expect(JSON.stringify(capturedPrompt.at(-1)?.content)).toContain('and skip the tests')
 })

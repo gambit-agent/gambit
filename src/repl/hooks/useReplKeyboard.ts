@@ -18,12 +18,13 @@ function consumeKey(key: ParsedKey): void {
 interface ReplKeyboardOptions {
   runtime: AppRuntime
   scrollboxRef: RefObject<ScrollBoxRenderable | null>
+  planScrollboxRef: RefObject<ScrollBoxRenderable | null>
   conversation: {
     error: string | null
     initialized: boolean
   }
   permissionSnapshot: {
-    activeRequest: { id: string } | null
+    activeRequest: { id: string; metadata?: Record<string, unknown> } | null
   }
   questionSnapshot: {
     activeRequest: unknown | null
@@ -181,6 +182,40 @@ export function useReplKeyboard(options: ReplKeyboardOptions): void {
             return
           }
           return
+        }
+
+        // The plan review overlay owns the scroll keys while it is up, so a long
+        // plan can be read end to end before answering Y/N. Everything else
+        // falls through to the permission branch below.
+        if (options.permissionSnapshot.activeRequest?.metadata?.isPlanApproval) {
+          const planBox = options.planScrollboxRef.current
+          if (planBox) {
+            const pageHeight = planBox.viewport.height ?? 20
+            const maxScroll = Math.max(0, planBox.scrollHeight - pageHeight)
+            const scrollBy = (delta: number) => {
+              planBox.scrollTo(Math.min(maxScroll, Math.max(0, planBox.scrollTop + delta)))
+            }
+            switch (key.name) {
+              case 'up':
+                scrollBy(-1)
+                return
+              case 'down':
+                scrollBy(1)
+                return
+              case 'pageup':
+                scrollBy(-pageHeight)
+                return
+              case 'pagedown':
+                scrollBy(pageHeight)
+                return
+              case 'home':
+                planBox.scrollTo(0)
+                return
+              case 'end':
+                planBox.scrollTo(maxScroll)
+                return
+            }
+          }
         }
 
         const scrollShortcut = matchShortcut(key)

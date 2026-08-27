@@ -11,6 +11,8 @@ import { createAiToolMap, createRuntimeToolSuite, type RuntimeToolSuite } from '
 import type { ToolExecutionContext } from '../tools/tool-types'
 import type { ToolExecutionResult } from '../tools/tool-executor'
 import { compactMessages } from './compaction'
+import type { SteeringBridge } from './steering'
+import { extractToolPreamble, type ToolPreamble } from './tool-preamble'
 import { buildGoalSystemPrompt, isGoalMessage } from './goal'
 import { getModelContextLength, getCompactionThreshold } from '../lib/model-info'
 import { AssistantMessageBuilder } from './assistant-message-builder'
@@ -38,6 +40,11 @@ export interface ConversationRunnerDependencies {
   }) => Promise<RuntimeToolSuite>
   /** Override for the model stream runner (used by tests). */
   createModelStreamRunner?: () => Pick<ModelStreamRunner, 'run'>
+  /**
+   * Source of mid-turn user input. Omitted (or left unconnected) outside the
+   * interactive REPL, which disables steering without changing the turn.
+   */
+  steering?: SteeringBridge
 }
 
 export interface RunConversationTurnOptions {
@@ -194,6 +201,10 @@ export class ConversationRunner {
     this.dependencies.store.setError(null)
 
     const assistantBuilder = new AssistantMessageBuilder(this.dependencies.store, Boolean(options.showReasoning))
+    // Reason the model gave for each call, keyed by tool call id. Held for the
+    // whole turn because the tool message is rewritten on result and error,
+    // and each rewrite replaces its metadata.
+    const toolPreambles = new Map<string, ToolPreamble>()
     const streamRunner = this.dependencies.createModelStreamRunner?.() ?? new ModelStreamRunner()
 
     try {
@@ -221,6 +232,14 @@ export class ConversationRunner {
         maxSteps: maxAgentSteps,
         signal: options.signal,
         promptCacheKey: this.dependencies.store.conversationId,
+        steering: this.dependencies.steering
+          ? {
+              pull: () => this.dependencies.steering!.pull(),
+              onSteered: async (texts) => {
+                await this.recordSteeredMessages(texts)
+              },
+            }
+          : undefined,
         logMetadata: {
           modelId: options.modelId,
           reasoningEffort: options.reasoningEffort ?? null,
@@ -236,8 +255,15 @@ export class ConversationRunner {
             await assistantBuilder.appendText(chunk)
           },
           onToolCall: async (part) => {
-            await assistantBuilder.startNextSegment()
+            // The text streamed since the last tool call is this call's
+            // preamble, so closing the segment has to happen before anything
+            // else can overwrite it.
+            const closedSegment = await assistantBuilder.startNextSegment()
             const toolCallId = part.toolCallId ?? generateId()
+            const preambleText = extractToolPreamble(closedSegment)
+            if (preambleText && closedSegment) {
+              toolPreambles.set(toolCallId, { text: preambleText, sourceId: closedSegment.id })
+            }
             const content = formatToolEvent({
               toolName: part.toolName ?? 'unknown',
               status: 'started',
@@ -249,6 +275,7 @@ export class ConversationRunner {
               content,
               args: part.input ?? {},
               status: 'started',
+              preamble: toolPreambles.get(toolCallId),
             })
           },
           onToolResult: async (part) => {
@@ -269,6 +296,7 @@ export class ConversationRunner {
               args: part.input ?? {},
               result: part.output,
               status: 'completed',
+              preamble: toolPreambles.get(toolCallId),
             })
           },
           onToolError: async (part, errorMessage) => {
@@ -286,6 +314,7 @@ export class ConversationRunner {
               args: part.input ?? {},
               result: `Error: ${errorMessage}`,
               status: 'failed',
+              preamble: toolPreambles.get(toolCallId),
             })
           },
         },
@@ -326,6 +355,27 @@ export class ConversationRunner {
       this.dependencies.store.setStatus('idle')
       this.dependencies.store.setError(error instanceof Error ? error.message : String(error))
       throw error
+    }
+  }
+
+  /**
+   * Record steering the model has just been handed as real user messages, so
+   * the transcript shows the interjection where it actually landed rather than
+   * making the model's change of course look unprompted. Persistence is left
+   * to the end of the turn, matching assistant and tool messages.
+   */
+  private async recordSteeredMessages(texts: readonly string[]): Promise<void> {
+    for (const text of texts) {
+      await this.dependencies.store.pushMessage(
+        {
+          id: generateId(),
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString(),
+          metadata: { steering: true },
+        },
+        { persist: false },
+      )
     }
   }
 
@@ -385,12 +435,18 @@ export class ConversationRunner {
     return finalContent ? `${finalContent}\n\n${note}` : note
   }
 
-  /** On a mid-turn error, persist tool messages recording executed side effects. */
+  /**
+   * On a mid-turn error, persist the parts of the turn that really happened:
+   * tool messages recording executed side effects, and steering the user typed
+   * mid-turn (dropping that would silently discard their input).
+   */
   private async persistExecutedToolMessages(initialMessageCount: number): Promise<void> {
     try {
       const turnMessages = this.dependencies.store.getSnapshot().messages.slice(initialMessageCount)
-      const toolMessages = turnMessages.filter((message) => message.role === 'tool')
-      await this.dependencies.store.persistMessages(toolMessages)
+      const durableMessages = turnMessages.filter(
+        (message) => message.role === 'tool' || message.metadata?.steering === true,
+      )
+      await this.dependencies.store.persistMessages(durableMessages)
     } catch {
       // Persisting the error-path transcript must never mask the original error.
     }
@@ -452,6 +508,7 @@ export class ConversationRunner {
       result?: unknown
       status: 'started' | 'completed' | 'failed'
       artifactPath?: string
+      preamble?: ToolPreamble
     },
   ): Promise<void> {
     const existing = this.dependencies.store
@@ -468,6 +525,10 @@ export class ConversationRunner {
           toolResult: options.result,
           toolStatus: options.status,
           toolArtifactPath: options.artifactPath,
+          // Metadata is replaced wholesale here, so the preamble captured when
+          // the call started has to be re-applied on every later update.
+          toolPreamble: options.preamble?.text,
+          toolPreambleSourceId: options.preamble?.sourceId,
         },
       })
       return
@@ -486,6 +547,8 @@ export class ConversationRunner {
           toolResult: options.result,
           toolStatus: options.status,
           toolArtifactPath: options.artifactPath,
+          toolPreamble: options.preamble?.text,
+          toolPreambleSourceId: options.preamble?.sourceId,
         },
       },
       { persist: false },

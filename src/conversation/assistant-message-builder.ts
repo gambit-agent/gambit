@@ -1,6 +1,13 @@
 import { generateId } from '../lib/id'
 import { ConversationStore } from './conversation-store'
 
+export interface ClosedAssistantSegment {
+  id: string
+  /** Streamed text only, without any reasoning prefix added for display. */
+  text: string
+  hasVisibleReasoning: boolean
+}
+
 const STREAM_FLUSH_INTERVAL_MS = 100
 const STREAM_FLUSH_CHAR_DELTA = 512
 
@@ -42,14 +49,31 @@ export class AssistantMessageBuilder {
     await this.flushCurrentAssistantMessage()
   }
 
-  async startNextSegment(): Promise<void> {
+  /**
+   * Close the current assistant segment and start a fresh one. Returns the
+   * segment that was closed, so the caller can attach it to whatever comes
+   * next (a tool call reads it as that call's preamble).
+   *
+   * `hasVisibleReasoning` reports whether the segment's stored content also
+   * carries rendered reasoning: such a segment must stay on screen in its own
+   * right and cannot be folded into a tool line.
+   */
+  async startNextSegment(): Promise<ClosedAssistantSegment | null> {
     await this.flushCurrentAssistantMessage({ force: true })
+    const closed: ClosedAssistantSegment | null = this.segmentAdded && this.currentAssistantId
+      ? {
+          id: this.currentAssistantId,
+          text: this.currentText,
+          hasVisibleReasoning: this.showReasoning && this.currentReasoning.trim().length > 0,
+        }
+      : null
     this.currentAssistantId = null
     this.currentText = ''
     this.currentReasoning = ''
     this.segmentAdded = false
     this.lastFlushedContent = ''
     this.lastFlushAt = 0
+    return closed
   }
 
   async finish(finalText: string): Promise<string> {
