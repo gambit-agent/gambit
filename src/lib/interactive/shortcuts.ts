@@ -19,10 +19,19 @@ export type ShortcutAction =
   | "scroll-bottom"
   | "permission-explain"
   | "stash-prompt"
+  | "paste-image"
 
 export interface ShortcutMatch {
   action: ShortcutAction
   preventDefault?: boolean
+}
+
+/**
+ * Alt and Option are the same physical key; which flag a terminal reports
+ * depends on the platform and whether it sends Option as Meta.
+ */
+function isAlt(key: ParsedKey): boolean {
+  return key.meta || key.option
 }
 
 export function matchShortcut(key: ParsedKey): ShortcutMatch | null {
@@ -64,6 +73,34 @@ export function matchShortcut(key: ParsedKey): ShortcutMatch | null {
     case "down": {
       if (!key.ctrl && !key.meta && !key.shift && !key.option) {
         return { action: "history-next", preventDefault: true }
+      }
+      break
+    }
+    // Readline's history keys, equivalent to bare up/down: they move the
+    // cursor within a multi-line draft first and only then reach history.
+    case "p": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "history-previous", preventDefault: true }
+      }
+      break
+    }
+    case "n": {
+      if (key.ctrl && !key.meta && !key.shift && !key.option) {
+        return { action: "history-next", preventDefault: true }
+      }
+      break
+    }
+    case "m": {
+      // Windows fallback for Shift+Tab, which some terminals swallow when the
+      // runtime does not enable VT input mode.
+      if (isAlt(key) && !key.ctrl && !key.shift) {
+        return { action: "cycle-permission", preventDefault: true }
+      }
+      break
+    }
+    case "v": {
+      if ((key.ctrl || isAlt(key)) && !key.shift) {
+        return { action: "paste-image", preventDefault: true }
       }
       break
     }

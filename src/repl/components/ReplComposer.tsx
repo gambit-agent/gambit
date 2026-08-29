@@ -18,7 +18,6 @@ export interface TextareaKeyBinding {
 
 export function ReplComposer({
   inputValue,
-  inputPreview,
   attachments,
   onRemoveAttachment,
   textareaRef,
@@ -30,7 +29,6 @@ export function ReplComposer({
   slashCompletion,
 }: {
   inputValue: string
-  inputPreview: string | null
   attachments: ImageAttachment[]
   onRemoveAttachment: (id: string) => void
   textareaRef: RefObject<TextareaRenderable | null>
@@ -64,7 +62,7 @@ export function ReplComposer({
         backgroundColor: theme.background,
       }}
     >
-      <box flexDirection="column" gap={inputPreview ? 1 : 0}>
+      <box flexDirection="column">
         {attachments.length > 0 ? (
           <box flexDirection="row" flexWrap="wrap" gap={1} paddingX={1} paddingTop={1}>
             {attachments.map((attachment) => (
@@ -86,7 +84,6 @@ export function ReplComposer({
             ))}
           </box>
         ) : null}
-        {inputPreview ? <text fg={theme.statusFg} attributes={TextAttributes.DIM} content={inputPreview} /> : null}
         {slashCompletion ? (
           <SlashCompletionOverlay
             isOpen={slashCompletion.isOpen}

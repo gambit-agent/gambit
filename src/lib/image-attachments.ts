@@ -10,6 +10,11 @@ export interface ImageAttachment {
   mediaType: string
   data: string
   size: number
+  /**
+   * The `[Image #N]` text standing for this attachment in the composer, when
+   * it was attached from there. Removing that text detaches the image.
+   */
+  marker?: string
 }
 
 const extensionMediaTypes: Record<string, string> = {

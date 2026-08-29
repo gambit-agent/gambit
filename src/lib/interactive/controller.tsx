@@ -12,6 +12,7 @@ import { useAppContext } from "@opentui/react"
 import type { ParsedKey } from "@opentui/core"
 
 import { DOUBLE_ESC_INTERVAL_MS } from "../../config"
+import { readClipboardImage, readClipboardText } from "../clipboard-image"
 import type { ImageAttachment } from "../image-attachments"
 import type { UIMessage } from "../../types/chat"
 import {
@@ -54,13 +55,18 @@ export interface HandleSubmitOptions {
    */
   fromFollowUpDrain?: boolean
   attachments?: ImageAttachment[]
+  /**
+   * Set when the value comes from the follow-up queue rather than the
+   * composer. Queued values are already materialized (collapsed pasted text
+   * was expanded before queueing), so they must not be expanded again, and
+   * the composer — which now holds an unrelated draft — is left untouched.
+   */
+  materialized?: boolean
 }
 
 export interface UseInteractiveControllerOptions {
   inputValue: string
   setInputValue: Dispatch<SetStateAction<string>>
-  inputPreview: string | null
-  setInputPreview: Dispatch<SetStateAction<string | null>>
   attachments?: ImageAttachment[]
   setAttachments?: Dispatch<SetStateAction<ImageAttachment[]>>
   onImagePaste?: (image: { bytes?: Uint8Array; mediaType?: string; path?: string }) => void
@@ -98,7 +104,7 @@ export interface UseInteractiveControllerResult {
   exitPending: boolean
   followUpQueue: QueuedPrompt[]
   handleSubmit: (value: string, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
-  handleInput: (value: string) => void
+  handleInput: (value: string) => string
   exitHistorySearch: () => void
   drainFollowUp: () => QueuedPrompt | undefined
   submitFollowUp: (prompt: QueuedPrompt, options?: HandleSubmitOptions) => Promise<SubmitOutcome>
@@ -115,8 +121,6 @@ export interface UseInteractiveControllerResult {
 export function useInteractiveController({
   inputValue,
   setInputValue,
-  inputPreview,
-  setInputPreview,
   attachments = [],
   setAttachments,
   onImagePaste,
@@ -198,14 +202,13 @@ export function useInteractiveController({
   )
 
   const {
-    inputPreviewRef,
-    lastPasteLabelRef,
-    clearPreviewLabel,
-    detectInferredPaste,
+    compactInferredPaste,
+    materializePastedText,
+    collapsePastedText,
+    syncPastedText,
+    resetPastedText,
   } = usePasteDetection({
     renderer,
-    inputPreview,
-    setInputPreview,
     setInputValueWithRef,
     historyRef,
     suppressNextInputRef,
@@ -224,28 +227,52 @@ export function useInteractiveController({
     historyRef,
     suppressNextInputRef,
     setInputValueWithRef,
-    clearPreviewLabel,
-    getCurrentInputValue: useCallback(() => inputValueRef.current, []),
+    transformRecalledValue: useCallback((value: string) => {
+      resetPastedText()
+      return collapsePastedText(value)
+    }, [collapsePastedText, resetPastedText]),
+    getCurrentInputValue: useCallback(
+      () => materializePastedText(inputValueRef.current),
+      [materializePastedText],
+    ),
   })
 
   const handleSubmit = useCallback(
     async (displayValue: string, options?: HandleSubmitOptions): Promise<SubmitOutcome> => {
       const session = sessionRef.current
-      const previewLabel = inputPreviewRef.current
-      const actualValue = previewLabel ? inputValueRef.current : displayValue
+      const actualValue = options?.materialized ? displayValue : materializePastedText(displayValue)
       const submittedAttachments = options?.attachments ?? attachmentsRef.current
+      // A queued follow-up is submitted from the queue, not the composer, so
+      // the draft the user has since typed there must survive the submission.
+      const clearComposerDraft = ({ attachments = true } = {}) => {
+        if (options?.materialized) {
+          return
+        }
+        setInputValueWithRef("")
+        resetPastedText()
+        if (attachments) {
+          setAttachmentsWithRef([])
+        }
+      }
 
-      if (actualValue.endsWith("\\")) {
+      // Tested against the display value: only a trailing '\' the user can
+      // actually see opens a continuation, never one buried in a collapsed paste.
+      if (displayValue.endsWith("\\")) {
         suppressNextInputRef.current = true
-        setInputValueWithRef(`${actualValue.slice(0, -1)}\n`)
-        clearPreviewLabel()
+        if (options?.materialized) {
+          // A drained follow-up goes back into the composer for the user to
+          // finish, so its expanded text has to be re-collapsed from scratch.
+          resetPastedText()
+          setInputValueWithRef(collapsePastedText(`${actualValue.slice(0, -1)}\n`))
+        } else {
+          setInputValueWithRef(`${displayValue.slice(0, -1)}\n`)
+        }
         return "continuation"
       }
 
       const trimmed = actualValue.trim()
       if (!trimmed && submittedAttachments.length === 0) {
-        setInputValueWithRef("")
-        clearPreviewLabel()
+        clearComposerDraft({ attachments: false })
         return "empty"
       }
 
@@ -262,9 +289,7 @@ export function useInteractiveController({
         } else {
           enqueueFollowUp({ value: trimmed, attachments: submittedAttachments })
         }
-        clearPreviewLabel()
-        setInputValueWithRef("")
-        setAttachmentsWithRef([])
+        clearComposerDraft()
         onSubmitted?.()
         return "queued"
       }
@@ -272,9 +297,7 @@ export function useInteractiveController({
       session.pushSnapshot(messages)
       const signal = session.startRun()
 
-      clearPreviewLabel()
-      setInputValueWithRef("")
-      setAttachmentsWithRef([])
+      clearComposerDraft()
       onSubmitted?.()
 
       void (async () => {
@@ -298,24 +321,26 @@ export function useInteractiveController({
       return "submitted"
     },
     [
-      clearPreviewLabel,
+      collapsePastedText,
       ensureHistoryLoaded,
       enqueueFollowUp,
       isRunning,
+      materializePastedText,
       messages,
       onSubmitted,
       performSubmit,
       persistHistory,
       requeueFrontFollowUp,
+      resetPastedText,
       setAttachmentsWithRef,
       setInputValueWithRef,
     ],
   )
 
   const handleInput = useCallback(
-    (value: string) => {
+    (value: string): string => {
       if (historySearch.active) {
-        return
+        return inputValueRef.current
       }
 
       const previousValue = inputValueRef.current
@@ -324,23 +349,16 @@ export function useInteractiveController({
       if (suppressNextInputRef.current) {
         suppressNextInputRef.current = false
         setInputValueWithRef(value)
-        return
+        syncPastedText(value)
+        return value
       }
 
-      setInputValueWithRef(value)
-
-      if (lastPasteLabelRef.current && previousValue !== value) {
-        clearPreviewLabel()
-        return
-      }
-
-      if (previousValue === value) {
-        return
-      }
-
-      detectInferredPaste(previousValue, value)
+      const displayValue = compactInferredPaste(previousValue, value)
+      setInputValueWithRef(displayValue)
+      syncPastedText(displayValue)
+      return displayValue
     },
-    [clearPreviewLabel, detectInferredPaste, historySearch.active, setInputValueWithRef],
+    [compactInferredPaste, historySearch.active, setInputValueWithRef, syncPastedText],
   )
 
   const handleEscape = useCallback(() => {
@@ -351,18 +369,62 @@ export function useInteractiveController({
 
     const now = Date.now()
     if (lastEscTimestamp.current && now - lastEscTimestamp.current <= DOUBLE_ESC_INTERVAL_MS) {
+      lastEscTimestamp.current = null
+      // With a draft in the composer, double-Esc clears it — recorded in
+      // history first so up-arrow brings it straight back.
+      const draft = materializePastedText(inputValueRef.current).trim()
+      if (draft || attachmentsRef.current.length > 0) {
+        poppedFollowUpRef.current = null
+        if (draft) {
+          void (async () => {
+            try {
+              // Go through ensureHistoryLoaded: on an early double-Esc the
+              // history file may still be loading, and a bare ref write would
+              // drop the draft the user was promised they could recall.
+              const history = await ensureHistoryLoaded()
+              history.clearCursor()
+              history.add(draft)
+              await persistHistory()
+            } catch (error) {
+              console.warn("Failed to record cleared draft in history", error)
+            }
+          })()
+        }
+        suppressNextInputRef.current = true
+        setInputValueWithRef("")
+        resetPastedText()
+        setAttachmentsWithRef([])
+        return
+      }
       const snapshot = sessionRef.current.popSnapshot()
       if (snapshot) {
         sessionRef.current.abortRun()
         setMessages(snapshot)
         onRewind?.()
       }
-      lastEscTimestamp.current = null
       return
     }
 
     lastEscTimestamp.current = now
-  }, [exitHistorySearch, historySearch.active, setMessages])
+    // A single Esc interrupts the turn in flight. Anything already queued is
+    // sent next by the follow-up drain, which re-arms when the run ends.
+    if (sessionRef.current.isRunActive) {
+      sessionRef.current.abortRun()
+      onAbort?.()
+    }
+  }, [
+    ensureHistoryLoaded,
+    exitHistorySearch,
+    historySearch.active,
+    materializePastedText,
+    onAbort,
+    onRewind,
+    persistHistory,
+    resetPastedText,
+    setAttachmentsWithRef,
+    setInputValueWithRef,
+    setMessages,
+  ])
 
   const handleShortcut = useCallback(
     (key: ParsedKey) => {
@@ -373,10 +435,25 @@ export function useInteractiveController({
 
       switch (match.action) {
         case "abort-run": {
-          handleAbortRun()
+          const outcome = handleAbortRun({
+            isRunning: isRunning || sessionRef.current.isRunActive,
+            hasDraft: inputValueRef.current.length > 0 || attachmentsRef.current.length > 0,
+          })
+          if (outcome === "cleared") {
+            poppedFollowUpRef.current = null
+            suppressNextInputRef.current = true
+            setInputValueWithRef("")
+            resetPastedText()
+            setAttachmentsWithRef([])
+          }
           return match.preventDefault ?? false
         }
         case "exit-session": {
+          // With a draft in the composer, Ctrl+D is readline's delete-forward;
+          // let the textarea handle it rather than arming the exit hint.
+          if (inputValueRef.current.length > 0) {
+            return false
+          }
           handleExitSession()
           return match.preventDefault ?? false
         }
@@ -412,10 +489,11 @@ export function useInteractiveController({
             // pulls the most recently queued message back for editing.
             const queued = popFollowUp()
             if (queued !== undefined) {
-              clearPreviewLabel()
-              if (queued.value !== inputValueRef.current) {
+              resetPastedText()
+              const displayValue = collapsePastedText(queued.value)
+              if (displayValue !== inputValueRef.current) {
                 suppressNextInputRef.current = true
-                setInputValueWithRef(queued.value)
+                setInputValueWithRef(displayValue)
               }
               setAttachmentsWithRef(queued.attachments)
               poppedFollowUpRef.current = queued
@@ -431,13 +509,14 @@ export function useInteractiveController({
               // the history draft stash starts from an empty composer.
               poppedFollowUpRef.current = null
               enqueueFollowUp({
-                value: inputValueRef.current.trim() || popped.value,
+                value: materializePastedText(inputValueRef.current).trim() || popped.value,
                 attachments: attachmentsRef.current,
               })
               if (inputValueRef.current !== "") {
                 suppressNextInputRef.current = true
                 setInputValueWithRef("")
               }
+              resetPastedText()
               setAttachmentsWithRef([])
               handleHistoryNavigation("previous")
               return true
@@ -461,15 +540,15 @@ export function useInteractiveController({
             // follow-up (or its edited form) to the queue.
             const popped = poppedFollowUpRef.current
             poppedFollowUpRef.current = null
-            const restored = inputValueRef.current.trim() || (popped?.value ?? "")
+            const restored = materializePastedText(inputValueRef.current).trim() || (popped?.value ?? "")
             if (restored || attachmentsRef.current.length > 0) {
               enqueueFollowUp({ value: restored, attachments: attachmentsRef.current })
             }
-            clearPreviewLabel()
             if (inputValueRef.current !== "") {
               suppressNextInputRef.current = true
               setInputValueWithRef("")
             }
+            resetPastedText()
             setAttachmentsWithRef([])
             return true
           }
@@ -492,12 +571,31 @@ export function useInteractiveController({
           }
           return match.preventDefault ?? false
         }
+        case "paste-image": {
+          void (async () => {
+            const image = await readClipboardImage()
+            if (image && onImagePaste) {
+              onImagePaste({ bytes: image.bytes, mediaType: image.mediaType })
+              return
+            }
+            // Most terminals turn Ctrl+V into a bracketed paste of their own
+            // and this never fires. Where it does reach us, a text clipboard
+            // still has to paste rather than do nothing.
+            const text = await readClipboardText()
+            if (text) {
+              historyRef.current?.clearCursor()
+              suppressNextInputRef.current = true
+              const displayText = collapsePastedText(text)
+              setInputValueWithRef((previous) => `${previous}${displayText}`)
+            }
+          })()
+          return match.preventDefault ?? false
+        }
         case "newline": {
-          clearPreviewLabel()
           return false
         }
         case "background": {
-          const currentValue = inputValueRef.current
+          const currentValue = materializePastedText(inputValueRef.current)
           const trimmed = currentValue.trim()
           if (!trimmed) {
             onToggleBackgroundTasks?.()
@@ -510,12 +608,12 @@ export function useInteractiveController({
             historyRef.current?.add(trimmed)
             void persistHistory()
             setInputValueWithRef("")
-            clearPreviewLabel()
+            resetPastedText()
           }
           return match.preventDefault ?? false
         }
         case "follow-up": {
-          const currentValue = inputValueRef.current.trim()
+          const currentValue = materializePastedText(inputValueRef.current).trim()
           if (currentValue || attachmentsRef.current.length > 0) {
             poppedFollowUpRef.current = null
             enqueueFollowUp({ value: currentValue, attachments: attachmentsRef.current })
@@ -524,26 +622,26 @@ export function useInteractiveController({
               historyRef.current?.add(currentValue)
             }
             void persistHistory()
-            clearPreviewLabel()
             suppressNextInputRef.current = true
             setInputValueWithRef("")
+            resetPastedText()
             setAttachmentsWithRef([])
           }
           return match.preventDefault ?? false
         }
         case "stash-prompt": {
-          const currentValue = inputValueRef.current.trim()
+          const currentValue = materializePastedText(inputValueRef.current).trim()
           if (currentValue || attachmentsRef.current.length > 0) {
             poppedFollowUpRef.current = null
             stashedPromptRef.current = { value: currentValue, attachments: attachmentsRef.current }
-            clearPreviewLabel()
             suppressNextInputRef.current = true
             setInputValueWithRef("")
+            resetPastedText()
             setAttachmentsWithRef([])
           } else if (stashedPromptRef.current) {
-            clearPreviewLabel()
+            resetPastedText()
             suppressNextInputRef.current = true
-            setInputValueWithRef(stashedPromptRef.current.value)
+            setInputValueWithRef(collapsePastedText(stashedPromptRef.current.value))
             setAttachmentsWithRef(stashedPromptRef.current.attachments)
             stashedPromptRef.current = null
           }
@@ -554,7 +652,7 @@ export function useInteractiveController({
       }
     },
     [
-      clearPreviewLabel,
+      collapsePastedText,
       enqueueFollowUp,
       getComposerCursor,
       getFollowUpQueueSize,
@@ -563,11 +661,15 @@ export function useInteractiveController({
       handleAbortRun,
       handleExitSession,
       historyNavigationEnabled,
+      isRunning,
+      materializePastedText,
       onBackgroundRequest,
+      onImagePaste,
       onToggleBackgroundTasks,
       onCyclePermissionMode,
       persistHistory,
       popFollowUp,
+      resetPastedText,
       setInputValueWithRef,
       setAttachmentsWithRef,
       updateHistorySearch,
@@ -595,6 +697,7 @@ export function useInteractiveController({
     (prompt: QueuedPrompt, options?: HandleSubmitOptions) => handleSubmit(prompt.value, {
       ...options,
       attachments: prompt.attachments,
+      materialized: true,
     }),
     [handleSubmit],
   )

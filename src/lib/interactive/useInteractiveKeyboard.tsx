@@ -106,7 +106,15 @@ export function useInteractiveKeyboard({
   )
 }
 
+/**
+ * Keys an open completion list owns. They are left untouched here so the REPL's
+ * own handler moves the selection, rather than also reaching history or the
+ * composer behind the popup.
+ */
 function isCompletionNavigationKey(key: ParsedKey): boolean {
+  if (key.ctrl && (key.name === 'p' || key.name === 'n')) {
+    return true
+  }
   return key.name === 'escape' ||
     key.name === 'up' ||
     key.name === 'down' ||
