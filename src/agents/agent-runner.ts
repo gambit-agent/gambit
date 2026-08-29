@@ -30,11 +30,14 @@ export interface AgentRunnerOptions {
   createTools: (
     allowedToolIds?: readonly string[],
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+    sessionId?: string,
   ) => Promise<ToolSet>
   extraTools?: ToolSet
   appendTranscript: (entry: unknown) => Promise<void>
   updateProgress: (summary: string) => Promise<void>
   signal?: AbortSignal
+  /** Conversation/session this agent run belongs to (used to scope listings). */
+  sessionId?: string
   /** Override for the model stream runner (used by tests). */
   streamRunner?: Pick<ModelStreamRunner, 'run'>
 }
@@ -50,16 +53,20 @@ export interface AgentRunnerResult {
  */
 export class AgentRunner {
   async run(options: AgentRunnerOptions): Promise<AgentRunnerResult> {
-    const tools = await options.createTools(options.definition.allowedToolIds, {
-      apiKey: options.apiKey,
-      modelId: options.modelId,
-      reasoningEffort: options.reasoningEffort,
-      providerSlug: options.providerSlug,
-      baseSystemPrompt: options.baseSystemPrompt,
-      delegationDepth: options.agentExecutionOptions?.delegationDepth ?? 1,
-      maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
-      maxSteps: options.agentExecutionOptions?.maxSteps,
-    })
+    const tools = await options.createTools(
+      options.definition.allowedToolIds,
+      {
+        apiKey: options.apiKey,
+        modelId: options.modelId,
+        reasoningEffort: options.reasoningEffort,
+        providerSlug: options.providerSlug,
+        baseSystemPrompt: options.baseSystemPrompt,
+        delegationDepth: options.agentExecutionOptions?.delegationDepth ?? 1,
+        maxDelegationDepth: options.agentExecutionOptions?.maxDelegationDepth,
+        maxSteps: options.agentExecutionOptions?.maxSteps,
+      },
+      options.sessionId,
+    )
     const mergedTools = {
       ...tools,
       ...(options.extraTools ?? {}),

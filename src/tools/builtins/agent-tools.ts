@@ -43,6 +43,7 @@ export function createAgentTools(): AnyToolDefinition[] {
           maxDelegationDepth: maxDepth,
         },
         signal: context.signal,
+        sessionId: context.sessionId,
       })
 
       return formatAgentBatchResult(result)
@@ -88,6 +89,7 @@ export function createAgentTools(): AnyToolDefinition[] {
           maxDelegationDepth: maxDepth,
         },
         signal: context.signal,
+        sessionId: context.sessionId,
       })
 
       if (!result.output) {

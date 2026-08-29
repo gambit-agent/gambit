@@ -165,6 +165,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
   const createChildTools = async (
     allowedToolIds?: readonly string[],
     agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+    sessionId?: string,
   ): Promise<ToolSet> => {
     const { registry, executor } = await createToolSuite({ includeSpawnAgent: true })
     const effectiveToolIds = (allowedToolIds ?? agentToolIds).filter(
@@ -172,6 +173,7 @@ export async function bootstrapAppRuntime(options: BootstrapAppRuntimeOptions = 
     )
     return createAiToolMap(registry, executor, {
       ...createToolContext({ agentExecutionOptions }),
+      sessionId,
       agentTaskRunner,
       allowedToolIds: effectiveToolIds,
       disabledToolIds: options.disabledToolIds,

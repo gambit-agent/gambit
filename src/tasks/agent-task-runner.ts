@@ -25,6 +25,8 @@ export interface RunAgentTaskInput {
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   extraTools?: ToolSet
   signal?: AbortSignal
+  /** Conversation/session this task was requested from (used to scope listings). */
+  sessionId?: string
 }
 
 export interface AgentTaskResult {
@@ -48,6 +50,8 @@ export interface RunAgentBatchInput {
   baseSystemPrompt: string
   agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions']
   signal?: AbortSignal
+  /** Conversation/session these tasks were requested from (used to scope listings). */
+  sessionId?: string
 }
 
 export interface AgentBatchTaskResult {
@@ -71,6 +75,7 @@ export class AgentTaskRunner {
     private readonly createChildTools: (
       allowedToolIds?: readonly string[],
       agentExecutionOptions?: ToolExecutionContext['agentExecutionOptions'],
+      sessionId?: string,
     ) => Promise<ToolSet>,
   ) {}
 
@@ -97,6 +102,7 @@ export class AgentTaskRunner {
           baseSystemPrompt: input.baseSystemPrompt,
           agentExecutionOptions: input.agentExecutionOptions,
           signal: input.signal,
+          sessionId: input.sessionId,
         }),
       ),
     )
@@ -167,6 +173,7 @@ export class AgentTaskRunner {
       progressSummary: 'Starting delegated agent',
       outputPath: runHandle.record.outputPath,
       transcriptPath: runHandle.record.transcriptPath,
+      sessionId: input.sessionId,
       metadata: {
         agentRunId: runHandle.record.id,
         agentRole: definition.role,
@@ -196,6 +203,7 @@ export class AgentTaskRunner {
           baseSystemPrompt: input.baseSystemPrompt,
           agentExecutionOptions: input.agentExecutionOptions,
           createTools: this.createChildTools,
+          sessionId: input.sessionId,
           extraTools: input.extraTools,
           appendTranscript: runHandle.appendTranscript,
           updateProgress: async (summary) => {

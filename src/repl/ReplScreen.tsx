@@ -62,6 +62,7 @@ import { useSessionPicker } from './hooks/useSessionPicker'
 import {
   buildActivityRows,
   cycleActivityFilter,
+  filterTasksBySession,
   isCancellableTask,
   splitTaskLists,
   type ActivityFilter,
@@ -267,12 +268,19 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [conversation.messages],
   )
   const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
+  // The task store is scoped to the workspace, so it accumulates tasks from
+  // every past conversation. The activity drawer and footer only surface the
+  // current session's tasks — older processes are no longer relevant.
+  const sessionTasks = useMemo(
+    () => filterTasksBySession(taskSnapshot.tasks, conversation.conversationId),
+    [taskSnapshot.tasks, conversation.conversationId],
+  )
   // Built from the same helper the drawer renders from, so the highlighted
   // index can never point at a row the filter or search has hidden.
   const drawerRows = useMemo(() => {
-    const { activeTasks: active, recentTasks: recent } = splitTaskLists(taskSnapshot.tasks)
+    const { activeTasks: active, recentTasks: recent } = splitTaskLists(sessionTasks)
     return buildActivityRows(active, recent, taskFilter, taskSearchQuery)
-  }, [taskSnapshot.tasks, taskFilter, taskSearchQuery])
+  }, [sessionTasks, taskFilter, taskSearchQuery])
   const drawerTaskCount = drawerRows.length
   const selectedDrawerTask = drawerTaskCount > 0
     ? drawerRows[Math.min(Math.max(taskDrawerSelectedIndex, 0), drawerTaskCount - 1)]?.task ?? null
@@ -769,7 +777,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     footerSegments,
   } = useReplStatus({
     conversation,
-    tasks: taskSnapshot.tasks,
+    tasks: sessionTasks,
     modelId,
     reasoningEffort,
     providerSlug,
