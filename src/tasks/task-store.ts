@@ -53,6 +53,7 @@ function parseTaskRecord(value: unknown): TaskRecord | null {
     outputPath,
     transcriptPath,
     error,
+    sessionId,
     metadata,
   } = value
 
@@ -92,6 +93,9 @@ function parseTaskRecord(value: unknown): TaskRecord | null {
   if (error !== undefined && typeof error !== 'string') {
     return null
   }
+  if (sessionId !== undefined && typeof sessionId !== 'string') {
+    return null
+  }
   if (metadata !== undefined && !isRecord(metadata)) {
     return null
   }
@@ -109,6 +113,7 @@ function parseTaskRecord(value: unknown): TaskRecord | null {
     outputPath,
     transcriptPath,
     error,
+    sessionId,
     metadata: metadata as Record<string, unknown> | undefined,
   }
 }
@@ -200,6 +205,7 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
     outputPath,
     transcriptPath,
     error: input.error,
+    sessionId: input.sessionId,
     metadata: input.metadata,
   }
 

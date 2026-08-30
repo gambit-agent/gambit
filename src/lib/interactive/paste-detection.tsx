@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { PasteEvent } from '@opentui/core'
-import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, type MutableRefObject, type SetStateAction } from 'react'
 
 import { detectImageMediaType, normalizePastedImagePath } from '../image-attachments'
 import type { InteractiveHistory } from './history'
+import { PastedTextDraft } from './pasted-text'
 
 interface PasteKeyInput {
   on: (event: 'paste', handler: (event: PasteEvent) => void) => void
@@ -23,8 +24,6 @@ function sanitizePastedText(raw: string): string {
 
 export function usePasteDetection({
   renderer,
-  inputPreview,
-  setInputPreview,
   setInputValueWithRef,
   historyRef,
   suppressNextInputRef,
@@ -32,39 +31,21 @@ export function usePasteDetection({
   enabled = true,
 }: {
   renderer: PasteRenderer | null | undefined
-  inputPreview: string | null
-  setInputPreview: Dispatch<SetStateAction<string | null>>
   setInputValueWithRef: (next: SetStateAction<string>) => void
   historyRef: MutableRefObject<InteractiveHistory | null>
   suppressNextInputRef: MutableRefObject<boolean>
   onImagePaste?: (image: { bytes?: Uint8Array; mediaType?: string; path?: string }) => void
   enabled?: boolean
 }) {
-  const inputPreviewRef = useRef(inputPreview)
-  const lastPasteLabelRef = useRef<string | null>(inputPreview)
+  const pastedTextDraftRef = useRef<PastedTextDraft | null>(null)
   const enabledRef = useRef(enabled)
+  if (pastedTextDraftRef.current === null) {
+    pastedTextDraftRef.current = new PastedTextDraft()
+  }
 
   useEffect(() => {
     enabledRef.current = enabled
   }, [enabled])
-
-  useEffect(() => {
-    inputPreviewRef.current = inputPreview
-    lastPasteLabelRef.current = inputPreview
-  }, [inputPreview])
-
-  const setPreviewLabel = useCallback(
-    (label: string) => {
-      setInputPreview(label)
-      lastPasteLabelRef.current = label
-    },
-    [setInputPreview],
-  )
-
-  const clearPreviewLabel = useCallback(() => {
-    setInputPreview(null)
-    lastPasteLabelRef.current = null
-  }, [setInputPreview])
 
   useEffect(() => {
     const keyInput = renderer?.keyInput
@@ -104,65 +85,83 @@ export function usePasteDetection({
         return
       }
 
-      if (typeof event.preventDefault === 'function') {
-        event.preventDefault()
-      }
-
+      event.preventDefault()
       historyRef.current?.clearCursor()
       suppressNextInputRef.current = true
-      setInputValueWithRef((prev) => `${prev}${cleaned}`)
-      const characterCount = Array.from(cleaned).length
-      setPreviewLabel(`[Pasted Content ${characterCount} chars]`)
+      const displayText = pastedTextDraftRef.current!.collapse(cleaned)
+      setInputValueWithRef((previous) => `${previous}${displayText}`)
     }
 
     keyInput.on('paste', handlePaste)
     return () => {
       keyInput.off('paste', handlePaste)
     }
-  }, [historyRef, onImagePaste, renderer, setInputValueWithRef, setPreviewLabel, suppressNextInputRef])
+  }, [historyRef, onImagePaste, renderer, setInputValueWithRef, suppressNextInputRef])
 
-  const detectInferredPaste = useCallback(
-    (previousValue: string, value: string) => {
-      if (previousValue === value) {
-        return
-      }
+  /**
+   * Collapses a paste that arrived as a plain content change rather than a
+   * bracketed paste event (terminals that do not support it, and the
+   * multi-character bursts some do). Diffs the composer's previous and next
+   * value down to the inserted run and, when it is large enough, swaps it for
+   * a `[Pasted text …]` label. Returns the value to display.
+   */
+  const compactInferredPaste = useCallback((previousValue: string, value: string): string => {
+    if (previousValue === value) {
+      return value
+    }
 
-      const maxStart = Math.min(previousValue.length, value.length)
-      let start = 0
-      while (start < maxStart && previousValue[start] === value[start]) {
-        start++
-      }
+    const maxStart = Math.min(previousValue.length, value.length)
+    let start = 0
+    while (start < maxStart && previousValue[start] === value[start]) {
+      start += 1
+    }
 
-      let prevEnd = previousValue.length
-      let nextEnd = value.length
-      while (prevEnd > start && nextEnd > start && previousValue[prevEnd - 1] === value[nextEnd - 1]) {
-        prevEnd--
-        nextEnd--
-      }
+    let previousEnd = previousValue.length
+    let nextEnd = value.length
+    while (
+      previousEnd > start
+      && nextEnd > start
+      && previousValue[previousEnd - 1] === value[nextEnd - 1]
+    ) {
+      previousEnd -= 1
+      nextEnd -= 1
+    }
 
-      const inserted = value.slice(start, nextEnd)
-      const removedLength = prevEnd - start
-      const insertedLength = inserted.length
-      const hasMultiCharInsert = insertedLength > 1
-      const hasMultiLineInsert = inserted.includes('\n') && (insertedLength > 1 || removedLength > 0)
+    // A single keystroke can never reach the collapse threshold, so skip the
+    // draft entirely for ordinary typing.
+    const inserted = value.slice(start, nextEnd)
+    if (inserted.length <= 1) {
+      return value
+    }
 
-      if (!hasMultiCharInsert && !hasMultiLineInsert) {
-        return
-      }
+    const displayText = pastedTextDraftRef.current!.collapse(inserted)
+    if (displayText === inserted) {
+      return value
+    }
 
-      const characterCount = Array.from(inserted).length
-      if (characterCount > 0) {
-        setPreviewLabel(`[Pasted Content ${characterCount} chars]`)
-      }
-    },
-    [setPreviewLabel],
+    return `${value.slice(0, start)}${displayText}${value.slice(nextEnd)}`
+  }, [])
+
+  const materializePastedText = useCallback(
+    (displayValue: string) => pastedTextDraftRef.current!.materialize(displayValue),
+    [],
   )
+  const collapsePastedText = useCallback(
+    (value: string) => pastedTextDraftRef.current!.collapse(value),
+    [],
+  )
+  const syncPastedText = useCallback((displayValue: string) => {
+    pastedTextDraftRef.current!.sync(displayValue)
+  }, [])
+  const resetPastedText = useCallback(() => {
+    pastedTextDraftRef.current!.reset()
+  }, [])
 
   return {
-    inputPreviewRef,
-    lastPasteLabelRef,
-    setPreviewLabel,
-    clearPreviewLabel,
-    detectInferredPaste,
+    compactInferredPaste,
+    materializePastedText,
+    collapsePastedText,
+    syncPastedText,
+    resetPastedText,
   }
 }

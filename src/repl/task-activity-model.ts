@@ -10,6 +10,15 @@ export interface TaskLists {
 }
 
 /**
+ * Keeps only tasks that belong to the given session. Tasks without a session
+ * tag are treated as irrelevant (created before sessions were tracked) and
+ * hidden, so the activity drawer shows only the current conversation's work.
+ */
+export function filterTasksBySession(tasks: readonly TaskRecord[], sessionId: string): TaskRecord[] {
+  return tasks.filter((task) => task.sessionId === sessionId)
+}
+
+/**
  * Single source of truth for the active/recent split so the footer panel, the
  * drawer, and the drawer's selection index never disagree about row order.
  */

@@ -24,6 +24,7 @@ import {
   loadImageAttachment,
   type ImageAttachment,
 } from '../lib/image-attachments'
+import { insertImageMarker, syncImageAttachments } from '../lib/image-markers'
 import { useInteractiveController } from '../lib/interactive/controller'
 import {
   findActiveFileMention,
@@ -61,6 +62,7 @@ import { useSessionPicker } from './hooks/useSessionPicker'
 import {
   buildActivityRows,
   cycleActivityFilter,
+  filterTasksBySession,
   isCancellableTask,
   splitTaskLists,
   type ActivityFilter,
@@ -131,7 +133,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   })
 
   const [inputValue, setInputValue] = useState('')
-  const [inputPreview, setInputPreview] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [thinkingEnabled, setThinkingEnabled] = useState(true)
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -267,12 +268,19 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     [conversation.messages],
   )
   const currentGoal = useMemo(() => getConversationGoal(conversation.messages), [conversation.messages])
+  // The task store is scoped to the workspace, so it accumulates tasks from
+  // every past conversation. The activity drawer and footer only surface the
+  // current session's tasks — older processes are no longer relevant.
+  const sessionTasks = useMemo(
+    () => filterTasksBySession(taskSnapshot.tasks, conversation.conversationId),
+    [taskSnapshot.tasks, conversation.conversationId],
+  )
   // Built from the same helper the drawer renders from, so the highlighted
   // index can never point at a row the filter or search has hidden.
   const drawerRows = useMemo(() => {
-    const { activeTasks: active, recentTasks: recent } = splitTaskLists(taskSnapshot.tasks)
+    const { activeTasks: active, recentTasks: recent } = splitTaskLists(sessionTasks)
     return buildActivityRows(active, recent, taskFilter, taskSearchQuery)
-  }, [taskSnapshot.tasks, taskFilter, taskSearchQuery])
+  }, [sessionTasks, taskFilter, taskSearchQuery])
   const drawerTaskCount = drawerRows.length
   const selectedDrawerTask = drawerTaskCount > 0
     ? drawerRows[Math.min(Math.max(taskDrawerSelectedIndex, 0), drawerTaskCount - 1)]?.task ?? null
@@ -355,8 +363,17 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
         const attachment = image.path
           ? await loadImageAttachment(image.path)
           : createImageAttachment(image.bytes ?? new Uint8Array(), { mediaType: image.mediaType })
-        setAttachments((current) => [...current, attachment])
-        setInputPreview(null)
+        // Drop an `[Image #N]` marker at the cursor so the prompt can refer to
+        // this image by position rather than by attachment order alone.
+        const textarea = textareaRef.current
+        const source = textarea?.plainText ?? ''
+        const insertion = insertImageMarker(source, textarea?.cursorOffset ?? source.length)
+        setInputValue(insertion.value)
+        if (textarea) {
+          textarea.setText(insertion.value)
+          textarea.cursorOffset = insertion.cursorOffset
+        }
+        setAttachments((current) => [...current, { ...attachment, marker: insertion.marker }])
       } catch (error) {
         runtime.conversationStore.setError(error instanceof Error ? error.message : String(error))
       }
@@ -613,8 +630,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   const interactive = useInteractiveController({
     inputValue,
     setInputValue,
-    inputPreview,
-    setInputPreview,
     attachments,
     setAttachments,
     onImagePaste: handleImagePaste,
@@ -724,7 +739,12 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     textareaRef,
     activeThemeId,
     enabled: overlayFocus.mainInput,
-    onInput: interactive.handleInput,
+    onInput: (value) => {
+      const displayValue = interactive.handleInput(value)
+      // Deleting an `[Image #N]` marker detaches the image it stood for.
+      setAttachments((current) => syncImageAttachments(displayValue, current))
+      return displayValue
+    },
     onSubmit: (value) => {
       if (slashCompletionState.isOpen) {
         selectSlashCompletion()
@@ -757,7 +777,7 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
     footerSegments,
   } = useReplStatus({
     conversation,
-    tasks: taskSnapshot.tasks,
+    tasks: sessionTasks,
     modelId,
     reasoningEffort,
     providerSlug,
@@ -869,7 +889,6 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
 
       <ReplComposer
         inputValue={inputValue}
-        inputPreview={inputPreview}
         attachments={attachments}
         onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
         textareaRef={textareaRef}

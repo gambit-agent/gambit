@@ -6,6 +6,7 @@ import {
   buildActivityRows,
   countActivity,
   cycleActivityFilter,
+  filterTasksBySession,
   formatCompactDuration,
   formatTaskElapsed,
   getStatusGlyph,
@@ -108,6 +109,18 @@ test('splitTaskLists separates active from recent and caps the recent list', () 
   expect(activeTasks.map((task) => task.id)).toEqual(['r1', 'p1'])
   expect(recentTasks.length).toBe(8)
   expect(recentTasks[0]?.id).toBe('d0')
+})
+
+test('filterTasksBySession keeps only tasks tagged with the given session', () => {
+  const tasks = [
+    createTask({ id: 'current', status: 'running', sessionId: 'session-a' }),
+    createTask({ id: 'other', status: 'completed', sessionId: 'session-b' }),
+    createTask({ id: 'legacy', status: 'completed' }),
+  ]
+
+  expect(filterTasksBySession(tasks, 'session-a').map((task) => task.id)).toEqual(['current'])
+  expect(filterTasksBySession(tasks, 'session-b').map((task) => task.id)).toEqual(['other'])
+  expect(filterTasksBySession(tasks, 'unknown')).toEqual([])
 })
 
 test('countActivity tallies every status bucket', () => {

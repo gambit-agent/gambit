@@ -148,6 +148,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
       status: 'running',
       startedAt: new Date().toISOString(),
       progressSummary: parsed.meta.description || 'Workflow running',
+      sessionId: context.sessionId,
       metadata: workflowMetadata(),
     })
   }
@@ -173,6 +174,7 @@ async function executeWorkflowTool(input: WorkflowInput, context: ToolExecutionC
         },
         extraTools,
         signal: options.signal ?? context.signal,
+        sessionId: context.sessionId,
       })
 
       if (options.schema) {

@@ -19,8 +19,8 @@ interface UseInteractiveHistorySearchOptions {
   historyRef: MutableRefObject<InteractiveHistory | null>
   suppressNextInputRef: MutableRefObject<boolean>
   setInputValueWithRef: (next: SetStateAction<string>) => void
-  clearPreviewLabel: () => void
-  /** Returns the composer's current value; used to stash/restore drafts. */
+  transformRecalledValue?: (value: string) => string
+  /** Returns the composer's materialized value; used to stash/restore drafts. */
   getCurrentInputValue?: () => string
 }
 
@@ -28,7 +28,7 @@ export function useInteractiveHistorySearch({
   historyRef,
   suppressNextInputRef,
   setInputValueWithRef,
-  clearPreviewLabel,
+  transformRecalledValue,
   getCurrentInputValue,
 }: UseInteractiveHistorySearchOptions) {
   const [historySearch, setHistorySearch] = useState<HistorySearchState>({ active: false, query: '', match: null })
@@ -94,12 +94,11 @@ export function useInteractiveHistorySearch({
         // Navigation was a no-op; do not leave a dangling suppress flag.
         return true
       }
-      clearPreviewLabel()
       suppressNextInputRef.current = true
-      setInputValueWithRef(value)
+      setInputValueWithRef(transformRecalledValue?.(value) ?? value)
       return true
     },
-    [clearPreviewLabel, getCurrentInputValue, setInputValueWithRef, suppressNextInputRef],
+    [getCurrentInputValue, setInputValueWithRef, suppressNextInputRef, transformRecalledValue],
   )
 
   /**

@@ -49,6 +49,7 @@ export function createCommandTools(commands: SlashCommandDefinition[]): AnyToolD
           background: background ?? false,
           timeoutMs,
           cwd: resolvedCwd,
+          sessionId: context.sessionId,
           // Background tasks must outlive the turn: linking them to the turn's
           // cancellation signal would kill them on ESC or the next turn.
           signal: background ? undefined : context.signal,

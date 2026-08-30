@@ -21,6 +21,8 @@ export interface ShellTaskRunOptions {
   background: boolean
   timeoutMs?: number
   cwd?: string
+  /** Conversation/session this task was requested from (used to scope listings). */
+  sessionId?: string
   /**
    * External cancellation signal (e.g. turn cancellation) that aborts the
    * command. Ignored for background tasks, which must outlive the turn and are
@@ -69,6 +71,7 @@ export class ShellTaskRunner {
       status: 'running',
       startedAt: new Date().toISOString(),
       progressSummary: 'Running shell command',
+      sessionId: options.sessionId,
       metadata: { command: trimmedCommand, cwd: options.cwd ?? workspaceRoot },
     })
 

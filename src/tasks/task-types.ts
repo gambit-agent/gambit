@@ -15,6 +15,8 @@ export interface TaskRecord {
   outputPath?: string
   transcriptPath?: string
   error?: string
+  /** Conversation/session that created this task, if any. */
+  sessionId?: string
   metadata?: Record<string, unknown>
 }
 
@@ -29,6 +31,7 @@ export interface CreateTaskInput {
   outputPath?: string
   transcriptPath?: string
   error?: string
+  sessionId?: string
   metadata?: Record<string, unknown>
 }
 
