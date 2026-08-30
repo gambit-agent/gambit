@@ -118,8 +118,10 @@ function parseTaskRecord(value: unknown): TaskRecord | null {
   }
 }
 
-async function readTaskRecords(): Promise<TaskRecord[]> {
-  return readJsonlEntries(getTaskStorePath(workspaceRoot), parseTaskRecord)
+async function readTaskRecords(
+  storePath: string = getTaskStorePath(workspaceRoot),
+): Promise<TaskRecord[]> {
+  return readJsonlEntries(storePath, parseTaskRecord)
 }
 
 /**
@@ -130,16 +132,19 @@ async function readTaskRecords(): Promise<TaskRecord[]> {
  */
 const storeMutationQueue = createSerialQueue()
 
-async function writeTaskRecords(records: readonly TaskRecord[]): Promise<void> {
-  await writeJsonlEntries(getTaskStorePath(workspaceRoot), records)
+async function writeTaskRecords(
+  records: readonly TaskRecord[],
+  storePath: string = getTaskStorePath(workspaceRoot),
+): Promise<void> {
+  await writeJsonlEntries(storePath, records)
 }
 
 async function ensureTaskDirectories(
-  taskId: string,
+  taskDirectory: string,
   outputPath: string,
   transcriptPath: string,
 ): Promise<void> {
-  await mkdir(getTaskDirectory(taskId, workspaceRoot), { recursive: true })
+  await mkdir(taskDirectory, { recursive: true })
   await mkdir(path.dirname(outputPath), { recursive: true })
   await mkdir(path.dirname(transcriptPath), { recursive: true })
 }
@@ -151,8 +156,9 @@ export async function listTasks(): Promise<TaskRecord[]> {
 export async function reconcileInterruptedTasks(
   cancelledAt: string = new Date().toISOString(),
 ): Promise<TaskRecord[]> {
+  const storePath = getTaskStorePath(workspaceRoot)
   return storeMutationQueue.run(async () => {
-    const tasks = await readTaskRecords()
+    const tasks = await readTaskRecords(storePath)
     let changed = false
 
     const nextTasks = tasks.map((task) => {
@@ -170,7 +176,7 @@ export async function reconcileInterruptedTasks(
     })
 
     if (changed) {
-      await writeTaskRecords(nextTasks)
+      await writeTaskRecords(nextTasks, storePath)
     }
 
     return nextTasks
@@ -192,6 +198,8 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
   const createdAt = new Date().toISOString()
   const outputPath = input.outputPath ?? getTaskOutputPath(id, 'output.txt', workspaceRoot)
   const transcriptPath = input.transcriptPath ?? getTaskTranscriptPath(id, workspaceRoot)
+  const taskDirectory = getTaskDirectory(id, workspaceRoot)
+  const storePath = getTaskStorePath(workspaceRoot)
   const record: TaskRecord = {
     id,
     kind: input.kind,
@@ -209,19 +217,24 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
     metadata: input.metadata,
   }
 
-  await ensureTaskDirectories(id, outputPath, transcriptPath)
+  await ensureTaskDirectories(taskDirectory, outputPath, transcriptPath)
   // The append itself goes through the queue so it cannot land between another
   // mutation's read and rewrite phases (which would drop the new record).
-  await storeMutationQueue.run(() => appendJsonlEntry(getTaskStorePath(workspaceRoot), record))
+  await storeMutationQueue.run(() => appendJsonlEntry(storePath, record))
   return record
 }
 
 export async function updateTask(id: string, patch: UpdateTaskInput): Promise<TaskRecord | null> {
-  return storeMutationQueue.run(() => updateTaskUnlocked(id, patch))
+  const storePath = getTaskStorePath(workspaceRoot)
+  return storeMutationQueue.run(() => updateTaskUnlocked(id, patch, storePath))
 }
 
-async function updateTaskUnlocked(id: string, patch: UpdateTaskInput): Promise<TaskRecord | null> {
-  const tasks = await readTaskRecords()
+async function updateTaskUnlocked(
+  id: string,
+  patch: UpdateTaskInput,
+  storePath: string,
+): Promise<TaskRecord | null> {
+  const tasks = await readTaskRecords(storePath)
   const index = tasks.findIndex((task) => task.id === id)
   if (index === -1) {
     return null
@@ -260,20 +273,21 @@ async function updateTaskUnlocked(id: string, patch: UpdateTaskInput): Promise<T
   }
 
   tasks[index] = nextTask
-  await writeTaskRecords(tasks)
+  await writeTaskRecords(tasks, storePath)
   return nextTask
 }
 
 export async function removeTask(id: string): Promise<TaskRecord | null> {
+  const storePath = getTaskStorePath(workspaceRoot)
   return storeMutationQueue.run(async () => {
-    const tasks = await readTaskRecords()
+    const tasks = await readTaskRecords(storePath)
     const index = tasks.findIndex((task) => task.id === id)
     if (index === -1) {
       return null
     }
 
     const [removed] = tasks.splice(index, 1)
-    await writeTaskRecords(tasks)
+    await writeTaskRecords(tasks, storePath)
     return removed ?? null
   })
 }

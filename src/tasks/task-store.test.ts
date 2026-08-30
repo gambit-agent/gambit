@@ -3,12 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { setWorkspaceRootForTesting } from '../config'
+import { setWorkspaceRootForTesting, workspaceRoot } from '../config'
 import { getTaskOutputPath, getTaskStorePath, getTaskTranscriptPath } from '../session/session-paths'
 import { createTask, getTask, listTasks, removeTask, updateTask } from './task-store'
 import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 describe('task store', () => {
+  const originalWorkspaceRoot = workspaceRoot
   let root = ''
 
   beforeEach(async () => {
@@ -95,6 +96,32 @@ describe('task store', () => {
     }
   })
 
+  test('binds queued mutations to the data root active when requested', async () => {
+    const alternateRoot = await mkdtemp(path.join(os.tmpdir(), 'gambit-task-store-alternate-'))
+
+    try {
+      const createPromise = createTask({
+        kind: 'shell',
+        title: 'Root-bound task',
+        background: true,
+      })
+      setUserGambitDirectoryForTesting(alternateRoot)
+
+      const created = await createPromise
+      setUserGambitDirectoryForTesting(root)
+      expect(await getTask(created.id)).toEqual(created)
+
+      const updatePromise = updateTask(created.id, { status: 'running' })
+      setUserGambitDirectoryForTesting(alternateRoot)
+
+      const updated = await updatePromise
+      expect(updated?.status).toBe('running')
+    } finally {
+      setUserGambitDirectoryForTesting(root)
+      await rm(alternateRoot, { recursive: true, force: true })
+    }
+  })
+
   test('rejects empty task titles', async () => {
     await expect(
       createTask({
@@ -106,6 +133,8 @@ describe('task store', () => {
   })
 
   afterEach(async () => {
+    setWorkspaceRootForTesting(originalWorkspaceRoot)
+    setUserGambitDirectoryForTesting(null)
     await rm(root, { recursive: true, force: true })
   })
 })
