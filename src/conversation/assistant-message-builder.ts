@@ -37,7 +37,7 @@ export class AssistantMessageBuilder {
     this.markReasoningStarted()
     this.reasoning += text
     this.currentReasoning += text
-    if (this.showReasoning && this.currentReasoning.trim()) {
+    if (this.showReasoning) {
       await this.flushCurrentAssistantMessage()
     }
   }
@@ -156,11 +156,18 @@ export class AssistantMessageBuilder {
   }
 
   private async flushCurrentAssistantMessage(options: { force?: boolean } = {}): Promise<void> {
+    // Check an upper bound before composing/flattening the growing strings on
+    // every token. The exact check below still controls when a flush happens.
+    const maxContentLength = this.currentText.length
+      + (this.showReasoning ? this.currentReasoning.length + 'Reasoning:\n'.length + 2 : 0)
+    if (!options.force && !this.shouldFlush(maxContentLength)) {
+      return
+    }
     const content = this.composeCurrentContent()
     if (!content.trim()) {
       return
     }
-    if (!options.force && !this.shouldFlush(content)) {
+    if (!options.force && !this.shouldFlush(content.length)) {
       return
     }
 
@@ -194,11 +201,11 @@ export class AssistantMessageBuilder {
     this.lastFlushAt = Date.now()
   }
 
-  private shouldFlush(content: string): boolean {
+  private shouldFlush(contentLength: number): boolean {
     if (!this.segmentAdded) {
       return true
     }
-    if (content.length - this.lastFlushedContent.length >= STREAM_FLUSH_CHAR_DELTA) {
+    if (contentLength - this.lastFlushedContent.length >= STREAM_FLUSH_CHAR_DELTA) {
       return true
     }
     return Date.now() - this.lastFlushAt >= STREAM_FLUSH_INTERVAL_MS

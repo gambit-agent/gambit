@@ -22,7 +22,7 @@ typecheck:
 
 # Compile a self-contained native binary named `gambit`.
 compile:
-	bun build --compile --outfile=gambit src/gambit.tsx
+	NODE_ENV=production bun build --compile --outfile=gambit src/gambit.tsx
 
 # Run the test suite.
 test:

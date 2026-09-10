@@ -7,7 +7,21 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+/**
+ * Per-message estimates keyed on object identity. Messages are replaced, never
+ * mutated, when they change, so a cached value stays valid for as long as the
+ * object is reachable. The estimate runs on every streaming flush (the footer
+ * shows context usage), and stringifying every tool result in a long
+ * conversation each time is the expensive part.
+ */
+const messageTokenEstimates = new WeakMap<ConversationMessage, number>()
+
 function estimateMessageTokens(message: ConversationMessage): number {
+  const cached = messageTokenEstimates.get(message)
+  if (cached !== undefined) {
+    return cached
+  }
+
   let total = estimateTokens(message.content)
   if (message.metadata?.toolArgs) {
     total += estimateTokens(JSON.stringify(message.metadata.toolArgs))
@@ -19,6 +33,7 @@ function estimateMessageTokens(message: ConversationMessage): number {
         : JSON.stringify(message.metadata.toolResult),
     )
   }
+  messageTokenEstimates.set(message, total)
   return total
 }
 

@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zed custom-agent setup and ACP capability/limitation documentation in `docs/acp.md`.
 
 ### Changed
+- Context usage in the footer is derived from a per-message token cache and the model's context length is looked up only when the model changes, instead of re-stringifying every tool result and resolving a lookup on each streaming flush.
+- The `@` file-mention scan reads file types from the directory listing instead of issuing a separate stat per entry, roughly 40% faster on large trees.
+- Added `bench/render-streaming.tsx` to measure per-flush render cost of the conversation panel, and extended `bench/performance-hotpaths.ts` with the token-estimate and workspace-scan workloads.
 - Task rows in the overlay use laid-out columns (status glyph, kind, title, right-aligned elapsed) instead of a single padded string, and transcript entries render with a coloured glyph gutter rather than `tool start …` prose prefixes.
 - `selectedBg` in the Gambit Dark palette lightened from `#1a1a1a` to `#241E22` so selection is visible against the `#131313` background.
 - The active/recent task split is shared between the footer panel and the overlay so their row order cannot drift.
@@ -30,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime bootstrap and tool execution now accept ACP-scoped workspace, cancellation, permission, and disabled-tool configuration.
 
 ### Fixed
+- The TUI now runs React's production build. `bun run` leaves `NODE_ENV` unset and `bun build --compile` inlined `development`, so the npm launcher, `bun run src/gambit.tsx`, and released binaries were all rendering with React's development build. The CLI entry defaults `NODE_ENV` to `production` at startup and the compile script, Makefile, and release workflow set it at build time.
 - ACP cancellation now aborts active model turns and reports the protocol `cancelled` stop reason.
 - ACP model and slash-command capabilities are published after new and resumed session setup so clients such as Zed can render their native selectors and command menus.
 

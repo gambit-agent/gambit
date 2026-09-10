@@ -16,10 +16,12 @@ async function scanFiles(dir: string): Promise<string[]> {
   const files: string[] = []
 
   try {
-    for await (const relativePath of glob('**/*', { cwd: dir, exclude: EXCLUDE_GLOBS })) {
-      const fullPath = path.join(dir, relativePath)
-      if (await Bun.file(fullPath).exists()) {
-        files.push(fullPath)
+    // The glob yields directories too. Asking for dirents lets us keep only
+    // regular files from the directory listing itself instead of issuing a
+    // separate stat for every entry (one extra syscall per file on big trees).
+    for await (const entry of glob('**/*', { cwd: dir, exclude: EXCLUDE_GLOBS, withFileTypes: true })) {
+      if (entry.isFile()) {
+        files.push(path.join(entry.parentPath, entry.name))
       }
     }
   } catch {
