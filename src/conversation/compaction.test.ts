@@ -283,3 +283,26 @@ describe('compactMessages', () => {
     expect(result.messages.some((m) => m.id === otherHidden.id)).toBe(true)
   })
 })
+
+describe('estimateContextTokens caching', () => {
+  it('reuses the estimate for an unchanged message object and recomputes for a replacement', () => {
+    const toolResult = { content: 'x'.repeat(4_000) }
+    const message: ConversationMessage = {
+      id: 'tool-1',
+      role: 'tool',
+      content: 'Read file',
+      timestamp: new Date().toISOString(),
+      metadata: { toolName: 'readFile', toolArgs: { path: 'a.ts' }, toolResult },
+    }
+    const first = estimateContextTokens([message])
+    expect(estimateContextTokens([message])).toBe(first)
+
+    // Replacing the object (how the store updates messages) yields a fresh estimate.
+    const grown: ConversationMessage = {
+      ...message,
+      metadata: { ...message.metadata, toolResult: { content: 'x'.repeat(8_000) } },
+    }
+    expect(estimateContextTokens([grown])).toBeGreaterThan(first)
+    expect(estimateContextTokens([message, grown])).toBe(first + estimateContextTokens([grown]))
+  })
+})

@@ -50,7 +50,7 @@
   "scripts": {
     "typecheck": "bun run tsc --noEmit",
     "build": "bun run typecheck",
-    "compile": "bun build --compile --outfile=gambit src/gambit.tsx",
+    "compile": "NODE_ENV=production bun build --compile --outfile=gambit src/gambit.tsx",
     "bench:gambit": "bun run bench/gambit-local.ts",
     "test": "bun test",
     "dev": "bun run src/index.tsx",
@@ -61,26 +61,26 @@
     "prepublishOnly": "bun run release:check"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "@types/node": "^26.3.0",
-    "@types/react": "^19.2.18",
+    "@types/react": "^19.3.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.2.1",
-    "@ai-sdk/anthropic": "^4.0.44",
-    "@ai-sdk/openai": "^4.0.50",
-    "@ai-sdk/openai-compatible": "^3.0.39",
-    "@ai-sdk/provider": "^4.0.8",
-    "@ai-sdk/provider-utils": "^5.0.32",
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@ai-sdk/anthropic": "^4.0.52",
+    "@ai-sdk/openai": "^4.0.65",
+    "@ai-sdk/openai-compatible": "^3.0.47",
+    "@ai-sdk/provider": "^4.0.13",
+    "@ai-sdk/provider-utils": "^5.0.39",
     "@modelcontextprotocol/client": "^2.0.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
-    "@opentui/core": "0.4.5",
-    "@opentui/react": "0.4.5",
+    "@opentui/core": "0.5.11",
+    "@opentui/react": "0.5.11",
     "acorn": "^8.18.0",
-    "ai": "^7.0.83",
-    "marked": "^18.0.11",
-    "react": "^19.2.8",
-    "zod": "^4.4.3"
+    "ai": "^7.0.97",
+    "marked": "^18.0.12",
+    "react": "^19.3.0",
+    "zod": "^4.6.1"
   }
 }

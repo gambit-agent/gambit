@@ -186,7 +186,7 @@ jobs:
             case "$target" in
               windows-*) ext=".exe" ;;
             esac
-            bun build \
+            NODE_ENV=production bun build \
               --compile \
               --minify \
               --target="bun-$target" \

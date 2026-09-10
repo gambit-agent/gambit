@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AppRuntime } from '../../app/bootstrap'
 import { DEFAULT_MODEL_CONTEXT_LENGTH, defaultModel } from '../../config'
@@ -21,7 +21,7 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
   const [apiKey, setApiKey] = useState<string>(() => getProviderCredential('openrouter')?.apiKey ?? '')
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
   const [providerSlug, setProviderSlug] = useState<string | null>(null)
-  const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | null>(null)
+  const [contextLength, setContextLength] = useState<number | null>(null)
   const modelSelectionDirtyRef = useRef(false)
 
   const persistModelSelection = useCallback(
@@ -103,27 +103,37 @@ export function useReplModelSettings({ runtime, messages }: UseReplModelSettings
     }
   }, [runtime.conversationStore])
 
+  // The model's context length only depends on the selection, so it is looked
+  // up when that changes rather than on every message update: streaming
+  // rewrites the message list several times a second, and resolving a promise
+  // plus committing a new usage object on each flush was an extra render pass
+  // per flush for the whole screen.
   useEffect(() => {
     let cancelled = false
-    const used = estimateContextTokens(messages)
     const selectedModelId = modelId?.trim()
     const trimmedKey = apiKey.trim()
 
     if (!selectedModelId || !trimmedKey) {
-      setContextUsage({ used, max: DEFAULT_MODEL_CONTEXT_LENGTH })
+      setContextLength(DEFAULT_MODEL_CONTEXT_LENGTH)
       return
     }
 
-    void getModelContextLength(selectedModelId, trimmedKey).then((contextLength) => {
+    void getModelContextLength(selectedModelId, trimmedKey).then((resolvedLength) => {
       if (!cancelled) {
-        setContextUsage({ used, max: contextLength })
+        setContextLength(resolvedLength)
       }
     })
 
     return () => {
       cancelled = true
     }
-  }, [messages, modelId, apiKey])
+  }, [modelId, apiKey])
+
+  const usedContextTokens = useMemo(() => estimateContextTokens(messages), [messages])
+  const contextUsage = useMemo(
+    () => (contextLength === null ? null : { used: usedContextTokens, max: contextLength }),
+    [contextLength, usedContextTokens],
+  )
 
   return {
     modelId,

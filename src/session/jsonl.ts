@@ -1,6 +1,5 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import { JSONL } from 'bun'
 
 export type JsonlTransform<T> = (value: unknown) => T | null
 
@@ -124,12 +123,9 @@ function parseJsonlLines<T>(raw: string, transform: JsonlTransform<T>): T[] {
     }
 
     try {
-      const parsedValues = JSONL.parse(`${trimmed}\n`) as unknown[]
-      for (const parsed of parsedValues) {
-        const transformed = transform(parsed)
-        if (transformed !== null) {
-          entries.push(transformed)
-        }
+      const transformed = transform(JSON.parse(trimmed))
+      if (transformed !== null) {
+        entries.push(transformed)
       }
     } catch {
       // Ignore malformed lines so a single bad record does not block the store.

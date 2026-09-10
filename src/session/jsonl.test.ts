@@ -51,4 +51,33 @@ describe('jsonl helpers', () => {
 
     expect(entries).toEqual([18, 19, 20])
   })
+
+  test('preserves JSON values and recovers after malformed lines and rejected transforms', async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), 'gambit-jsonl-'))
+    const filePath = path.join(root, 'records.jsonl')
+    await writeFile(filePath, [
+      '  {"text":"escaped\\nnewline and café"}  ',
+      '',
+      'not-json',
+      'null',
+      'false',
+      '42',
+      '[1,2]',
+      '"skip"',
+      '"throw"',
+      '{"last":true}',
+    ].join('\r\n'), 'utf8')
+    const entries = await readJsonlEntries(filePath, (value) => {
+      if (value === 'throw') throw new Error('Rejected record')
+      return value === 'skip' ? null : { value }
+    })
+    expect(entries).toEqual([
+      { value: { text: 'escaped\nnewline and café' } },
+      { value: null },
+      { value: false },
+      { value: 42 },
+      { value: [1, 2] },
+      { value: { last: true } },
+    ])
+  })
 })
