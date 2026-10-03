@@ -5,14 +5,17 @@ import path from 'node:path'
 
 import { createAgentRun, loadAgentTranscript, readAgentRecord } from './agent-runtime'
 import { DEFAULT_AGENT_DEFINITIONS } from './agent-definitions'
+import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
 
 let tempRoot: string
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-agent-runtime-'))
+  setUserGambitDirectoryForTesting(tempRoot)
 })
 
 afterEach(async () => {
+  setUserGambitDirectoryForTesting(null)
   await rm(tempRoot, { recursive: true, force: true })
 })
 
@@ -41,5 +44,5 @@ test('creates a persistent agent run and updates its state', async () => {
   const transcript = await loadAgentTranscript(handle.record.id, tempRoot)
   expect(transcript).toHaveLength(1)
   expect(await readFile(handle.record.outputPath, 'utf8')).toContain('final output')
-  expect(handle.record.outputPath).toContain(path.join('.gambit', 'agents'))
+  expect(handle.record.outputPath).toBe(path.join(tempRoot, 'agents', handle.record.id, 'output.md'))
 })

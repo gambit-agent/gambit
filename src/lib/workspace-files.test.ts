@@ -4,10 +4,11 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
-import { setWorkspaceRootForTesting, workspaceRoot as originalWorkspaceRoot } from '../config'
+import { setWorkspaceRootForTesting, workspaceRoot } from '../config'
 import { getWorkspaceFiles } from './workspace-files'
 
 let tempRoot: string
+const originalWorkspaceRoot = workspaceRoot
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'gambit-workspace-files-'))
@@ -43,5 +44,35 @@ describe('getWorkspaceFiles', () => {
     await writeFile(path.join(tempRoot, 'second.ts'), '2', 'utf8')
     expect(await getWorkspaceFiles()).toBe(first)
     expect(await getWorkspaceFiles(true)).toEqual(['first.ts', 'second.ts'])
+  })
+
+  test('invalidates the listing when the active workspace changes', async () => {
+    await writeFile(path.join(tempRoot, 'first.ts'), '1', 'utf8')
+    expect(await getWorkspaceFiles(true)).toEqual(['first.ts'])
+    const otherRoot = path.join(tempRoot, 'other')
+    await mkdir(otherRoot)
+    await writeFile(path.join(otherRoot, 'second.ts'), '2', 'utf8')
+    setWorkspaceRootForTesting(otherRoot)
+    expect(await getWorkspaceFiles()).toEqual(['second.ts'])
+  })
+
+  test('skips excluded directories inside nested packages', async () => {
+    await mkdir(path.join(tempRoot, 'packages', 'app', 'node_modules'), { recursive: true })
+    await writeFile(path.join(tempRoot, 'packages', 'app', 'node_modules', 'dep.js'), 'x')
+    await writeFile(path.join(tempRoot, 'packages', 'app', 'index.ts'), 'x')
+    expect(await getWorkspaceFiles(true)).toEqual([path.join('packages', 'app', 'index.ts')])
+  })
+
+  test('keeps the active workspace cached when scans overlap', async () => {
+    await writeFile(path.join(tempRoot, 'first.ts'), '1')
+    const otherRoot = path.join(tempRoot, 'other')
+    await mkdir(otherRoot)
+    await writeFile(path.join(otherRoot, 'second.ts'), '2')
+    const firstScan = getWorkspaceFiles(true)
+    setWorkspaceRootForTesting(otherRoot)
+    const secondScan = getWorkspaceFiles()
+    const [, secondFiles] = await Promise.all([firstScan, secondScan])
+    expect(secondFiles).toEqual(['second.ts'])
+    expect(await getWorkspaceFiles()).toBe(secondFiles)
   })
 })

@@ -15,6 +15,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  setUserGambitDirectoryForTesting(null)
   await rm(tempRoot, { recursive: true, force: true })
 })
 

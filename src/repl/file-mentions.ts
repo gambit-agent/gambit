@@ -1,3 +1,4 @@
+import { open } from 'node:fs/promises'
 import path from 'node:path'
 
 import { workspaceRoot } from '../config'
@@ -121,7 +122,7 @@ export async function expandFileMentions(
   }
 
   const rootPath = options.rootPath ?? workspaceRoot
-  const workspaceFiles = options.workspaceFiles ?? (await getWorkspaceFiles())
+  const workspaceFiles = options.workspaceFiles ?? (await getWorkspaceFiles(false, rootPath))
   const mentionedPaths = collectMentionedFilePaths(prompt, workspaceFiles)
 
   if (mentionedPaths.length === 0) {
@@ -149,7 +150,7 @@ export async function expandFileMentions(
     const readLimit = Math.min(maxFileBytes, remainingBytes)
     const preview = await readFilePreview(absolutePath, readLimit)
 
-    if (preview.content.includes(binaryMarker)) {
+    if (!preview || preview.content.includes(binaryMarker)) {
       omitted.push(filePath)
       continue
     }
@@ -214,15 +215,28 @@ function normalizeMentionPath(value: string): string | null {
 async function readFilePreview(
   filePath: string,
   maxBytes: number,
-): Promise<{ content: string; bytesRead: number; truncated: boolean }> {
-  const file = Bun.file(filePath)
-  const fileSize = file.size
-  const bytesToRead = Math.min(fileSize, maxBytes)
-  const bytes = await file.slice(0, bytesToRead).bytes()
-  return {
-    content: Buffer.from(bytes).toString('utf8'),
-    bytesRead: bytes.byteLength,
-    truncated: fileSize > bytes.byteLength,
+): Promise<{ content: string; bytesRead: number; truncated: boolean } | null> {
+  try {
+    const file = await open(filePath, 'r')
+    try {
+      const stat = await file.stat()
+      if (!stat.isFile()) return null
+      const buffer = Buffer.alloc(Math.min(stat.size, maxBytes))
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
+      return {
+        content: buffer.subarray(0, bytesRead).toString('utf8'),
+        bytesRead,
+        truncated: stat.size > bytesRead,
+      }
+    } finally {
+      await file.close()
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM' || code === 'EISDIR') {
+      return null
+    }
+    throw error
   }
 }
 
