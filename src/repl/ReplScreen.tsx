@@ -3,6 +3,7 @@ import { useRenderer, useTerminalDimensions } from '@opentui/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 
 import type { LaunchOptions } from '../app/launch-options'
+import { subscribeRuntimeWarnings } from '../app/runtime-warnings'
 import { getConversationGoal } from '../conversation/goal'
 import { countSteerableEntries } from '../conversation/steering'
 import {
@@ -722,6 +723,21 @@ export function ReplScreen({ launchOptions }: ReplScreenProps) {
   useEffect(() => {
     setPermissionExplainOpen(false)
   }, [permissionSnapshot.activeRequest])
+
+  // Runtime warnings are kept off the terminal (see runtime-warnings.ts) but
+  // still surfaced here as a normal notice, coalesced so a burst does not
+  // thrash the banner. The full list is written to the warnings log file.
+  useEffect(() => {
+    const seen = new Set<string>()
+    return subscribeRuntimeWarnings((warning) => {
+      const message = `${warning.name}: ${warning.message}`
+      if (seen.has(message)) {
+        return
+      }
+      seen.add(message)
+      runtime.conversationStore.setError(message)
+    })
+  }, [runtime.conversationStore])
 
   const overlayFocus = getReplOverlayFocus({
     sessionInitializing,
