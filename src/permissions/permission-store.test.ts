@@ -3,9 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { setWorkspaceRootForTesting } from '../config'
+import { setWorkspaceRootForTesting, workspaceRoot } from '../config'
 import { enqueuePermissionRequest, dequeuePermissionRequest, listPermissionRequests, resolvePermissionRequest } from './permission-store'
 import { setUserGambitDirectoryForTesting } from '../session/user-data-paths'
+
+const originalWorkspaceRoot = workspaceRoot
 
 describe('permission store', () => {
   let root = ''
@@ -65,6 +67,8 @@ describe('permission store', () => {
   })
 
   afterEach(async () => {
+    setWorkspaceRootForTesting(originalWorkspaceRoot)
+    setUserGambitDirectoryForTesting(null)
     await rm(root, { recursive: true, force: true })
   })
 })

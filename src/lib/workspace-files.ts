@@ -7,10 +7,11 @@ const EXCLUDE_DIRS = new Set([
   'target', 'build', 'dist', '.venv', 'venv', '__pycache__',
 ])
 
-const EXCLUDE_GLOBS = Array.from(EXCLUDE_DIRS).flatMap((dir) => [dir, `${dir}/**`])
+const EXCLUDE_GLOBS = Array.from(EXCLUDE_DIRS).flatMap((dir) => [
+  dir, `${dir}/**`, `**/${dir}`, `**/${dir}/**`,
+])
 
-let cachedFiles: string[] | null = null
-let scanPromise: Promise<string[]> | null = null
+let cachedScan: { root: string; promise: Promise<string[]> } | null = null
 
 async function scanFiles(dir: string): Promise<string[]> {
   const files: string[] = []
@@ -31,25 +32,19 @@ async function scanFiles(dir: string): Promise<string[]> {
   return files
 }
 
-export async function getWorkspaceFiles(forceRefresh = false): Promise<string[]> {
-  if (cachedFiles && !forceRefresh) return cachedFiles
-  if (scanPromise && !forceRefresh) return scanPromise
+export async function getWorkspaceFiles(
+  forceRefresh = false,
+  rootPath: string = workspaceRoot,
+): Promise<string[]> {
+  const root = path.resolve(rootPath)
+  if (cachedScan?.root === root && !forceRefresh) return cachedScan.promise
 
-  scanPromise = (async () => {
-    try {
-      const root = workspaceRoot
-      const files = await scanFiles(root)
-
-      cachedFiles = files
-        .map((f) => path.relative(root, f))
-        .filter((f) => !f.startsWith('..'))
-        .sort()
-
-      return cachedFiles
-    } finally {
-      scanPromise = null
-    }
-  })()
-
-  return scanPromise
+  // Cache the promise itself so an older in-flight scan cannot overwrite a
+  // newer refresh or the listing for a different workspace when it finishes.
+  const promise = scanFiles(root).then((files) => files
+    .map((file) => path.relative(root, file))
+    .filter((file) => file !== '..' && !file.startsWith(`..${path.sep}`) && !path.isAbsolute(file))
+    .sort())
+  cachedScan = { root, promise }
+  return promise
 }
