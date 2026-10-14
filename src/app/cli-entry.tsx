@@ -1,4 +1,5 @@
 import { parseLaunchOptions } from './launch-options'
+import { installRuntimeWarningGuard } from './runtime-warnings'
 import { appVersion } from './version'
 import { cleanupAllMCPClients } from '../tools/mcp'
 
@@ -62,6 +63,12 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
     process.exit(exitCode)
   }
 
+  // Installed before the dynamic imports below so warnings emitted while
+  // bootstrapping the app (and any that fire before the renderer exists) are
+  // captured instead of printed over the TUI. See runtime-warnings.ts.
+  const disposeRuntimeWarnings = installRuntimeWarningGuard()
+  process.once('exit', disposeRuntimeWarnings)
+
   const { createCliRenderer } = await import('@opentui/core')
   const { createRoot } = await import('@opentui/react')
   const { App } = await import('../App')
@@ -94,6 +101,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
       console.error('Error during shutdown:', error)
     }
 
+    disposeRuntimeWarnings()
     process.exit(options.getSignalExitCode?.(signal) ?? 0)
   }
 
@@ -108,6 +116,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
     createRoot(renderer).render(<App />)
   } catch (error) {
     console.error('Failed to start Gambit:', error)
+    disposeRuntimeWarnings()
     process.exitCode = 1
   }
 }
